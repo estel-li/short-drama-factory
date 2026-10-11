@@ -1,0 +1,85 @@
+{
+  "id": "storyboard-montage",
+  "name": "旁白蒙太奇与声音推进",
+  "stage": "storyboard",
+  "version": "2.0",
+  "description": "画面提供具体变化，旁白连接不同画面的因果与意义，避免逐字复述画面。标明旁白声源、可见人物闭嘴及声音延续；时间省略和地点转移写清，选用重复物件、动作或声响建立母题。",
+  "source": "已下载并接入完整上游 Skill / 参考文件，工作台契约单独适配",
+  "sources": [
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/SKILL.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/SKILL.md",
+      "sha256": "a603d2254e91d6dc323f69fd137620fdfdc36b1ff738f3ef292ba9c3f4a8b4f5",
+      "bytes": 19365,
+      "local_file": "references/drama-skills/short-drama-storyboard/SKILL.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/references/shot-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/references/shot-craft.md",
+      "sha256": "8c62f12a469889a51280f108a9d20fb4928a349e1589933ec6e3d8e0a26c004e",
+      "bytes": 22545,
+      "local_file": "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-write/references/scene-sound-dramaturgy.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-write/references/scene-sound-dramaturgy.md",
+      "sha256": "d4686acc7afb3c584be91d0d913b2ef10611da8676f3a01ef3f5b0d53e1fce0e",
+      "bytes": 2503,
+      "local_file": "references/drama-skills/short-drama-write/references/scene-sound-dramaturgy.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-video-prompts/references/performance-action-timing.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-video-prompts/references/performance-action-timing.md",
+      "sha256": "24cbb164e5a7983c0146ff65907ed6c0ff15d12df830e03c9472fcc474dae8a9",
+      "bytes": 13916,
+      "local_file": "references/drama-skills/short-drama-video-prompts/references/performance-action-timing.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/references/keyframe-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/references/keyframe-craft.md",
+      "sha256": "02c095439f73211817a3f75ae2af264459356060755eecaf51ce11c1512ce2ca",
+      "bytes": 10255,
+      "local_file": "references/drama-skills/short-drama-storyboard/references/keyframe-craft.md",
+      "license": "MIT"
+    }
+  ],
+  "license": "上游各自许可；详见 references/licenses",
+  "context_references": [
+    "references/drama-skills/short-drama-storyboard/SKILL.md",
+    "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
+    "references/drama-skills/short-drama-write/references/scene-sound-dramaturgy.md",
+    "references/drama-skills/short-drama-video-prompts/references/performance-action-timing.md",
+    "references/drama-skills/short-drama-storyboard/references/keyframe-craft.md"
+  ],
+  "variables": [
+    "style",
+    "genre",
+    "duration",
+    "language",
+    "music",
+    "mode"
+  ],
+  "source_url": "https://github.com/zenstory-ai/drama-skills",
+  "references": [
+    "references/drama-skills/short-drama-storyboard/SKILL.md",
+    "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
+    "references/drama-skills/short-drama-write/references/scene-sound-dramaturgy.md",
+    "references/drama-skills/short-drama-video-prompts/references/performance-action-timing.md",
+    "references/drama-skills/short-drama-storyboard/references/keyframe-craft.md",
+    "references/licenses/drama-skills-LICENSE.txt"
+  ]
+}

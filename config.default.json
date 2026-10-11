@@ -1,0 +1,25 @@
+{
+  "comfy_url": "http://127.0.0.1:8188",
+  "comfy_dir": "",
+  "python": "",
+  "mode": "fresh",
+  "fast_disk": true,
+  "disable_dynamic_vram": false,
+  "safe_file_read": true,
+  "deepseek_url": "https://api.deepseek.com",
+  "deepseek_model": "deepseek-flash",
+  "text_encoder": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+  "video_vae": "minimax_h3_video_vae_fp16.safetensors",
+  "audio_vae": "minimax_h3_audio_vae_fp32.safetensors",
+  "fl_model": "minimax_h3_fl2va_pruned_w4a8_mixed.safetensors",
+  "ref_model": "minimax_h3_ref2va_pruned_w4a8_mixed.safetensors",
+  "fl_lora": "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+  "ref_lora": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+  "attention": "comfy kitchen attention",
+  "shot_timeout_seconds": 3600,
+  "profiles": {
+    "draft": {"label": "快速预览 · 0.4MP / 4步", "megapixels": 0.4, "steps": 4, "turbo": true},
+    "dialogue": {"label": "对白质量 · 0.4MP / 12步", "megapixels": 0.4, "steps": 12, "turbo": false},
+    "detail": {"label": "细节质量 · 0.6MP / 20步", "megapixels": 0.6, "steps": 20, "turbo": false}
+  }
+}

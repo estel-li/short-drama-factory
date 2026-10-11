@@ -1,0 +1,85 @@
+{
+  "id": "storyboard-fast",
+  "name": "快节奏与镜头职责",
+  "stage": "storyboard",
+  "version": "2.0",
+  "description": "先落实原文，再选择观看位置。每镜明确新增的信息、选择或后果；证据特写、听者反应和空间建立各有职责。仅在新信息、视线、动作状态或空间关系发生变化时切镜，避免同动作重复表演。",
+  "source": "已下载并接入完整上游 Skill / 参考文件，工作台契约单独适配",
+  "sources": [
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/SKILL.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/SKILL.md",
+      "sha256": "a603d2254e91d6dc323f69fd137620fdfdc36b1ff738f3ef292ba9c3f4a8b4f5",
+      "bytes": 19365,
+      "local_file": "references/drama-skills/short-drama-storyboard/SKILL.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/references/shot-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/references/shot-craft.md",
+      "sha256": "8c62f12a469889a51280f108a9d20fb4928a349e1589933ec6e3d8e0a26c004e",
+      "bytes": 22545,
+      "local_file": "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/references/production-shot-grammar.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/references/production-shot-grammar.md",
+      "sha256": "dc3f1d1ee10d9783a493a1f02b0029ee145bcc6d42457eed97f3a3e195327bfe",
+      "bytes": 21788,
+      "local_file": "references/drama-skills/short-drama-storyboard/references/production-shot-grammar.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/references/lighting-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/references/lighting-craft.md",
+      "sha256": "62b7fe6bfb3a87fc94732d4723d3b6c9fe1b5432c08cdbd4edca72e590216719",
+      "bytes": 2118,
+      "local_file": "references/drama-skills/short-drama-storyboard/references/lighting-craft.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "aicontentskills/ai-video-storyboard-skill",
+      "revision": "93f8a6d6935858bc4acd7ff3bbea2411edf88caa",
+      "path": "SKILL.md",
+      "url": "https://raw.githubusercontent.com/aicontentskills/ai-video-storyboard-skill/93f8a6d6935858bc4acd7ff3bbea2411edf88caa/SKILL.md",
+      "sha256": "030662a226bd3e4ba0f8bbdf088b0fe1ebbb3805c586a856616a3f4c372a5eff",
+      "bytes": 7777,
+      "local_file": "references/ai-video-storyboard/SKILL.md",
+      "license": "MIT (declared in SKILL.md)"
+    }
+  ],
+  "license": "上游各自许可；详见 references/licenses",
+  "context_references": [
+    "references/drama-skills/short-drama-storyboard/SKILL.md",
+    "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
+    "references/drama-skills/short-drama-storyboard/references/production-shot-grammar.md",
+    "references/drama-skills/short-drama-storyboard/references/lighting-craft.md",
+    "references/ai-video-storyboard/SKILL.md"
+  ],
+  "variables": [
+    "style",
+    "genre",
+    "duration",
+    "language",
+    "music",
+    "mode"
+  ],
+  "source_url": "https://github.com/zenstory-ai/drama-skills",
+  "references": [
+    "references/drama-skills/short-drama-storyboard/SKILL.md",
+    "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
+    "references/drama-skills/short-drama-storyboard/references/production-shot-grammar.md",
+    "references/drama-skills/short-drama-storyboard/references/lighting-craft.md",
+    "references/ai-video-storyboard/SKILL.md",
+    "references/licenses/drama-skills-LICENSE.txt"
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "id": "outline-warm",
+  "name": "温情人物与关系变化",
+  "stage": "outline",
+  "version": "2.0",
+  "description": "以具体的小愿望、照料动作、欠下的承诺或重要物件承载关系。人物各有需要、策略和边界；不要把善良写成没有阻力。温暖落在付出代价后的选择及回应开场的动作，避免末尾说教。",
+  "source": "已下载并接入完整上游 Skill / 参考文件，工作台契约单独适配",
+  "sources": [
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/SKILL.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/SKILL.md",
+      "sha256": "ef05a00f6ba8735547c785655b0e52d9bdca3aa1d7396e51900a0c9fc4ce3953",
+      "bytes": 10757,
+      "local_file": "references/drama-skills/short-drama-develop/SKILL.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/references/story-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/references/story-craft.md",
+      "sha256": "b15a911cb6418b87edc7a40cf439b63c8301fba0830f9dd9325a65efd3e21259",
+      "bytes": 18693,
+      "local_file": "references/drama-skills/short-drama-develop/references/story-craft.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/references/serial-character-and-memory.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/references/serial-character-and-memory.md",
+      "sha256": "929617a9f31c6fad36eccf22b4f1f250daba3c2d4dae927832fb6fdbf4ee163d",
+      "bytes": 15427,
+      "local_file": "references/drama-skills/short-drama-develop/references/serial-character-and-memory.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-write/references/dialogue-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-write/references/dialogue-craft.md",
+      "sha256": "c67a0487e56d2e2b30ae13ff76a140d3629da5ddb76809c81e73ed521e6387d2",
+      "bytes": 22014,
+      "local_file": "references/drama-skills/short-drama-write/references/dialogue-craft.md",
+      "license": "MIT"
+    }
+  ],
+  "license": "上游各自许可；详见 references/licenses",
+  "context_references": [
+    "references/drama-skills/short-drama-develop/SKILL.md",
+    "references/drama-skills/short-drama-develop/references/story-craft.md",
+    "references/drama-skills/short-drama-develop/references/serial-character-and-memory.md",
+    "references/drama-skills/short-drama-write/references/dialogue-craft.md"
+  ],
+  "variables": [
+    "style",
+    "genre",
+    "duration",
+    "language",
+    "music",
+    "mode"
+  ],
+  "source_url": "https://github.com/zenstory-ai/drama-skills",
+  "references": [
+    "references/drama-skills/short-drama-develop/SKILL.md",
+    "references/drama-skills/short-drama-develop/references/story-craft.md",
+    "references/drama-skills/short-drama-develop/references/serial-character-and-memory.md",
+    "references/drama-skills/short-drama-write/references/dialogue-craft.md",
+    "references/licenses/drama-skills-LICENSE.txt"
+  ]
+}

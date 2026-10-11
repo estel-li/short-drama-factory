@@ -1,0 +1,28 @@
+name: Windows checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.lock.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements.lock.txt
+      - name: Compile application
+        run: python -m compileall -q app launcher pipeline.py
+      - name: Run offline tests
+        env:
+          PYTHONIOENCODING: utf-8
+        run: python -m unittest discover -s tests -p "test_*.py"

@@ -1,0 +1,73 @@
+{
+  "id": "outline-hook",
+  "name": "短剧钩子与反转",
+  "stage": "outline",
+  "version": "2.0",
+  "description": "从观众首先能得到的具体回报开场。用已经出现的证据和人物选择制造反转，分别辨认揭示、转折、回报和继续发展的压力；不能靠陌生人救场。每个节拍写出前后状态、行动代价和可见载体。",
+  "source": "已下载并接入完整上游 Skill / 参考文件，工作台契约单独适配",
+  "sources": [
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/SKILL.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/SKILL.md",
+      "sha256": "ef05a00f6ba8735547c785655b0e52d9bdca3aa1d7396e51900a0c9fc4ce3953",
+      "bytes": 10757,
+      "local_file": "references/drama-skills/short-drama-develop/SKILL.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/references/story-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/references/story-craft.md",
+      "sha256": "b15a911cb6418b87edc7a40cf439b63c8301fba0830f9dd9325a65efd3e21259",
+      "bytes": 18693,
+      "local_file": "references/drama-skills/short-drama-develop/references/story-craft.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/references/genre-and-hook-playbook.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/references/genre-and-hook-playbook.md",
+      "sha256": "f2764bf6b664aad3add559f6ef7440a4a4db63218dadbd861a446c350883bf2c",
+      "bytes": 18921,
+      "local_file": "references/drama-skills/short-drama-develop/references/genre-and-hook-playbook.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/references/reveal-reversal-payoff.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/references/reveal-reversal-payoff.md",
+      "sha256": "7049372c55b4deb5c4bb562de697efdd00859f2657f81dd64eeac14a0a34073d",
+      "bytes": 4591,
+      "local_file": "references/drama-skills/short-drama-develop/references/reveal-reversal-payoff.md",
+      "license": "MIT"
+    }
+  ],
+  "license": "上游各自许可；详见 references/licenses",
+  "context_references": [
+    "references/drama-skills/short-drama-develop/SKILL.md",
+    "references/drama-skills/short-drama-develop/references/story-craft.md",
+    "references/drama-skills/short-drama-develop/references/genre-and-hook-playbook.md",
+    "references/drama-skills/short-drama-develop/references/reveal-reversal-payoff.md"
+  ],
+  "variables": [
+    "style",
+    "genre",
+    "duration",
+    "language",
+    "music",
+    "mode"
+  ],
+  "source_url": "https://github.com/zenstory-ai/drama-skills",
+  "references": [
+    "references/drama-skills/short-drama-develop/SKILL.md",
+    "references/drama-skills/short-drama-develop/references/story-craft.md",
+    "references/drama-skills/short-drama-develop/references/genre-and-hook-playbook.md",
+    "references/drama-skills/short-drama-develop/references/reveal-reversal-payoff.md",
+    "references/licenses/drama-skills-LICENSE.txt"
+  ]
+}

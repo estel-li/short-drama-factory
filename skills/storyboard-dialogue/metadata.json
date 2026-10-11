@@ -1,0 +1,73 @@
+{
+  "id": "storyboard-dialogue",
+  "name": "对白正反打与潜台词",
+  "stage": "storyboard",
+  "version": "2.0",
+  "description": "先确定两人目标、议程、轴线和左右位置。台词是一种关系行动，重要一句落下后安排可读的听者反应。保持视线方向、道具归属、说话和反应的时间顺序；不靠随机换角度或无限拉近表达情绪。",
+  "source": "已下载并接入完整上游 Skill / 参考文件，工作台契约单独适配",
+  "sources": [
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/SKILL.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/SKILL.md",
+      "sha256": "a603d2254e91d6dc323f69fd137620fdfdc36b1ff738f3ef292ba9c3f4a8b4f5",
+      "bytes": 19365,
+      "local_file": "references/drama-skills/short-drama-storyboard/SKILL.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/references/shot-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/references/shot-craft.md",
+      "sha256": "8c62f12a469889a51280f108a9d20fb4928a349e1589933ec6e3d8e0a26c004e",
+      "bytes": 22545,
+      "local_file": "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-write/references/dialogue-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-write/references/dialogue-craft.md",
+      "sha256": "c67a0487e56d2e2b30ae13ff76a140d3629da5ddb76809c81e73ed521e6387d2",
+      "bytes": 22014,
+      "local_file": "references/drama-skills/short-drama-write/references/dialogue-craft.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-storyboard/references/blocking-playbooks.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-storyboard/references/blocking-playbooks.md",
+      "sha256": "8df2000c058677321ffed906eb8b55618bd51b426f9eef086b1a5598232a2faf",
+      "bytes": 12676,
+      "local_file": "references/drama-skills/short-drama-storyboard/references/blocking-playbooks.md",
+      "license": "MIT"
+    }
+  ],
+  "license": "上游各自许可；详见 references/licenses",
+  "context_references": [
+    "references/drama-skills/short-drama-storyboard/SKILL.md",
+    "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
+    "references/drama-skills/short-drama-write/references/dialogue-craft.md",
+    "references/drama-skills/short-drama-storyboard/references/blocking-playbooks.md"
+  ],
+  "variables": [
+    "style",
+    "genre",
+    "duration",
+    "language",
+    "music",
+    "mode"
+  ],
+  "source_url": "https://github.com/zenstory-ai/drama-skills",
+  "references": [
+    "references/drama-skills/short-drama-storyboard/SKILL.md",
+    "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
+    "references/drama-skills/short-drama-write/references/dialogue-craft.md",
+    "references/drama-skills/short-drama-storyboard/references/blocking-playbooks.md",
+    "references/licenses/drama-skills-LICENSE.txt"
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "id": "outline-mystery",
+  "name": "悬疑伏笔与公平揭示",
+  "stage": "outline",
+  "version": "2.0",
+  "description": "先确定真相，再区分世界事实、角色认知和观众知情时机。每个线索有可拍摄载体、接触权限、初次解释和最终兑现；误导来自合理解释或视角，不能临时改事实。揭示后必须有人改变策略。",
+  "source": "已下载并接入完整上游 Skill / 参考文件，工作台契约单独适配",
+  "sources": [
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/SKILL.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/SKILL.md",
+      "sha256": "ef05a00f6ba8735547c785655b0e52d9bdca3aa1d7396e51900a0c9fc4ce3953",
+      "bytes": 10757,
+      "local_file": "references/drama-skills/short-drama-develop/SKILL.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/references/story-craft.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/references/story-craft.md",
+      "sha256": "b15a911cb6418b87edc7a40cf439b63c8301fba0830f9dd9325a65efd3e21259",
+      "bytes": 18693,
+      "local_file": "references/drama-skills/short-drama-develop/references/story-craft.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/references/reveal-reversal-payoff.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/references/reveal-reversal-payoff.md",
+      "sha256": "7049372c55b4deb5c4bb562de697efdd00859f2657f81dd64eeac14a0a34073d",
+      "bytes": 4591,
+      "local_file": "references/drama-skills/short-drama-develop/references/reveal-reversal-payoff.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-develop/references/genre-cards.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-develop/references/genre-cards.md",
+      "sha256": "6826d174c6346128f16f52ca33226431fb601102ceed763d644b00287e196a65",
+      "bytes": 7800,
+      "local_file": "references/drama-skills/short-drama-develop/references/genre-cards.md",
+      "license": "MIT"
+    }
+  ],
+  "license": "上游各自许可；详见 references/licenses",
+  "context_references": [
+    "references/drama-skills/short-drama-develop/SKILL.md",
+    "references/drama-skills/short-drama-develop/references/story-craft.md",
+    "references/drama-skills/short-drama-develop/references/reveal-reversal-payoff.md",
+    "references/drama-skills/short-drama-develop/references/genre-cards.md"
+  ],
+  "variables": [
+    "style",
+    "genre",
+    "duration",
+    "language",
+    "music",
+    "mode"
+  ],
+  "source_url": "https://github.com/zenstory-ai/drama-skills",
+  "references": [
+    "references/drama-skills/short-drama-develop/SKILL.md",
+    "references/drama-skills/short-drama-develop/references/story-craft.md",
+    "references/drama-skills/short-drama-develop/references/reveal-reversal-payoff.md",
+    "references/drama-skills/short-drama-develop/references/genre-cards.md",
+    "references/licenses/drama-skills-LICENSE.txt"
+  ]
+}

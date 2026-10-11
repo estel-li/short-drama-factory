@@ -1,0 +1,79 @@
+{
+  "id": "h3-t2va",
+  "name": "官方完整文生 T2VA",
+  "stage": "prompt",
+  "version": "2.0",
+  "description": "按官方完整指南编写 T2VA 提示词。素材定义、对齐指令、声音来源、保留关系和时序服从实际输入。",
+  "source": "已下载并接入完整上游 Skill / 参考文件，工作台契约单独适配",
+  "sources": [
+    {
+      "repo": "MiniMax-AI/MiniMax-H3",
+      "revision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+      "path": "skills/h3-prompt-writing/SKILL.md",
+      "url": "https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/d21241f0a4b3acbb34c97dae47fa417b7065e438/skills/h3-prompt-writing/SKILL.md",
+      "sha256": "a7000443588ca3f145e3b3fd8900f14e0325dc460bd811268fac89a9dc8e56d0",
+      "bytes": 2623,
+      "local_file": "references/minimax-h3/SKILL.md",
+      "license": "MiniMax H3 Community License Agreement"
+    },
+    {
+      "repo": "MiniMax-AI/MiniMax-H3",
+      "revision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+      "path": "skills/h3-prompt-writing/references/base-en.txt",
+      "url": "https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/d21241f0a4b3acbb34c97dae47fa417b7065e438/skills/h3-prompt-writing/references/base-en.txt",
+      "sha256": "2cfebc096a6e08370f288d468d90b60f7f9bcb938f94bf090816e910e48e75fc",
+      "bytes": 15773,
+      "local_file": "references/minimax-h3/references/base-en.txt",
+      "license": "MiniMax H3 Community License Agreement"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-video-prompts/references/generability.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-video-prompts/references/generability.md",
+      "sha256": "b644b07f5e0c7cb607e01b1844dcd38218ea39447a1041426fe6093f8446f26a",
+      "bytes": 5499,
+      "local_file": "references/drama-skills/short-drama-video-prompts/references/generability.md",
+      "license": "MIT"
+    },
+    {
+      "repo": "zenstory-ai/drama-skills",
+      "revision": "c2426e03c0e7722bebcc6a488b6658dc38c65ac3",
+      "path": "skills/short-drama-assets/references/voice-direction.md",
+      "url": "https://raw.githubusercontent.com/zenstory-ai/drama-skills/c2426e03c0e7722bebcc6a488b6658dc38c65ac3/skills/short-drama-assets/references/voice-direction.md",
+      "sha256": "e2dd623693632f29c56e65bb5f40a4450a9c2808dbf7680dbc91bd043c02c4b2",
+      "bytes": 10004,
+      "local_file": "references/drama-skills/short-drama-assets/references/voice-direction.md",
+      "license": "MIT"
+    }
+  ],
+  "license": "上游各自许可；详见 references/licenses",
+  "context_references": [
+    "references/minimax-h3/SKILL.md",
+    "references/minimax-h3/references/base-en.txt",
+    "references/drama-skills/short-drama-video-prompts/references/generability.md",
+    "references/drama-skills/short-drama-assets/references/voice-direction.md"
+  ],
+  "variables": [
+    "style",
+    "genre",
+    "duration",
+    "language",
+    "music",
+    "mode"
+  ],
+  "source_url": "https://github.com/MiniMax-AI/MiniMax-H3",
+  "modes": [
+    "T2VA"
+  ],
+  "official_keyframe_prefix": true,
+  "references": [
+    "references/minimax-h3/SKILL.md",
+    "references/minimax-h3/references/base-en.txt",
+    "references/drama-skills/short-drama-video-prompts/references/generability.md",
+    "references/drama-skills/short-drama-assets/references/voice-direction.md",
+    "references/licenses/MiniMax-H3-LICENSE.txt",
+    "references/licenses/MiniMax-H3-NOTICE.txt",
+    "references/licenses/drama-skills-LICENSE.txt"
+  ]
+}

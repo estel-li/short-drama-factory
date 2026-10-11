@@ -1,0 +1,2 @@
+MiniMax H3 is licensed under the MiniMax H3 Community License Agreement, Copyright © 2026 MiniMax. All Rights Reserved.
+Official skill and guide files are unchanged; SKILL.md at this application level is an adaptation.

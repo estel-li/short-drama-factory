@@ -1,0 +1,192 @@
+{
+  "id": "h3-5060ti-16g",
+  "name": "H3 W4A8 · RTX 5060 Ti 16GB",
+  "version": 1,
+  "comfyui": {
+    "repo": "Comfy-Org/ComfyUI",
+    "tag": "v0.36.0",
+    "portable_assets": [
+      {
+        "name": "ComfyUI_windows_portable_nvidia.7z",
+        "url": "https://github.com/Comfy-Org/ComfyUI/releases/download/v0.36.0/ComfyUI_windows_portable_nvidia.7z",
+        "size": 1917442353,
+        "digest": "sha256:c3c60192840f8b68c9a47cf3e8161ecb108e5ffdf5ea236c1c72a402e442695d"
+      },
+      {
+        "name": "ComfyUI_windows_portable_nvidia_cu126.7z",
+        "url": "https://github.com/Comfy-Org/ComfyUI/releases/download/v0.36.0/ComfyUI_windows_portable_nvidia_cu126.7z",
+        "size": 1859361599,
+        "digest": "sha256:0665ae866a1f3e24a9a582d90cc70f8292569e05bd790fe1cd07afab23a4e47b"
+      }
+    ]
+  },
+  "hardware": {
+    "tested_gpu": "RTX 5060 Ti",
+    "tested_vram_gb": 16,
+    "tested_driver": "616.92",
+    "tested_torch": "2.9.1+cu130"
+  },
+  "models": [
+    {
+      "role": "text_encoder",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "filename": "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "category": "text_encoders",
+      "size": 15687142551,
+      "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6",
+      "license": "other"
+    },
+    {
+      "role": "video_vae",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "filename": "vae/minimax_h3_video_vae_fp16.safetensors",
+      "name": "minimax_h3_video_vae_fp16.safetensors",
+      "category": "vae",
+      "size": 5207808496,
+      "sha256": "7c1f131492e7eddacaac9069a61b81bdd39de5cc96561e677c5eab1cdce5e522",
+      "license": "other"
+    },
+    {
+      "role": "audio_vae",
+      "repo": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "filename": "vae/minimax_h3_audio_vae_fp32.safetensors",
+      "name": "minimax_h3_audio_vae_fp32.safetensors",
+      "category": "vae",
+      "size": 605254808,
+      "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48",
+      "license": "other"
+    },
+    {
+      "role": "fl_model",
+      "repo": "starsfriday/MiniMax-H3-w4a8",
+      "revision": "2a5ad5871296af3506fda7c5edd571612253cedb",
+      "filename": "minimax_h3_fl2va_pruned_w4a8_mixed.safetensors",
+      "name": "minimax_h3_fl2va_pruned_w4a8_mixed.safetensors",
+      "category": "diffusion_models",
+      "size": 12540858008,
+      "sha256": "29d0a0e4be82dacdc4a5849bf756c2b32d34131f7a18f9aac754e16a2e215eb5",
+      "license": "other"
+    },
+    {
+      "role": "ref_model",
+      "repo": "starsfriday/MiniMax-H3-w4a8",
+      "revision": "2a5ad5871296af3506fda7c5edd571612253cedb",
+      "filename": "minimax_h3_ref2va_pruned_w4a8_mixed.safetensors",
+      "name": "minimax_h3_ref2va_pruned_w4a8_mixed.safetensors",
+      "category": "diffusion_models",
+      "size": 12540858008,
+      "sha256": "daf6a8227ac3f37065bcce6bdb9c9a96ff0d4c0ce9cf790c5a7e1d1c94f692e0",
+      "license": "other"
+    },
+    {
+      "role": "fl_lora",
+      "repo": "lightx2v/Minimax-h3-Turbo",
+      "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+      "filename": "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+      "name": "minimax_h3_fl2v_turbo_4step_v1.0_768p_comfyui_bf16.safetensors",
+      "category": "loras",
+      "size": 1956192992,
+      "sha256": "c396a9a06f58399e9df9754b18299818d84a2ddd371724ba48fe4a41221437dc",
+      "license": "apache-2.0"
+    },
+    {
+      "role": "ref_lora",
+      "repo": "lightx2v/Minimax-h3-Turbo",
+      "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+      "filename": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "name": "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors",
+      "category": "loras",
+      "size": 1956193000,
+      "sha256": "5b9ab5ade15d0775676d01a907268a69a1468dc6033b3b0d3ded5502f3ebb84c",
+      "license": "apache-2.0"
+    }
+  ],
+  "nodes": [
+    {
+      "name": "ComfyUI-DramaFactory",
+      "source": "bundled"
+    }
+  ],
+  "runtime_wheels": [
+    {
+      "package": "torch",
+      "version": "2.9.1+cu130",
+      "url": "https://download-r2.pytorch.org/whl/cu130/torch-2.9.1%2Bcu130-cp313-cp313-win_amd64.whl",
+      "name": "torch-2.9.1+cu130-cp313-cp313-win_amd64.whl",
+      "size": 1862084212,
+      "sha256": "47cae56331fdec7f7082aad967b25868cc5f94b203fc273e40346a852aa009dd"
+    },
+    {
+      "package": "torchvision",
+      "version": "0.24.1+cu130",
+      "url": "https://download-r2.pytorch.org/whl/cu130/torchvision-0.24.1%2Bcu130-cp313-cp313-win_amd64.whl",
+      "name": "torchvision-0.24.1+cu130-cp313-cp313-win_amd64.whl",
+      "size": 8946081,
+      "sha256": "d688426d623b8ba763087726faf5b34b1fe404f44741656978d855403dbc7444"
+    },
+    {
+      "package": "torchaudio",
+      "version": "2.9.1+cu130",
+      "url": "https://download-r2.pytorch.org/whl/cu130/torchaudio-2.9.1%2Bcu130-cp313-cp313-win_amd64.whl",
+      "name": "torchaudio-2.9.1+cu130-cp313-cp313-win_amd64.whl",
+      "size": 2284790,
+      "sha256": "2e90a149a17a41676f5a2e4e95c3a46baf3a9389af205894c23b056c8ad06daf"
+    },
+    {
+      "package": "transformers",
+      "version": "4.57.6",
+      "url": "https://files.pythonhosted.org/packages/03/b8/e484ef633af3887baeeb4b6ad12743363af7cce68ae51e938e00aaa0529d/transformers-4.57.6-py3-none-any.whl",
+      "name": "transformers-4.57.6-py3-none-any.whl",
+      "size": 11993498,
+      "sha256": "4c9e9de11333ddfe5114bc872c9f370509198acf0b87a832a0ab9458e2bd0550"
+    },
+    {
+      "package": "tokenizers",
+      "version": "0.22.2",
+      "url": "https://files.pythonhosted.org/packages/65/71/0670843133a43d43070abeb1949abfdef12a86d490bea9cd9e18e37c5ff7/tokenizers-0.22.2-cp39-abi3-win_amd64.whl",
+      "name": "tokenizers-0.22.2-cp39-abi3-win_amd64.whl",
+      "size": 2747786,
+      "sha256": "c9ea31edff2968b44a88f97d784c2f16dc0729b8b143ed004699ebca91f05c48"
+    },
+    {
+      "package": "accelerate",
+      "version": "1.12.0",
+      "url": "https://files.pythonhosted.org/packages/9f/d2/c581486aa6c4fbd7394c23c47b83fa1a919d34194e16944241daf9e762dd/accelerate-1.12.0-py3-none-any.whl",
+      "name": "accelerate-1.12.0-py3-none-any.whl",
+      "size": 380935,
+      "sha256": "3e2091cd341423207e2f084a6654b1efcd250dc326f2a37d6dde446e07cabb11"
+    },
+    {
+      "package": "numpy",
+      "version": "2.3.5",
+      "url": "https://files.pythonhosted.org/packages/0c/88/e2eaa6cffb115b85ed7c7c87775cb8bcf0816816bc98ca8dbfa2ee33fe6e/numpy-2.3.5-cp313-cp313-win_amd64.whl",
+      "name": "numpy-2.3.5-cp313-cp313-win_amd64.whl",
+      "size": 12779090,
+      "sha256": "00dc4e846108a382c5869e77c6ed514394bdeb3403461d25a829711041217d5b"
+    },
+    {
+      "package": "safetensors",
+      "version": "0.7.0",
+      "url": "https://files.pythonhosted.org/packages/5d/e6/ec8471c8072382cb91233ba7267fd931219753bb43814cbc71757bfd4dab/safetensors-0.7.0-cp38-abi3-win_amd64.whl",
+      "name": "safetensors-0.7.0-cp38-abi3-win_amd64.whl",
+      "size": 341380,
+      "sha256": "d1239932053f56f3456f32eb9625590cc7582e905021f94636202a864d470755"
+    },
+    {
+      "package": "huggingface-hub",
+      "version": "0.36.0",
+      "url": "https://files.pythonhosted.org/packages/cb/bd/1a875e0d592d447cbc02805fd3fe0f497714d6a2583f59d14fa9ebad96eb/huggingface_hub-0.36.0-py3-none-any.whl",
+      "name": "huggingface_hub-0.36.0-py3-none-any.whl",
+      "size": 566094,
+      "sha256": "7bcc9ad17d5b3f07b57c78e79d527102d08313caa278a641993acddcb894548d"
+    }
+  ],
+  "startup": {
+    "fast_disk": true,
+    "disable_dynamic_vram": false
+  }
+}

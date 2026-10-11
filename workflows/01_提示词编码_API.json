@@ -1,0 +1,43 @@
+{
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_video_vae_fp16.safetensors"
+    }
+  },
+  "7": {
+    "class_type": "MiniMaxH3ImageToVideo",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "prompt": "integrated_multimodal_description: [Shot 1] Medium shot, vertical 9:16, warm 2D anime short drama with cinematic lighting. Adult Chinese female courier Lin Xia, black chin-length bob with straight bangs, yellow raincoat with hood down, dark navy trousers, brown short boots, stands under a warm amber street lamp on a rainy night. She holds a small blue key in her right hand at chest height. Visible fine rain streaks and soft bokeh light halos, wet asphalt reflecting warm light, gentle expression, slight breath. Single continuous medium shot, one simple action: she lowers her gaze to the blue key, then softly smiles. No other characters in frame. Consistent warm 2D anime style, cinematic soft glow, moist air, shallow depth of field.\n\noverall_soundscape:\nSteady soft rain falling on pavement and raincoat fabric, faint distant city ambience, soft wet footsteps settling, quiet night wind.\n\ndiegetic dialogue: \n林夏 (warm gentle adult female Chinese voice, soft slightly husky timbre, slow tender delivery): \"终于找到了\". \n\nnon_diegetic_music: None.",
+      "width": 576,
+      "height": 1024,
+      "length": 192
+    }
+  },
+  "30": {
+    "class_type": "DramaSaveConditioning",
+    "inputs": {
+      "conditioning": [
+        "7",
+        0
+      ],
+      "filename": "drama/20261008_182623_8f10e0/shot_001_b772694e9d35.safetensors"
+    }
+  }
+}

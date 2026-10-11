@@ -1,0 +1,104 @@
+{
+  "version": 2,
+  "ids": [
+    "outline-hook",
+    "outline-three-act",
+    "outline-mystery",
+    "outline-warm",
+    "storyboard-fast",
+    "storyboard-dialogue",
+    "storyboard-action",
+    "storyboard-montage",
+    "h3-t2va",
+    "h3-i2va",
+    "h3-fl2va",
+    "h3-l2va",
+    "h3-ref2va"
+  ],
+  "skills": [
+    {
+      "id": "outline-hook",
+      "stage": "outline",
+      "sources": 4,
+      "bytes": 56724
+    },
+    {
+      "id": "outline-three-act",
+      "stage": "outline",
+      "sources": 3,
+      "bytes": 63262
+    },
+    {
+      "id": "outline-mystery",
+      "stage": "outline",
+      "sources": 4,
+      "bytes": 45591
+    },
+    {
+      "id": "outline-warm",
+      "stage": "outline",
+      "sources": 4,
+      "bytes": 70643
+    },
+    {
+      "id": "storyboard-fast",
+      "stage": "storyboard",
+      "sources": 5,
+      "bytes": 78424
+    },
+    {
+      "id": "storyboard-dialogue",
+      "stage": "storyboard",
+      "sources": 4,
+      "bytes": 81375
+    },
+    {
+      "id": "storyboard-action",
+      "stage": "storyboard",
+      "sources": 5,
+      "bytes": 72316
+    },
+    {
+      "id": "storyboard-montage",
+      "stage": "storyboard",
+      "sources": 5,
+      "bytes": 73481
+    },
+    {
+      "id": "h3-t2va",
+      "stage": "prompt",
+      "sources": 4,
+      "bytes": 56133
+    },
+    {
+      "id": "h3-i2va",
+      "stage": "prompt",
+      "sources": 4,
+      "bytes": 56133
+    },
+    {
+      "id": "h3-fl2va",
+      "stage": "prompt",
+      "sources": 4,
+      "bytes": 56143
+    },
+    {
+      "id": "h3-l2va",
+      "stage": "prompt",
+      "sources": 4,
+      "bytes": 56133
+    },
+    {
+      "id": "h3-ref2va",
+      "stage": "prompt",
+      "sources": 5,
+      "bytes": 79772
+    }
+  ],
+  "license_source": {
+    "repo": "MiniMaxAI/MiniMax-H3",
+    "revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+    "path": "LICENSE",
+    "sha256": "59b99642b95ea21630e311198ddbfffbfe05aadba0c2f5d884cbdf4efcc90f44"
+  }
+}

@@ -1,0 +1,247 @@
+from __future__ import annotations
+
+import json
+import os
+import threading
+import traceback
+
+from .providers import Cancelled, ProviderError
+from .content import prompt_settings_hash
+from .environment import Installer
+from .rendering import fingerprint_models
+from .processes import InstanceLock
+from .series import Series
+from .storage import ROOT, digest, now, read_json, write_json
+
+
+class Worker:
+    def __init__(self, db, config, projects, content, assets):
+        self.db, self.config, self.projects, self.content, self.assets = db, config, projects, content, assets
+        self.wake, self.shutdown = threading.Event(), threading.Event()
+        self.thread = None
+        self.active = None
+        self.execution_lock = threading.RLock()
+        self.installer = Installer(config)
+        self.series = Series(config, db, projects, content)
+        self.instance_lock = InstanceLock(db.path.with_suffix('.worker.lock'))
+
+    def start(self):
+        if self.thread and self.thread.is_alive():
+            return
+        self.instance_lock.acquire()
+        self.db.recover()
+        self.thread = threading.Thread(target=self.loop, name='factory-worker', daemon=True)
+        self.thread.start()
+
+    def enqueue(self, pid, kind='all', payload=None):
+        if pid.startswith('__series_'):
+            self.series.path(pid.removeprefix('__series_'))
+        elif pid != '__environment':
+            self.projects.path(pid)
+        jid = self.db.enqueue(pid, kind, payload)
+        self.wake.set()
+        return jid
+
+    def stop(self, pid):
+        self.db.cancel(pid)
+        (self.projects.path(pid) / '.stop').touch()
+
+    def interrupt_owned(self, pid):
+        import pipeline
+        if not self.active or self.active['project_id'] != pid:
+            return {'interrupted': False}
+        state = read_json(self.projects.path(pid) / 'state.json', {})
+        owned = {record[field] for record in state.get('shots', {}).values() for field in ('prompt_id', 'sampling_prompt_id', 'encoding_prompt_id') if record.get(field)}
+        queue = pipeline.api('/queue')
+        pending = [item[1] for item in queue.get('queue_pending', []) if item[1] in owned]
+        if pending:
+            pipeline.api('/queue', {'delete': pending})
+        current = any(item[1] in owned for item in queue.get('queue_running', []))
+        if current:
+            pipeline.api('/interrupt', {})
+        return {'interrupted': current, 'removed_pending': len(pending)}
+
+    def loop(self):
+        while not self.shutdown.is_set():
+            job = self.db.claim()
+            if not job:
+                self.wake.wait(1)
+                self.wake.clear()
+                continue
+            self.active = job
+            try:
+                with self.execution_lock:
+                    result = self.execute(job)
+                self.db.update(job['id'], result or 'done', '任务阶段已完成。')
+            except Cancelled as exc:
+                self.db.update(job['id'], 'paused', str(exc))
+                if job['project_id'] == '__environment':
+                    write_json(ROOT / 'data/installation_progress.json', {'status': 'paused', 'message': str(exc)})
+                elif job['project_id'].startswith('__series_'):
+                    pass  # Durable job and partial series plans are the recovery source.
+                else:
+                    path = self.projects.path(job['project_id']) / 'state.json'
+                    state = read_json(path, {})
+                    state.update(status='paused', message=str(exc), updated_at=now())
+                    write_json(path, state)
+            except Exception as exc:
+                was_cancelled = self.db.cancelled(job['id'])
+                message = '任务已停止，成果已保留。' if was_cancelled else str(exc)[:2000]
+                self.db.update(job['id'], 'paused' if was_cancelled else 'error', message)
+                if job['project_id'] == '__environment':
+                    write_json(ROOT / 'data/installation_progress.json', {'status': 'error', 'message': str(exc)[:2000]})
+                elif job['project_id'].startswith('__series_'):
+                    pass
+                else:
+                    project = self.projects.path(job['project_id'])
+                    state = read_json(project / 'state.json', {})
+                    state.update(status='paused' if was_cancelled else 'error', message=message, updated_at=now())
+                    write_json(project / 'state.json', state)
+                payload = json.loads(job['payload'])
+                if payload.get('series_id') and payload.get('fail_policy') == 'stop' and not was_cancelled:
+                    paused = self.db.cancel_series(payload['series_id'], queued_only=True, batch_id=payload.get('series_batch'))
+                    self.series.mark_paused(paused)
+                (ROOT / 'logs').mkdir(exist_ok=True)
+                with (ROOT / 'logs' / 'worker.log').open('a', encoding='utf-8') as log:
+                    traceback.print_exc(file=log)
+            finally:
+                self.active = None
+        self.instance_lock.release()
+
+    def execute(self, job):
+        import pipeline
+        pid, jid = job['project_id'], job['id']
+        if job['kind'] == 'series-plan' and pid.startswith('__series_'):
+            sid = pid.removeprefix('__series_')
+            payload = json.loads(job['payload'])
+            self.series.plan(sid, lambda message: self.db.update(jid, message=message, event={'message': message}),
+                             lambda: self.db.cancelled(jid) or self.shutdown.is_set())
+            if self.db.cancelled(jid) or self.shutdown.is_set():
+                raise Cancelled('分集规划已停止。')
+            if payload.get('start', 'draft') != 'draft':
+                self.series.enqueue_batch(sid, kind=payload['start'], batch_id=payload.get('batch_id') or jid)
+                self.wake.set()
+            return 'done'
+        if job['kind'] == 'install' and pid == '__environment':
+            def progress(value):
+                self.db.update(jid, message=value.get('message') or f'{value.get("status", "")} {value.get("file", "")} {value.get("bytes", 0)}/{value.get("total", 0)}', event=value)
+                write_json(ROOT / 'data/installation_progress.json', value)
+            self.installer.execute(json.loads(job['payload']), progress, lambda: self.db.cancelled(jid) or self.shutdown.is_set())
+            return 'done'
+        project = self.projects.path(pid)
+        options = self.projects.options(project)
+        payload = json.loads(job['payload'])
+        if payload.get('execution_mode') == 'auto':
+            options.execution_mode = 'auto'
+        if payload.get('series_id') and options.auto_reference:
+            self.series.inherit_references(project)
+        pipeline.CONFIG.clear()
+        pipeline.CONFIG.update(self.config.renderer_config())
+        pipeline.CONFIG['comfy_auth_token'] = self.config.key('comfy')
+        (project / '.stop').unlink(missing_ok=True)
+
+        def cancelled():
+            return self.shutdown.is_set() or self.db.cancelled(jid)
+
+        def report(message, **changes):
+            state = read_json(project / 'state.json', {})
+            state.update(changes)
+            state.update(message=message, updated_at=now(), job_id=jid)
+            write_json(project / 'state.json', state)
+            self.db.update(jid, message=message, event={'message': message, **changes})
+
+        requested = job['kind']
+        if requested not in ('all', 'plan', 'outline', 'storyboard', 'prompt', 'render'):
+            raise ValueError('未知任务类型。')
+        stages = ['outline', 'storyboard', 'prompt'] if requested in ('all', 'plan', 'render') else [requested]
+        for stage in stages:
+            if cancelled():
+                raise Cancelled('已停止，阶段成果已保存。')
+            existing = {'outline': project / 'outline.json', 'storyboard': project / '分镜.json', 'prompt': project / '分镜.json'}[stage]
+            force = requested == stage and payload.get('force', True)
+            done = existing.exists()
+            if stage == 'outline' and options.input_mode == 'storyboard':
+                continue
+            if stage == 'prompt' and done:
+                done = all(s.get('prompt') for s in read_json(existing)['shots'])
+                # 新版项目保存编译快照，改参数后应重编译。
+                for s in read_json(existing)['shots']:
+                    snap = s.get('prompt_snapshot')
+                    if snap and snap.get('settings_hash') != prompt_settings_hash(options):
+                        done = False
+            if done and not force:
+                continue
+            report('正在执行 ' + stage + ' 阶段。', status='planning', current_stage=stage)
+            if stage == 'outline':
+                self.content.outline(project, options, report, cancelled)
+                if force:
+                    self.invalidate(project, ('分镜.json',), 'outline-change')
+            elif stage == 'storyboard':
+                self.content.storyboard(project, options, report, cancelled, reset=force)
+            else:
+                if force:
+                    story = read_json(project / '分镜.json')
+                    for shot in story['shots']:
+                        if not shot.get('locked') and (not payload.get('uids') or shot['uid'] in payload['uids']):
+                            shot.pop('prompt_snapshot', None)
+                            shot.pop('prompt_manual', None)
+                    write_json(project / '分镜.json', story)
+                self.content.prompts(project, options, report, cancelled,
+                    lambda s, story: self.assets.resolve(project, s, story), uids=payload.get('uids'))
+            state = read_json(project / 'state.json', {})
+            state.setdefault('stages', {})[stage] = {'status': 'done', 'updated_at': now()}
+            write_json(project / 'state.json', state)
+            if requested == stage or (requested != 'render' and options.execution_mode == 'review' and stage in options.review_stages and not (stage == 'outline' and options.input_mode != 'idea')):
+                report('阶段完成，可以编辑后继续。', status='review', current_stage=stage)
+                return 'review'
+        if requested == 'plan':
+            report('文字规划已完成。', status='ready')
+            return 'done'
+        if requested in ('all', 'render'):
+            if cancelled():
+                raise Cancelled('已停止。')
+            lock = project / '.running'
+            if lock.exists():
+                from .processes import alive
+                if alive(int(lock.read_text().strip())):
+                    raise RuntimeError('此项目在另一进程中生成。')
+                lock.unlink()
+            runner = pipeline.Runner(project, callback=lambda state: self.db.update(jid, message=state['message'], event=state))
+            runner.model_versions = fingerprint_models(pipeline.CONFIG, report, cancelled)
+            write_json(project / 'renderer_snapshot.json', {'models': runner.model_versions, 'environment': {
+                k: pipeline.CONFIG.get(k) for k in ('attention', 'profiles')}, 'settings': options.model_dump(), 'created_at': now()})
+            def resolve(shot, story, refs):
+                bindings = self.assets.resolve(project, shot, story)
+                if not any(bindings.values()) and refs:
+                    bindings['images'] = [{'id': 'auto-' + str(i), 'type': 'image', 'name': r['name'],
+                        'comfy_file': r['image'], 'file': r.get('local_file'), 'sha256': r['sha256']} for i, r in enumerate(refs, 1)]
+                return self.assets.materialize(project, bindings)
+            runner.binding_resolver = resolve
+            # 旧项目已有提示词沿用原来的渲染行为，新项目按实际素材重新编译。
+            if any(s.get('prompt_snapshot') or s.get('use_previous_last_frame') for s in read_json(project / '分镜.json')['shots']):
+                runner.prompt_compiler = lambda story, shot, bindings: self.content.prompt_shot(
+                    project, story, shot, options, bindings, report, cancelled)
+            class Stop:
+                def is_set(self):
+                    return cancelled()
+            runner.stop = Stop()
+            for attempt in range(options.render_retries + 1):
+                try:
+                    runner.run()
+                    break
+                except RuntimeError as exc:
+                    if isinstance(exc, ProviderError) or cancelled() or attempt >= options.render_retries:
+                        raise
+                    report(f'生成失败，复用已完成缓存进行有限重试 {attempt + 1}/{options.render_retries}。', status='retrying')
+            if runner.state.get('status') == 'paused':
+                return 'paused'
+        return 'done'
+
+    def invalidate(self, project, names, reason):
+        for name in names:
+            value = read_json(project / name)
+            if value:
+                self.projects.version(project, reason, value)
+                if name == '分镜.json' and any(s.get('locked') for s in value.get('shots', [])):
+                    write_json(project / 'storyboard_locked.json', value)
+                (project / name).unlink()
