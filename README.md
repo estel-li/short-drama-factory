@@ -4,7 +4,7 @@
 
 文字模型默认使用 DeepSeek，也支持 Ollama、LM Studio 和兼容 OpenAI Chat Completions 接口的服务。大纲、分镜、提示词三个阶段可以分别配置模型与 Skill。
 
-**当前版本：2.3.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+**当前版本：2.3.1。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ![2.3 创作工作台](docs/images/ui-workspace.jpg)
 

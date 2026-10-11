@@ -42,7 +42,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='2.3.0', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='2.3.1', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -58,7 +58,7 @@ async def local_origin(request: Request, call_next):
     if size > (2 * 1024**3 if request.url.path == '/api/import' else 12_000_000):
         return JSONResponse({'error': '请求体上限 12MB。'}, status_code=413)
     response = await call_next(request)
-    if request.url.path.startswith('/api'):
+    if request.url.path.startswith('/api') or request.url.path == '/' or request.url.path.startswith('/web/'):
         response.headers['Cache-Control'] = 'no-store'
     return response
 

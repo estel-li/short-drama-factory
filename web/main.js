@@ -1,8 +1,8 @@
-import { api, el, field, select, download } from "./api.js";
-import { optionsEditor } from "./options.js";
-import { Workspace } from "./project.js";
-import { STAGES, isBusy, projectStatus } from "./state.js";
-import { badge, dialog, empty, icon, tabs } from "./ui.js";
+import { api, el, field, select, download } from "./api.js?v=2.3.1";
+import { optionsEditor } from "./options.js?v=2.3.1";
+import { Workspace } from "./project.js?v=2.3.1";
+import { STAGES, isBusy, projectStatus } from "./state.js?v=2.3.1";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.3.1";
 const $ = (id) => document.getElementById(id);
 let config,
   presets,

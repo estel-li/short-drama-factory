@@ -12,6 +12,18 @@ from app.storage import ROOT, read_json, write_json
 
 
 class UIContractsTests(unittest.TestCase):
+    def test_workbench_assets_do_not_reuse_stale_cached_modules(self):
+        from app import api
+        from fastapi.testclient import TestClient
+        client = TestClient(api.app)
+        for path in ('/', '/web/main.js', '/web/options.js?v=2.3.1', '/web/style.css'):
+            response = client.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers['Cache-Control'], 'no-store')
+            if response.headers.get('etag'):
+                conditional = client.get(path, headers={'If-None-Match': response.headers['etag']})
+                self.assertEqual(conditional.headers['Cache-Control'], 'no-store')
+
     def test_irrelevant_duration_controls_do_not_block_selected_rule(self):
         plan = durations(Options(duration_rule='count', shot_seconds=12, total_seconds=8, shot_count=2))
         self.assertEqual(plan['durations'], [4, 4])

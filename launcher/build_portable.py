@@ -75,7 +75,7 @@ def build():
     (package / 'presets/personal.json').unlink(missing_ok=True)
     for name in ('pipeline.py', 'server.py', 'config.default.json', 'requirements.lock.txt', 'launch.ps1', '启动短剧工厂.cmd', '使用说明.md', '更新说明-2.1.md', '更新说明-2.2.md', '更新说明-2.3.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
         shutil.copy2(ROOT / name, package / name)
-    write_json(package / 'package.json', {'version': '2.3.0', 'python': PYTHON_VERSION, 'python_sha256': checksum,
+    write_json(package / 'package.json', {'version': '2.3.1', 'python': PYTHON_VERSION, 'python_sha256': checksum,
         'created_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'platform': 'Windows x64', 'models_included': False,
         'credentials_included': False})
     (package / 'README.md').write_text('# 短剧工厂便携版\n\n解压到可写目录，双击“启动短剧工厂.cmd”。首次打开“模型与环境”：复用已有 ComfyUI，或选择从零安装。目标电脑需要可用的 NVIDIA 驱动，也可以连接远程服务。模型下载清单固定版本且可恢复。API key 和 HF token 在本机重新填写，标准包不包含模型和私人配置。详细步骤见“使用说明.md”。\n', encoding='utf-8')

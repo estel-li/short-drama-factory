@@ -1,5 +1,5 @@
-import { api, el, field, select, download } from "./api.js";
-import { optionsEditor, MODES } from "./options.js";
+import { api, el, field, select, download } from "./api.js?v=2.3.1";
+import { optionsEditor, MODES } from "./options.js?v=2.3.1";
 import {
   ProjectDraft,
   STAGES,
@@ -7,8 +7,8 @@ import {
   projectStatus,
   shotRecord,
   continuationIssue,
-} from "./state.js";
-import { badge, dialog, empty, icon, tabs } from "./ui.js";
+} from "./state.js?v=2.3.1";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.3.1";
 
 const SCOPES = { story: "分镜", settings: "项目设置", outline: "大纲" };
 const PANEL_NAMES = [
