@@ -4,7 +4,9 @@
 
 文字模型默认使用 DeepSeek，也支持 Ollama、LM Studio 和兼容 OpenAI Chat Completions 接口的服务。大纲、分镜、提示词三个阶段可以分别配置模型与 Skill。
 
-**当前版本：2.2.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+**当前版本：2.3.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+
+![2.3 创作工作台](docs/images/ui-workspace.jpg)
 
 ## 功能
 
@@ -127,7 +129,7 @@ docs/         结构、配置和首帧功能文档
 .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
 ```
 
-单元和集成测试不需要真实 API key 或 GPU。首帧测试包括默认关闭、跨批接续、准确末帧、旧提示词缓存兼容、顺序渲染、恢复以及上游视频改动后的缓存失效。
+后端单元和集成测试不需要真实 API key 或 GPU。前端回归测试可选使用 Node.js 20+ 执行 `npm test`，覆盖草稿保留、异步保存、队列与错误提示；应用运行本身不需要 Node.js。首帧测试包括默认关闭、跨批接续、准确末帧、旧提示词缓存兼容、顺序渲染、恢复以及上游视频改动后的缓存失效。
 
 可选真实验证会使用当前配置的 API，并创建新项目；加 `--render` 后还会使用 GPU：
 

@@ -12,6 +12,7 @@ config/
 config.json
 extra_model_paths*.yaml
 presets/personal.json
+skills/user-*/
 
 # Runtime, downloads, models and local outputs
 .venv/

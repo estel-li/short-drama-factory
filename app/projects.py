@@ -24,7 +24,21 @@ class Projects:
             for folder in root.iterdir():
                 if folder.is_dir() and (folder / 'settings.json').exists():
                     story = read_json(folder / '分镜.json', {})
-                    self.db.index(folder, story.get('title', folder.name), touch=False)
+                    self.db.index(folder, self.title(folder, story), touch=False)
+
+    def title(self, project, story=None):
+        story = story if story is not None else read_json(project / '分镜.json', {})
+        if story.get('title'):
+            return story['title']
+        episode = read_json(project / 'episode.json', {})
+        if episode.get('plan', {}).get('title'):
+            return episode.get('series_title', '') + ' · ' + episode['plan']['title']
+        outline = read_json(project / 'outline.json', {})
+        if outline.get('title') and outline['title'] not in ('用户提供的大纲', '用户提供的剧本'):
+            return outline['title']
+        source = project / '大纲.txt'
+        first = next((line.strip() for line in source.read_text(encoding='utf-8').splitlines() if line.strip()), '') if source.is_file() else ''
+        return first[:70] or '新的故事'
 
     def path(self, pid):
         identifier(pid)
@@ -37,7 +51,9 @@ class Projects:
     def list(self):
         with self.db.connect() as db:
             rows = [dict(x) for x in db.execute('SELECT * FROM projects ORDER BY updated_at DESC')]
+            busy_ids = {row[0] for row in db.execute("SELECT DISTINCT project_id FROM jobs WHERE status IN ('queued','running')")}
         for row in rows:
+            row['busy'] = row['id'] in busy_ids
             row.pop('path', None)
             row['state'] = read_json(self.path(row['id']) / 'state.json', {})
             row['episode'] = read_json(self.path(row['id']) / 'episode.json', {})
@@ -50,7 +66,8 @@ class Projects:
 
     def get(self, pid):
         project = self.path(pid)
-        return {'id': pid, 'settings': self.options(project).model_dump(),
+        return {'id': pid, 'title': self.title(project), 'settings': self.options(project).model_dump(),
+                'busy': self.db.busy(pid),
                 'episode': read_json(project / 'episode.json', {}),
                 'state': read_json(project / 'state.json', {}),
                 'outline': (project / '大纲.txt').read_text(encoding='utf-8') if (project / '大纲.txt').exists() else '',
@@ -74,7 +91,7 @@ class Projects:
         (project / '大纲.txt').write_text(text, encoding='utf-8')
         write_json(project / 'settings.json', options.model_dump())
         write_json(project / 'state.json', {'status': 'new', 'shots': {}, 'message': '项目已创建。', 'stages': {}})
-        self.db.index(project, '新故事')
+        self.db.index(project, self.title(project))
         if options.input_mode == 'storyboard':
             if storyboard is None:
                 try:
@@ -161,7 +178,7 @@ class Projects:
                 write_json(project / 'references.json', refs)
         if state.get('shots_by_uid'):
             state['shots'] = {str(s['id']): state['shots_by_uid'].get(s['uid'], {}) for s in story['shots']}
-        state.update(status='ready', total_shots=len(story['shots']), message='分镜已保存。', changed_shots=changed)
+        state.update(status='ready', total_shots=len(story['shots']), message='分镜已保存。', changed_shots=changed, updated_at=now())
         state.setdefault('stages', {})['storyboard'] = {'status': 'done', 'hash': digest(story)}
         if changed:
             state['stages'].pop('prompt', None)
@@ -179,6 +196,9 @@ class Projects:
         write_json(project / 'settings.json', options.model_dump())
         if before != options.model_dump():
             self.archive_final(project)
+            state = read_json(project / 'state.json', {})
+            state.update(status='ready' if (project / '分镜.json').exists() else 'new', message='项目设置已保存，继续后会更新受影响的镜头。', updated_at=now())
+            write_json(project / 'state.json', state)
         return options.model_dump()
 
     def archive_final(self, project):

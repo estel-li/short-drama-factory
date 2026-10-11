@@ -6,6 +6,8 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, Request, UploadFile, File
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -19,7 +21,7 @@ from .projects import Projects
 from .providers import LLMClient, ProviderError
 from .schemas import Options, durations
 from .skills import Skills
-from .storage import ROOT, contained, read_json, write_json
+from .storage import ROOT, contained, now, read_json, write_json
 from .transfer import Transfer
 
 config = ConfigStore()
@@ -40,7 +42,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='2.2.0', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='2.3.0', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -61,10 +63,38 @@ async def local_origin(request: Request, call_next):
     return response
 
 
+def validation_message(errors):
+    labels = {'body':'', 'characters':'人物列表', 'shots':'分镜', 'title':'标题', 'premise':'故事主线',
+              'beats':'剧情节拍', 'duration':'时长', 'visual_description':'人物外观', 'id':'编号', 'uid':'镜头编号',
+              'use_previous_last_frame':'首帧功能', 'scene':'场景', 'seed':'随机种子', 'providers':'提供商',
+              'base_url':'服务地址', 'name':'名称', 'settings':'项目设置', 'profile':'视频质量'}
+    messages = {'list_type':'请填写列表格式（JSON 数组）', 'dict_type':'请填写对象格式（JSON 对象）',
+                'string_type':'请填写文字', 'bool_type':'请填写 true 或 false', 'bool_parsing':'请填写 true 或 false',
+                'missing':'请补充这一项', 'int_parsing':'请填写整数', 'int_type':'请填写整数',
+                'float_parsing':'请填写有效数字', 'float_type':'请填写有效数字', 'finite_number':'请填写有限数字',
+                'string_too_short':'文字内容不足', 'string_too_long':'文字超出长度限制',
+                'too_short':'项目数量不足', 'too_long':'项目数量过多', 'literal_error':'请选择有效选项'}
+    parts = []
+    for error in errors[:5]:
+        location = ' / '.join(str(part + 1) if isinstance(part, int) else labels.get(part, part) for part in error.get('loc', ()) if part != 'body')
+        kind, context = error.get('type'), error.get('ctx', {})
+        message = messages.get(kind, error.get('msg', '请检查填写内容').removeprefix('Value error, '))
+        if kind == 'greater_than_equal': message = '不能小于 ' + str(context.get('ge'))
+        if kind == 'less_than_equal': message = '不能大于 ' + str(context.get('le'))
+        parts.append((location + '：' if location else '') + message)
+    return '\n'.join(parts)
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error(request, exc):
+    return JSONResponse({'error': validation_message(exc.errors())}, status_code=422)
+
+
 @app.exception_handler(ValueError)
 @app.exception_handler(RuntimeError)
 async def value_error(request, exc):
-    return JSONResponse({'error': str(exc)[:2000]}, status_code=400)
+    message = validation_message(exc.errors()) if isinstance(exc, ValidationError) else str(exc)[:2000]
+    return JSONResponse({'error': message}, status_code=400)
 
 
 @app.get('/')
@@ -248,6 +278,12 @@ def story_save(body: dict):
     return projects.save_story(body['id'], body['story'])
 
 
+@app.post('/api/projects/{pid}/validate-story')
+def story_validate(pid: str, body: dict):
+    projects.path(pid)
+    return projects.normalize(pid, body.get('story'))
+
+
 @app.post('/api/projects/{pid}/outline')
 def outline_save(pid: str, body: dict):
     from .schemas import Outline
@@ -260,6 +296,14 @@ def outline_save(pid: str, body: dict):
     write_json(project / 'outline.json', value)
     if before != value:
         worker.invalidate(project, ('分镜.json',), 'outline-edited-storyboard')
+        projects.archive_final(project)
+        state = read_json(project / 'state.json', {})
+        state.update(status='review', message='大纲已保存，继续后将重新生成受影响的分镜。', current_stage='outline', updated_at=now())
+        stages = state.setdefault('stages', {})
+        for stage in ('storyboard', 'prompt'):
+            stages.pop(stage, None)
+        stages['outline'] = {'status': 'done'}
+        write_json(project / 'state.json', state)
     return value
 
 

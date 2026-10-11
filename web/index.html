@@ -1,15 +1,541 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>短剧工厂 · 工作台</title><link rel="stylesheet" href="/web/style.css"></head>
-<body>
-<header><a href="/" class="brand"><span>◈</span> 短剧工厂 <small>本地创作工作台</small></a><span id="health" class="badge">正在连接</span></header>
-<nav aria-label="工作台导航"><button data-tab="projects" class="active">项目</button><button data-tab="series">分集 / 批量</button><button data-tab="create">新建故事</button><button data-tab="providers">模型与环境</button><button data-tab="skills">Skill 与预设</button><button data-tab="jobs">任务记录</button></nav>
-<main>
-<section id="projects" class="page"><div class="split"><aside><h2>我的项目</h2><label class="button">导入迁移包<input type="file" id="transfer-import" accept=".zip" hidden></label><div id="project-list"></div></aside><article id="workspace"><div class="empty"><h1>从一个故事开始</h1><p>输入灵感、大纲、剧本，或继续已有分镜。</p><button data-open="create" class="primary">新建故事</button></div></article></div></section>
-<section id="create" class="page hidden"><div class="heading"><h1>新建故事</h1><p>设置创作方向，然后选择自动执行或分阶段检查。</p></div><form id="create-form"><div class="grid"><label>输入类型<select name="input_mode"><option value="idea">灵感 / 一句话</option><option value="outline" selected>已有大纲</option><option value="script">完整剧本</option><option value="storyboard">已有分镜 JSON</option></select></label><label>执行方式<select name="execution_mode"><option value="review">逐阶段检查</option><option value="auto">全自动生成成片</option></select></label></div><label>故事内容<textarea name="input" required rows="8" placeholder="写下人物、冲突和结局；已有剧本可直接粘贴。"></textarea></label><div id="new-options"></div><div id="duration-preview" class="notice"></div><div class="actions"><button type="submit" class="primary">创建并开始</button><button type="button" id="create-draft">仅保存项目</button></div></form></section>
-<section id="series" class="page hidden"><div class="heading"><h1>分集 / 批量生成</h1><p>先规划整部剧，再按集序生成。每集有独立分镜、视频、字幕和继续记录。</p></div><article class="card"><form id="series-form"><div class="grid three"><label>剧名<input name="title" maxlength="200" placeholder="我的短剧"></label><label>分集方式<select name="mode"><option value="auto">AI 自动拆分整剧故事</option><option value="manual">手动提供每集内容</option></select></label><label>自动分集数量<input name="episode_count" type="number" min="1" max="100" value="3"></label><label>某集失败后<select name="fail_policy"><option value="continue">继续生成其他集</option><option value="stop">暂停本批后续集</option></select></label></div><label>整剧故事<textarea name="input" rows="5" placeholder="填写整部剧的人物、主线与最终结局；自动分集时必填。"></textarea></label><label id="series-manual-label" hidden>每集内容 JSON<textarea name="episodes" rows="7" spellcheck="false" placeholder='[{"title":"第1集：相遇","input":"本集大纲…"},{"title":"第2集：重逢","input":"本集大纲…"}]'></textarea></label><details><summary>共享角色设定（可选）</summary><label>角色 JSON<textarea name="characters" rows="4" spellcheck="false" placeholder='[{"id":"girl","name":"女孩","visual_description":"short dark hair, blue dress","voice_description":"soft Chinese female voice"}]'></textarea></label><p class="muted">自动拆集会补全整剧角色，跨集固定人物 id、外观与声音；手动模式可自行填写。</p></details><h3>每集默认设置</h3><p class="muted">这里的总时长、镜头数量、模型和 Skill 均按每集计算。创建后可在单集项目中修改。</p><div id="series-options"></div><div class="actions"><button type="submit" name="start" value="draft">保存整剧草稿</button><button type="submit" name="start" value="plan">创建并批量生成文字规划</button><button type="submit" name="start" value="all" class="primary">创建并全自动生成多集成片</button></div></form></article><div class="split"><aside><h2>我的剧集</h2><div id="series-list"></div></aside><article id="series-workspace"><p class="muted">选择剧集，查看各集进度或批量继续。</p></article></div></section>
-<section id="providers" class="page hidden"><div class="heading"><h1>模型与生成环境</h1><p>文字模型按阶段选择。密钥只在本机保存。</p></div><div class="actions"><button id="add-provider">添加兼容 API</button></div><div id="provider-list"></div><article class="card"><h2>ComfyUI 连接</h2><form id="environment-form"><div class="grid"><label>模式<select name="mode"><option value="existing">已有本地环境</option><option value="remote">远程服务</option><option value="fresh">新安装</option></select></label><label>服务地址<input name="comfy_url" type="url" required></label><label>ComfyUI 目录<input name="comfy_dir"></label><label>推理 Python 路径<input name="python"></label><label>项目输出目录<input name="projects_dir" required></label><label>网络代理（可留空）<input name="proxy" placeholder="http://127.0.0.1:7890"></label></div><div id="h3-models"></div><label>生成质量预设（JSON，可增加自定义档位）<textarea id="quality-editor" rows="7" spellcheck="false"></textarea></label><button type="button" id="refresh-models">从服务获取可用模型</button><button class="primary">保存环境设置</button></form></article><article class="card"><h2>首次安装与修复</h2><p class="muted">已有环境会复用文件。新安装下载官方 ComfyUI 与清单中的缺失模型；远程服务在远程机器管理安装。</p><div id="hardware-info" class="notice"></div><div class="grid"><label>安装方式<select id="install-mode"><option value="existing">复用 / 补齐已有环境</option><option value="fresh">从零安装官方便携版</option><option value="remote">检查远程服务</option></select></label><label>方案<select id="manifest-select"></select></label><label>ComfyUI 安装目标目录<input id="install-dir" placeholder="留空使用应用 engines 目录"></label><label>模型目标目录<input id="models-dir" placeholder="留空使用应用 models 目录"></label></div><label>额外模型搜索目录（每行一个）<textarea id="model-search-dirs" rows="3" placeholder="可填写已有模型目录，避免重复下载。"></textarea></label><label>Hugging Face token（受限模型需要，普通公开模型可留空）<input id="hf-token" type="password" autocomplete="new-password"></label><div class="actions"><button id="detect-environment">检测环境</button><button id="plan-install">预览安装清单</button><button id="start-install" class="primary" disabled>按此清单安装 / 修复</button><button id="stop-install">停止安装任务</button><button id="save-hf-token">保存 HF token</button></div><div id="install-plan"></div><div id="install-progress" class="notice"></div></article></section>
-<section id="skills" class="page hidden"><div class="heading"><h1>Skill 与预设</h1><p>三个文字阶段各自选择创作规则，复制后可按自己的方法修改。</p></div><div class="grid"><label>预制 / 自建 Skill<select id="skill-select"></select></label><label>个人预设<select id="personal-select"><option value="">请选择</option></select></label></div><div class="actions"><button id="skill-copy">复制此 Skill</button><button id="skill-new">新建 Skill</button><button id="skill-export">导出 Skill</button><label class="button">导入 Skill<input type="file" id="skill-import" accept=".json" hidden></label></div><label>Skill 包 JSON（metadata 与 files）<textarea id="skill-editor" rows="18" spellcheck="false"></textarea></label><button id="skill-save" class="primary">保存 Skill</button><div class="notice">内置 4 个大纲、4 个分镜、5 个 H3 模式预设。用户 Skill 只读取文本，不执行脚本。H3 预设基于官方格式独立编写。</div></section>
-<section id="jobs" class="page hidden"><div class="heading"><h1>任务记录</h1><p>任务状态与阶段成果保存到本机，应用重启后继续关联。</p></div><div id="jobs-list"></div></section>
-</main><div id="toast" role="status" aria-live="polite" hidden></div><script type="module" src="/web/main.js?v=2.1.0"></script>
-</body></html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>短剧工厂 · 创作工作台</title>
+    <link rel="stylesheet" href="/web/style.css?v=2.3.0" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到工作区</a>
+    <header class="app-header">
+      <a href="/" class="brand" id="brand-home"
+        ><span class="brand-mark" data-icon="film"></span
+        ><span>短剧工厂<small>让故事成为画面</small></span></a
+      >
+      <div class="header-right">
+        <span class="version">本地工作台 · 2.3</span
+        ><span id="health" class="badge neutral" role="status">正在连接</span>
+      </div>
+    </header>
+    <nav class="app-nav" aria-label="工作台导航">
+      <div class="nav-caption">创作空间</div>
+      <button data-tab="projects" class="active">
+        <span data-icon="projects"></span>我的项目</button
+      ><button data-tab="create"><span data-icon="plus"></span>新建故事</button
+      ><button data-tab="series">
+        <span data-icon="series"></span>分集与批量
+      </button>
+      <div class="nav-caption">工作台设置</div>
+      <button data-tab="providers">
+        <span data-icon="settings"></span>模型与环境</button
+      ><button data-tab="skills">
+        <span data-icon="spark"></span>Skill 与预设</button
+      ><button data-tab="jobs">
+        <span data-icon="clock"></span>任务记录<span
+          id="jobs-count"
+          class="nav-count"
+          hidden
+        ></span>
+      </button>
+      <div class="nav-note">
+        <strong>在本机安心创作</strong>
+        <p>项目、素材和密钥保存在本机。云模型按你的配置调用。</p>
+      </div>
+    </nav>
+    <main id="main" tabindex="-1">
+      <div id="connection-warning" class="notice warning" hidden>
+        <span>与工作台连接中断，正在重连。编辑内容会保留。</span
+        ><button type="button" id="retry-connection">立即重试</button>
+      </div>
+      <section id="projects" class="page">
+        <div class="project-layout">
+          <aside class="project-browser">
+            <div class="browser-title">
+              <h2>项目库</h2>
+              <button
+                type="button"
+                class="icon-button"
+                data-open="create"
+                aria-label="新建故事"
+                data-icon="plus"
+              ></button>
+            </div>
+            <label class="search-field"
+              ><span data-icon="search"></span
+              ><input
+                id="project-search"
+                type="search"
+                placeholder="搜索故事或剧集"
+                aria-label="搜索项目" /></label
+            ><select id="project-filter" aria-label="筛选项目状态">
+              <option value="all">全部项目</option>
+              <option value="active">进行中</option>
+              <option value="complete">已完成</option>
+              <option value="attention">待检查 / 遇到问题</option>
+            </select>
+            <div id="project-list" class="project-list"></div>
+            <label class="button import-button"
+              ><span data-icon="upload"></span>导入项目迁移包<input
+                type="file"
+                id="transfer-import"
+                accept=".zip"
+                hidden
+            /></label>
+          </aside>
+          <article id="workspace" class="workspace">
+            <div class="empty">
+              <div class="empty-icon" data-icon="film"></div>
+              <p class="eyebrow">你的故事，从这里开始</p>
+              <h1>把灵感交给画面</h1>
+              <p>
+                创建一个故事，或从左侧选择项目。<br />大纲、分镜和生成过程，都在一个工作区里。
+              </p>
+              <button type="button" data-open="create" class="primary">
+                新建第一个故事
+              </button>
+            </div>
+          </article>
+        </div>
+      </section>
+      <section id="create" class="page hidden">
+        <div class="page-heading">
+          <p class="eyebrow">CREATE A STORY</p>
+          <h1>先写一个好故事</h1>
+          <p>设定方向，AI 会规划分镜，再逐镜生成短剧。</p>
+        </div>
+        <form id="create-form" class="create-layout">
+          <div class="card create-main">
+            <div class="section-title">
+              <span class="step-number">01</span>
+              <div>
+                <h2>故事内容</h2>
+                <p>一句灵感、已有大纲，或完整剧本都可以。</p>
+              </div>
+            </div>
+            <div class="grid">
+              <label
+                >从哪里开始<select name="input_mode">
+                  <option value="idea">灵感 / 一句话</option>
+                  <option value="outline" selected>已有大纲</option>
+                  <option value="script">完整剧本</option>
+                  <option value="storyboard">已有分镜 JSON</option>
+                </select></label
+              ><label
+                >创作方式<select name="execution_mode">
+                  <option value="review">逐阶段检查（推荐）</option>
+                  <option value="auto">全自动生成成片</option>
+                </select></label
+              >
+            </div>
+            <label
+              >故事<textarea
+                name="input"
+                required
+                maxlength="50000"
+                rows="8"
+                placeholder="人物是谁？遇到了什么冲突？最后发生了什么？"
+              ></textarea>
+            </label>
+            <div class="input-footer">
+              <span id="input-help" class="muted">保留你写好的对白与结局。</span
+              ><span id="input-count" class="muted">0 / 50,000</span>
+            </div>
+            <div class="section-title">
+              <span class="step-number">02</span>
+              <div>
+                <h2>创作方向</h2>
+                <p>先从快速预览开始，随时可以调整。</p>
+              </div>
+            </div>
+            <div id="new-options"></div>
+            <details class="option-section">
+              <summary>保存这组设置为个人预设</summary>
+              <div class="inline-form">
+                <input
+                  id="preset-name"
+                  placeholder="例如：我的竖屏治愈短剧"
+                  aria-label="个人预设名称"
+                /><button type="button" id="save-preset">保存预设</button>
+              </div>
+            </details>
+          </div>
+          <aside class="create-summary card">
+            <span class="eyebrow">创作预览</span>
+            <h2>这次的短剧</h2>
+            <div id="duration-preview" aria-live="polite"></div>
+            <p id="execution-help" class="muted">
+              每个阶段完成后先看看，再继续。适合第一次创作。
+            </p>
+            <div
+              id="create-error"
+              class="notice error"
+              role="alert"
+              hidden
+            ></div>
+            <button type="submit" class="primary full" id="create-start">
+              创建并开始</button
+            ><button type="button" id="create-draft" class="full">
+              仅保存草稿
+            </button>
+            <p class="fine-print">
+              开始后会调用已配置的文字模型与生成引擎；草稿不会调用模型。
+            </p>
+          </aside>
+        </form>
+      </section>
+      <section id="series" class="page hidden">
+        <div class="page-heading">
+          <p class="eyebrow">ONE STORY, MANY EPISODES</p>
+          <h1>分集与批量</h1>
+          <p>先规划整部剧，再按集序生成。人物设定共享，每集成果独立保存。</p>
+        </div>
+        <details class="card series-create" id="series-create">
+          <summary>
+            创建一部新短剧<span class="muted">自动拆集或手动提供每集内容</span>
+          </summary>
+          <form id="series-form">
+            <div class="grid three">
+              <label
+                >剧名<input
+                  name="title"
+                  maxlength="200"
+                  placeholder="为这部剧取个名字" /></label
+              ><label
+                >分集方式<select name="mode">
+                  <option value="auto">AI 自动拆分故事</option>
+                  <option value="manual">手动提供每集内容</option>
+                </select></label
+              ><label id="episode-count-label"
+                >集数<input
+                  name="episode_count"
+                  type="number"
+                  min="1"
+                  max="100"
+                  value="3" /></label
+              ><label
+                >某集失败后<select name="fail_policy">
+                  <option value="continue">继续其他集</option>
+                  <option value="stop">暂停本批后续集</option>
+                </select></label
+              >
+            </div>
+            <label id="series-input-label"
+              >整剧故事<textarea
+                name="input"
+                rows="5"
+                maxlength="50000"
+                placeholder="人物、主线、各阶段的变化与最终结局。"
+              ></textarea></label
+            ><label id="series-manual-label" hidden
+              >每集内容 JSON<textarea
+                name="episodes"
+                rows="7"
+                spellcheck="false"
+                placeholder='[{"title":"第1集：相遇","input":"本集大纲…"},{"title":"第2集：重逢","input":"本集大纲…"}]'
+              ></textarea>
+            </label>
+            <details>
+              <summary>共享人物设定（可选）</summary>
+              <label
+                >人物 JSON<textarea
+                  name="characters"
+                  rows="4"
+                  spellcheck="false"
+                  placeholder='[{"id":"girl","name":"女孩","visual_description":"short dark hair, blue dress","voice_description":"soft Chinese female voice"}]'
+                ></textarea>
+              </label>
+              <p class="muted">
+                自动分集会补全整剧人物，跨集沿用外观、声音和人物编号。
+              </p>
+            </details>
+            <h3>每集默认设置</h3>
+            <p class="muted">
+              以下时长与镜头数量均按每集计算，之后可单独修改。
+            </p>
+            <div id="series-options"></div>
+            <div
+              id="series-error"
+              class="notice error"
+              role="alert"
+              hidden
+            ></div>
+            <div class="actions">
+              <button type="submit" name="start" value="draft">
+                保存整剧草稿</button
+              ><button type="submit" name="start" value="plan">
+                生成分集与文字规划</button
+              ><button type="submit" name="start" value="all" class="primary">
+                全自动生成成片
+              </button>
+            </div>
+          </form>
+        </details>
+        <div class="project-layout">
+          <aside class="project-browser">
+            <div class="browser-title"><h2>我的剧集</h2></div>
+            <div id="series-list" class="project-list"></div>
+          </aside>
+          <article id="series-workspace" class="workspace"></article>
+        </div>
+      </section>
+      <section id="providers" class="page hidden">
+        <div class="page-heading">
+          <p class="eyebrow">YOUR CREATIVE ENGINE</p>
+          <h1>模型与环境</h1>
+          <p>文字模型负责创作，ComfyUI 负责画面。把环境接好，就可以开始了。</p>
+        </div>
+        <div id="environment-tabs"></div>
+        <div id="provider-panel">
+          <div class="section-toolbar">
+            <p class="muted">大纲、分镜和提示词可以使用不同模型。</p>
+            <button type="button" id="add-provider">添加兼容服务</button>
+          </div>
+          <div id="provider-list"></div>
+        </div>
+        <div id="comfy-panel" hidden>
+          <article class="card">
+            <div class="section-title">
+              <span data-icon="settings"></span>
+              <div>
+                <h2>连接 ComfyUI</h2>
+                <p>复用已有环境，或连接远程生成服务。</p>
+              </div>
+            </div>
+            <form id="environment-form">
+              <div class="grid">
+                <label
+                  >环境方式<select name="mode">
+                    <option value="existing">已有本地环境</option>
+                    <option value="remote">远程服务</option>
+                    <option value="fresh">准备新安装</option>
+                  </select></label
+                ><label
+                  >服务地址<input
+                    name="comfy_url"
+                    type="url"
+                    required
+                    placeholder="http://127.0.0.1:8188" /></label
+                ><label data-local-path
+                  >ComfyUI 目录<input
+                    name="comfy_dir"
+                    placeholder="包含 main.py 的目录" /></label
+                ><label data-local-path
+                  >推理 Python 路径<input
+                    name="python"
+                    placeholder="ComfyUI 使用的 python.exe" /></label
+                ><label
+                  >项目保存目录<input name="projects_dir" required /></label
+                ><label
+                  >网络代理（可选）<input
+                    name="proxy"
+                    placeholder="http://127.0.0.1:7890"
+                /></label>
+              </div>
+              <div id="h3-models"></div>
+              <details>
+                <summary>编辑生成质量预设</summary>
+                <label
+                  >质量预设 JSON<textarea
+                    id="quality-editor"
+                    rows="7"
+                    spellcheck="false"
+                  ></textarea>
+                </label>
+                <p class="muted">
+                  可增加档位。初次使用建议保留快速预览，先确认本机能够生成。
+                </p>
+              </details>
+              <div class="actions">
+                <button type="button" id="refresh-models">获取可用模型</button
+                ><button type="submit" class="primary">保存环境设置</button>
+              </div>
+            </form>
+            <div id="comfy-auth"></div>
+            <div class="notice">
+              <strong>配置之后，跑一个小样</strong>
+              <p>4 秒验证样片会实际检查编码、采样和合片，不调用文字 API。</p>
+              <button type="button" id="verify-environment">
+                生成 4 秒验证样片
+              </button>
+            </div>
+          </article>
+        </div>
+        <div id="install-panel" hidden>
+          <article class="card">
+            <h2>安装与修复</h2>
+            <p class="muted">
+              先预览清单，确认下载量与目标目录。已有模型会复用，缺少的才下载。
+            </p>
+            <div id="hardware-info" class="hardware-strip">
+              点击检测环境，查看显卡与磁盘容量。
+            </div>
+            <div class="grid">
+              <label
+                >安装方式<select id="install-mode">
+                  <option value="existing">复用 / 补齐已有环境</option>
+                  <option value="fresh">从零安装官方便携版</option>
+                  <option value="remote">检查远程服务</option>
+                </select></label
+              ><label>安装方案<select id="manifest-select"></select></label
+              ><label
+                >ComfyUI 安装目录<input
+                  id="install-dir"
+                  placeholder="留空使用应用 engines 目录" /></label
+              ><label
+                >模型保存目录<input
+                  id="models-dir"
+                  placeholder="留空使用应用 models 目录"
+              /></label>
+            </div>
+            <label
+              >已有模型搜索目录<textarea
+                id="model-search-dirs"
+                rows="3"
+                placeholder="每行一个目录，帮助避免重复下载。"
+              ></textarea>
+            </label>
+            <details>
+              <summary>受限模型认证（可选）</summary>
+              <label
+                >Hugging Face token<input
+                  id="hf-token"
+                  type="password"
+                  autocomplete="new-password"
+                  placeholder="普通公开模型可留空" /></label
+              ><button type="button" id="save-hf-token">保存 HF token</button>
+            </details>
+            <div class="actions">
+              <button type="button" id="detect-environment">检测环境</button
+              ><button type="button" id="plan-install" class="primary">
+                预览安装清单</button
+              ><button type="button" id="start-install" disabled>
+                按清单安装 / 修复</button
+              ><button type="button" id="stop-install" hidden>停止安装</button>
+            </div>
+            <div id="install-plan"></div>
+            <div
+              id="install-progress"
+              class="notice"
+              aria-live="polite"
+              hidden
+            ></div>
+          </article>
+        </div>
+      </section>
+      <section id="skills" class="page hidden">
+        <div class="page-heading">
+          <p class="eyebrow">MAKE IT YOUR OWN</p>
+          <h1>Skill 与预设</h1>
+          <p>把你的创作方法写成规则。先复制一份，再慢慢磨成自己的风格。</p>
+        </div>
+        <div class="skill-layout">
+          <aside class="card">
+            <label
+              >创作阶段<select id="skill-stage-filter">
+                <option value="all">全部阶段</option>
+                <option value="outline">大纲策划</option>
+                <option value="storyboard">AI 分镜</option>
+                <option value="prompt">H3 提示词</option>
+              </select></label
+            ><label>选择 Skill<select id="skill-select"></select></label>
+            <div id="skill-info"></div>
+            <div class="actions">
+              <button type="button" id="skill-copy">复制一份</button
+              ><button type="button" id="skill-new">新建 Skill</button>
+            </div>
+            <hr />
+            <label
+              >个人创作预设<select id="personal-select">
+                <option value="">选择预设</option>
+              </select></label
+            >
+            <p class="muted">个人预设保存整组项目设置，可在新故事中使用。</p>
+          </aside>
+          <article class="card">
+            <div class="grid">
+              <label>规则名称<input id="skill-name" /></label
+              ><label
+                >所属阶段<select id="skill-edit-stage">
+                  <option value="outline">大纲策划</option>
+                  <option value="storyboard">AI 分镜</option>
+                  <option value="prompt">H3 提示词</option>
+                </select></label
+              >
+            </div>
+            <label
+              >创作规则（SKILL.md）<textarea
+                id="skill-content"
+                class="code-editor"
+                rows="16"
+                spellcheck="false"
+              ></textarea>
+            </label>
+            <p class="muted">
+              可使用
+              {{style}}、{{genre}}、{{duration}}、{{language}}、{{music}}、{{mode}}
+              等变量。只读取文本，不执行脚本。
+            </p>
+            <details>
+              <summary>完整 Skill 包与参考文件</summary>
+              <label
+                >metadata / files JSON<textarea
+                  id="skill-editor"
+                  class="code-editor"
+                  rows="14"
+                  spellcheck="false"
+                ></textarea>
+              </label>
+              <button type="button" id="skill-apply-json">
+                应用完整 JSON 到编辑区
+              </button>
+              <p class="field-help">
+                编辑完整包时，先应用再修改上面的名称和规则；也可直接保存完整包。
+              </p>
+            </details>
+            <div
+              id="skill-error"
+              class="notice error"
+              role="alert"
+              hidden
+            ></div>
+            <div class="actions">
+              <button type="button" id="skill-save" class="primary">
+                保存 Skill</button
+              ><button type="button" id="skill-export">导出</button
+              ><label class="button"
+                >导入<input
+                  type="file"
+                  id="skill-import"
+                  accept=".json"
+                  hidden /></label
+              ><span id="skill-dirty" class="muted" hidden>有未保存修改</span>
+            </div>
+          </article>
+        </div>
+      </section>
+      <section id="jobs" class="page hidden">
+        <div class="page-heading">
+          <p class="eyebrow">EVERY STEP, SAVED</p>
+          <h1>任务记录</h1>
+          <p>
+            查看排队、阶段进度和失败原因。项目成果会保留，可以回到项目继续。
+          </p>
+        </div>
+        <div class="section-toolbar">
+          <div id="job-summary"></div>
+          <select id="job-filter" aria-label="筛选任务">
+            <option value="all">全部任务</option>
+            <option value="active">进行中</option>
+            <option value="error">遇到问题</option>
+            <option value="done">已完成</option>
+          </select>
+        </div>
+        <div id="jobs-list"></div>
+      </section>
+    </main>
+    <div id="save-bar" class="save-bar" hidden></div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="/web/main.js?v=2.3.0"></script>
+  </body>
+</html>

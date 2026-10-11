@@ -118,7 +118,7 @@ class Options(BaseModel):
 
 def durations(options: Options):
     maximum = 15 if options.allow_long_shots else 8
-    if options.shot_seconds > maximum:
+    if options.duration_rule == 'total' and options.shot_seconds > maximum:
         raise ValueError('超过 8 秒需开启高级长镜头选项；本机默认验证范围是 4～8 秒。')
     if options.duration_rule == 'manual':
         result = options.manual_durations

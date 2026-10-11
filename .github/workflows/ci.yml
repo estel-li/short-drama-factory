@@ -26,3 +26,8 @@ jobs:
         env:
           PYTHONIOENCODING: utf-8
         run: python -m unittest discover -s tests -p "test_*.py"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Frontend regression checks
+        run: npm test
