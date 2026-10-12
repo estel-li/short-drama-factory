@@ -7,6 +7,7 @@ import traceback
 
 from .providers import Cancelled, ProviderError
 from .content import prompt_settings_hash
+from .quality import story_report
 from .environment import Installer
 from .rendering import fingerprint_models
 from .processes import InstanceLock
@@ -151,6 +152,24 @@ class Worker:
             self.db.update(jid, message=message, event={'message': message, **changes})
 
         requested = job['kind']
+        if requested in ('finish','rebuild-edit'):
+            from .finishing import build, collect_clips
+            story=self.projects.get(pid)['story']
+            if requested=='rebuild-edit':
+                from .storage import contained, identifier
+                folder=contained(project/'edits',identifier(payload['edit_id']))
+                if not (folder/'completed.json').is_file():raise ValueError('所选版本尚未完成。')
+                recipe=read_json(folder/'recipe.json')
+                if digest(recipe)!=read_json(folder/'媒体验收.json')['recipe_hash']:raise ValueError('版本配方已改变，请创建新版本，不能冒充原版本重建。')
+                clips=[];width,height=recipe['width'],recipe['height'];settings=recipe['settings']
+            else:
+                recipe=None;clips=collect_clips(project,story)
+                width,height=pipeline.canvas(pipeline.CONFIG['profiles'][options.profile]['megapixels'],options.ratio)
+                settings=options.model_dump();settings.update({k:payload[k] for k in ('edit_preset','notes','masks','review_interval') if k in payload})
+            report('开始 CPU 质检与后期，原镜头不会重生成。',status='assembling',current_stage='finishing')
+            output=build(project,story,clips,width,height,settings,lambda text:report(text),cancelled,recipe,proxy=self.config.renderer_config().get('proxy',''))
+            report('质检与后期已完成，原片和历史版本已保留。',status='complete',current_stage='done',output=str(output))
+            return 'done'
         if requested not in ('all', 'plan', 'outline', 'storyboard', 'prompt', 'render'):
             raise ValueError('未知任务类型。')
         stages = ['outline', 'storyboard', 'prompt'] if requested in ('all', 'plan', 'render') else [requested]
@@ -200,6 +219,11 @@ class Worker:
         if requested in ('all', 'render'):
             if cancelled():
                 raise Cancelled('已停止。')
+            preflight = story_report(read_json(project / '分镜.json'), options)
+            write_json(project / '出片预检.json', preflight)
+            if not preflight['ready']:
+                report('出片预检未通过：' + '\n'.join(i['message'] for i in preflight['issues'] if i['severity']=='error'), status='review')
+                return 'review'
             lock = project / '.running'
             if lock.exists():
                 from .processes import alive
@@ -214,7 +238,7 @@ class Worker:
                 bindings = self.assets.resolve(project, shot, story)
                 if not any(bindings.values()) and refs:
                     bindings['images'] = [{'id': 'auto-' + str(i), 'type': 'image', 'name': r['name'],
-                        'comfy_file': r['image'], 'file': r.get('local_file'), 'sha256': r['sha256']} for i, r in enumerate(refs, 1)]
+                        'comfy_file': r['image'], 'file': r.get('local_file'), 'sha256': r['sha256'], 'character':r.get('character')} for i, r in enumerate(refs, 1)]
                 return self.assets.materialize(project, bindings)
             runner.binding_resolver = resolve
             # 旧项目已有提示词沿用原来的渲染行为，新项目按实际素材重新编译。
@@ -227,7 +251,7 @@ class Worker:
             runner.stop = Stop()
             for attempt in range(options.render_retries + 1):
                 try:
-                    runner.run()
+                    runner.run(limit=payload.get('limit'))
                     break
                 except RuntimeError as exc:
                     if isinstance(exc, ProviderError) or cancelled() or attempt >= options.render_retries:

@@ -20,7 +20,7 @@ description: 动作调度与空间连续性；在短剧工厂 storyboard 阶段�
 ## 分镜产物与字段映射
 
 返回 Story JSON 的 title、style、aspect_ratio、characters、scenes、props、shots。
-只返回本批 required_shots 个镜头，顺序从 start_shot 开始；duration 使用 shot_durations。
+只返回本批 required_shots 个镜头，顺序从 start_shot 开始；固定和手动镜长使用 shot_durations；对白拟合模式由程序按 dialogue_pacing 计算，台词必须能在单镜上限内完整说完。
 本批与 previous_shots 衔接，existing_assets 的人物 id 与设定保持一致，prompt 此阶段留空。
 
 - characters：稳定 id、name、visual_description（英文外观）、voice_description。
@@ -33,7 +33,7 @@ description: 动作调度与空间连续性；在短剧工厂 storyboard 阶段�
 - source_fact / sound / continuity_notes / keyframe_description 可作为扩展字段保存。
 
 一个工作台镜头对应一段单独生成的视频。按当前时长保留一个主要动作及可读反应，
-默认最多两名可见人物、至多一句短对白。长句按语义分到相邻镜头，不能强行快读或改词。
+默认最多两名可见人物，可连续至多三句短对白。按 dialogue_pacing 的语速、起手、句间和收尾预算装镜；长句按语义分到相邻镜头，不能强行快读或改词。角色至少用脸型/年龄、服装主色、配饰等多个外观锚点区分，不能只靠发长。
 不要把上游“首尾帧必须成对”的外部生产约束套到 H3 L2VA：本程序支持独立尾帧。
 不虚构 IMG/REF 文件或使用源套件的 SHOT 文档 id 代替本程序人物和场景 id。
 自检覆盖原文、镜头职责、空间轴线、双手/道具状态、光源关系及前后边界。

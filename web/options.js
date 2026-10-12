@@ -1,4 +1,4 @@
-import { el, field, select } from "./api.js?v=2.3.1";
+import { el, field, select } from "./api.js?v=2.4.0";
 
 const DEFAULTS = {
   duration_rule: "total",
@@ -19,6 +19,13 @@ const DEFAULTS = {
   music: "N/A",
   manual_durations: [],
   render_retries: 1,
+  dialogue_timing: "fit",
+  speech_rate: 5.6,
+  speech_lead: 0.4,
+  speech_gap: 0.3,
+  speech_tail: 0.55,
+  edit_preset: "gentle",
+  subtitle_alignment: "speech",
   review_stages: ["outline", "storyboard", "prompt"],
   stages: {
     outline: { provider: "deepseek", model: "", skill: "outline-hook" },
@@ -159,6 +166,55 @@ export function optionsEditor(
       durationGrid,
     ),
   );
+  container.append(
+    section(
+      "对白与节奏",
+      "对白拟合会按实际台词调整新分镜的镜长（4～8 秒）；没有对白的动作镜头沿用原计划。手动指定镜长始终优先，总时长为规划目标。",
+      el(
+        "div",
+        { class: "grid three" },
+        field(
+          "镜长策略",
+          dropdown("dialogue_timing", [
+            { value: "fit", label: "按对白预算拟合（推荐）" },
+            { value: "fixed", label: "保持时长分配，检查对白能否说完" },
+          ]),
+        ),
+        field(
+          "目标语速（字 / 秒）",
+          input("speech_rate", "number", { min: 1, max: 12, step: 0.1 }),
+          "默认 5.6；这是预算，实际人声会在成片质检中测量。",
+        ),
+        field(
+          "起手留白（秒）",
+          input("speech_lead", "number", { min: 0, max: 2, step: 0.05 }),
+        ),
+        field(
+          "句间停顿（秒）",
+          input("speech_gap", "number", { min: 0, max: 2, step: 0.05 }),
+        ),
+        field(
+          "收尾留白（秒）",
+          input("speech_tail", "number", { min: 0, max: 2, step: 0.05 }),
+        ),
+        field(
+          "生成后的剪辑",
+          dropdown("edit_preset", [
+            { value: "original", label: "保留原始节奏" },
+            { value: "gentle", label: "保守收紧（推荐）" },
+            { value: "compact", label: "紧凑剪辑" },
+          ]),
+        ),
+        field(
+          "字幕对齐",
+          dropdown("subtitle_alignment", [
+            { value: "speech", label: "跟随检测人声（推荐）" },
+            { value: "approximate", label: "按字数与镜长近似分配" },
+          ]),
+        ),
+      ),
+    ),
+  );
   const stageBox = el(
     "details",
     { class: "option-section" },
@@ -296,6 +352,10 @@ export function optionsEditor(
                 "shot_count",
                 "seed",
                 "render_retries",
+                "speech_rate",
+                "speech_lead",
+                "speech_gap",
+                "speech_tail",
               ].includes(name)
             ? Number(control.value)
             : name === "manual_durations"

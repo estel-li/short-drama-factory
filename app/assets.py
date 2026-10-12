@@ -106,6 +106,8 @@ class Assets:
                 if asset['type'] != expected:
                     raise ValueError('素材类型与绑定槽位不匹配。')
                 selected.append({k: asset[k] for k in ('id', 'type', 'name', 'file', 'sha256')})
+                if asset.get('character'):
+                    selected[-1]['character'] = asset['character']
                 if 'include_audio' in asset:
                     selected[-1]['include_audio'] = asset['include_audio']
                 selected[-1]['sha256'] = hashlib.sha256(contained(project, asset['file']).read_bytes()).hexdigest()
@@ -115,6 +117,7 @@ class Assets:
                 for asset in reversed(list(assets.values())):
                     if asset.get('character') == cid:
                         result.setdefault('images', []).append({k: asset[k] for k in ('id', 'type', 'name', 'file', 'sha256')})
+                        result['images'][-1]['character'] = cid
                         result['images'][-1]['sha256'] = hashlib.sha256(contained(project, asset['file']).read_bytes()).hexdigest()
                         break
         return result

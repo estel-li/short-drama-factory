@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "model": {
+    "name": "Silero VAD",
+    "version": "6.2.1",
+    "revision": "7e30209a3e901f9842f81b225f3e93d8199902b1",
+    "url": "https://raw.githubusercontent.com/snakers4/silero-vad/7e30209a3e901f9842f81b225f3e93d8199902b1/src/silero_vad/data/silero_vad.onnx",
+    "sha256": "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3",
+    "size": 2327524,
+    "filename": "silero_vad.onnx",
+    "license": "MIT",
+    "source": "https://github.com/snakers4/silero-vad"
+  }
+}

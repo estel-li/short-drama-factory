@@ -42,7 +42,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='2.3.1', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='2.4.0', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -311,7 +311,69 @@ def outline_save(pid: str, body: dict):
 def run_stage(pid: str, stage: str, body: dict):
     if stage not in ('outline', 'storyboard', 'prompt', 'plan', 'render', 'all'):
         raise ValueError('未知阶段。')
+    if body.get('limit') is not None and (type(body['limit']) is not int or not 1 <= body['limit'] <= 150 or stage not in ('all','render')):
+        raise ValueError('试跑数量须为 1～150 个待生成镜头，仅用于视频生成。')
     return {'job_id': worker.enqueue(pid, stage, body)}
+
+
+@app.get('/api/projects/{pid}/preflight')
+def preflight(pid: str):
+    from .quality import story_report
+    project = projects.path(pid)
+    story = projects.get(pid)['story']
+    return story_report(story, projects.options(project)) if story else {'ready': False, 'issues': [], 'shots': [], 'message': '请先生成分镜。'}
+
+
+@app.get('/api/projects/{pid}/quality')
+def quality(pid: str):
+    from .finishing import versions
+    project=projects.path(pid)
+    return {'preflight':preflight(pid),'report':read_json(project/'媒体验收.json'),
+            'versions':versions(project),'current_edit':read_json(project/'current_edit.json')}
+
+
+@app.post('/api/projects/{pid}/finish',status_code=202)
+def finish(pid: str,body:dict):
+    from .finishing import PRESETS
+    from .masking import Mask
+    if body.get('edit_preset','gentle') not in PRESETS:raise ValueError('未知剪辑预设。')
+    from math import isfinite
+    interval=body.get('review_interval',.75)
+    if type(interval) not in (int,float) or not isfinite(interval) or not .1<=interval<=2:raise ValueError('审核抽帧间隔须为 0.1～2 秒。')
+    notes=body.get('notes',[])
+    if not isinstance(notes,list) or len(notes)>100:raise ValueError('注释须为列表，最多 100 条。')
+    for note in notes:
+        if not isinstance(note,dict) or not isinstance(note.get('text'),str) or len(note['text'])>2000:
+            raise ValueError('每条注释须有文字和 start/end 成片时间。')
+        from math import isfinite
+        try:
+            a,b=float(note['start']),float(note['end'])
+            if not isfinite(a) or not isfinite(b) or not 0<=a<b<=1200:raise ValueError()
+        except (KeyError,ValueError,TypeError):raise ValueError('注释时间须为有限数字，0 ≤ start < end ≤ 1200。') from None
+    masks=body.get('masks',[])
+    if not isinstance(masks,list) or len(masks)>100:raise ValueError('遮罩最多 100 条。')
+    masks=[Mask.model_validate(mask).model_dump() for mask in masks]
+    uids={s['uid'] for s in (projects.get(pid)['story'] or {}).get('shots',[])}
+    if any(mask['shot_uid'] not in uids for mask in masks):raise ValueError('遮罩引用的镜头不存在。')
+    return {'job_id':worker.enqueue(pid,'finish',{'edit_preset':body.get('edit_preset','gentle'),'notes':notes,'masks':masks,'review_interval':interval})}
+
+
+@app.post('/api/projects/{pid}/edits/{edit_id}/rebuild',status_code=202)
+def rebuild(pid:str,edit_id:str):
+    from .storage import identifier
+    identifier(edit_id)
+    return {'job_id':worker.enqueue(pid,'rebuild-edit',{'edit_id':edit_id})}
+
+
+@app.post('/api/projects/{pid}/shots/{uid}/template')
+def template_save(pid:str,uid:str,body:dict):
+    from .templates import save_template
+    projects.assert_idle(pid)
+    story=projects.get(pid)['story'];shot=next((s for s in story['shots'] if s['uid']==uid),None)
+    if not shot:raise ValueError('镜头不存在。')
+    name=body.get('name','')
+    if not isinstance(name,str) or len(name)>200:raise ValueError('样板名称最多 200 字。')
+    return save_template(projects.path(pid),story,shot,name)
 
 
 @app.post('/api/resume', status_code=202)
@@ -464,7 +526,7 @@ def import_package(file: UploadFile = File(...)):
 def media(pid: str, relative: str):
     project = projects.path(pid)
     path = contained(project, relative)
-    allowed = path.suffix.lower() in ('.mp4', '.webm', '.mov', '.png', '.jpg', '.jpeg', '.webp', '.wav', '.mp3', '.flac', '.m4a', '.ogg', '.srt', '.txt')
+    allowed = path.suffix.lower() in ('.mp4', '.webm', '.mov', '.png', '.jpg', '.jpeg', '.webp', '.wav', '.mp3', '.flac', '.m4a', '.ogg', '.srt', '.ass', '.txt')
     allowed = allowed or path.name in ('分镜.json', 'outline.json')
     if not path.is_file() or not allowed or any(p.startswith('.') for p in Path(relative).parts):
         raise ValueError('文件不可访问。')

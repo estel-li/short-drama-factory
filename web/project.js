@@ -1,5 +1,5 @@
-import { api, el, field, select, download } from "./api.js?v=2.3.1";
-import { optionsEditor, MODES } from "./options.js?v=2.3.1";
+import { api, el, field, select, download } from "./api.js?v=2.4.0";
+import { optionsEditor, MODES } from "./options.js?v=2.4.0";
 import {
   ProjectDraft,
   STAGES,
@@ -7,13 +7,15 @@ import {
   projectStatus,
   shotRecord,
   continuationIssue,
-} from "./state.js?v=2.3.1";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.3.1";
+} from "./state.js?v=2.4.0";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.4.0";
+import { renderQuality } from "./quality.js?v=2.4.0";
 
 const SCOPES = { story: "分镜", settings: "项目设置", outline: "大纲" };
 const PANEL_NAMES = [
   { id: "story", label: "分镜" },
   { id: "media", label: "成片与镜头" },
+  { id: "quality", label: "质检与剪辑" },
   { id: "outline", label: "故事与大纲" },
   { id: "settings", label: "项目设置" },
   { id: "assets", label: "素材" },
@@ -440,6 +442,7 @@ export class Workspace {
     ({
       story: () => this.renderStoryboard(panel),
       media: () => this.renderMedia(panel),
+      quality: () => renderQuality(this, panel),
       outline: () => this.renderOutline(panel),
       settings: () => this.renderSettings(panel),
       assets: () => this.renderAssets(panel),
@@ -859,6 +862,64 @@ export class Workspace {
         }),
       );
     editor.append(frameCard);
+    const approvedTemplate = select(
+      [
+        { value: "", label: "不使用样板，按 Skill 编写" },
+        ...(this.current.prompt_templates || []).map((t) => ({
+          value: t.id,
+          label: `${t.name} · ${t.mode}`,
+        })),
+      ],
+      shot.prompt_template_id || "",
+    );
+    approvedTemplate.disabled = readOnly;
+    approvedTemplate.onchange = () => {
+      if (approvedTemplate.value)
+        shot.prompt_template_id = approvedTemplate.value;
+      else delete shot.prompt_template_id;
+      mark();
+    };
+    editor.append(
+      field(
+        "已验收提示词样板",
+        approvedTemplate,
+        "样板须匹配实际模式、出场人物及 Ref2VA 参考素材。原台词仍以当前分镜为准。",
+      ),
+    );
+    const preservePerformance = el("input", {
+      type: "checkbox",
+      checked: !!shot.preserve_performance,
+      disabled: this.busy,
+      onchange: (event) => {
+        shot.preserve_performance = event.target.checked;
+        mark();
+      },
+    });
+    editor.append(
+      el(
+        "label",
+        { class: "check" },
+        preservePerformance,
+        "后期保留本镜全部表演与留白",
+      ),
+    );
+    if (record.status === "done")
+      editor.append(
+        this.button(
+          "保存为已验收样板",
+          async () => {
+            if (this.draft.dirty.size && !(await this.saveAll())) return;
+            await api(
+              `/api/projects/${this.current.id}/shots/${shot.uid}/template`,
+              { name: shot.summary.slice(0, 80) || `镜头 ${shot.id}` },
+            );
+            this.services.toast("已保存样板，其他匹配镜头可以选择复用。");
+            await this.services.refresh();
+          },
+          false,
+          { disabled: this.busy },
+        ),
+      );
     const mode = select(MODES, shot.mode || "auto");
     mode.onchange = () => {
       shot.mode = mode.value;

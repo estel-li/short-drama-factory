@@ -92,6 +92,14 @@ class Options(BaseModel):
     dialogue_language: str = Field(default='Chinese', max_length=60)
     narration: bool = False
     music: str = Field(default='N/A', max_length=500)
+    dialogue_timing: Literal['fixed', 'fit'] = 'fit'
+    speech_rate: float = Field(default=5.6, ge=1, le=12)
+    speech_lead: float = Field(default=0.4, ge=0, le=2)
+    speech_gap: float = Field(default=0.3, ge=0, le=2)
+    speech_tail: float = Field(default=0.55, ge=0, le=2)
+    edit_preset: Literal['original', 'gentle', 'compact'] = 'gentle'
+    subtitle_alignment: Literal['speech', 'approximate'] = 'speech'
+    review_interval: float = Field(default=0.75, ge=0.1, le=2)
     stages: dict[str, StageChoice] = Field(default_factory=lambda: {
         'outline': StageChoice(skill='outline-hook'),
         'storyboard': StageChoice(skill='storyboard-fast'),

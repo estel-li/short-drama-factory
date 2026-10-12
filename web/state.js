@@ -20,6 +20,9 @@ export const STATUS = {
   verifying: ["校验中", "running"],
 };
 export const STAGES = {
+  finishing: "质检与后期",
+  finish: "质检与后期",
+  "rebuild-edit": "重建后期版本",
   settings: "项目设置",
   prompts: "提示词版本",
   "generated-storyboard": "AI 分镜",

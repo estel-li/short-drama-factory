@@ -9,6 +9,8 @@
 | H3 官方提示词与参考文档 | [MiniMax-AI/MiniMax-H3](https://github.com/MiniMax-AI/MiniMax-H3) | MiniMax H3 Community License Agreement；各 H3 包保留完整 LICENSE 与 NOTICE |
 | `tools/7zr.exe` | [7-Zip](https://www.7-zip.org/) | 原发行许可见 `tools/7zip-LICENSE.txt`，来源记录在 `tools/7zip-source.json` |
 | Python 运行库 | `requirements.lock.txt` 中的项目 | 安装后分别遵循各库发行许可；不把它们重新授权为 MIT |
+| Silero VAD CPU 模型 | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | MIT；固定 6.2.1 提交与 SHA256 见 `manifests/quality.json`；模型首次使用时独立下载 |
+| ONNX Runtime / NumPy | [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime)、[numpy/numpy](https://github.com/numpy/numpy) | 分别采用 MIT / BSD-3-Clause，发行包保留其许可 |
 | ComfyUI 与模型 | 用户独立安装或通过固定清单下载 | 不随源码仓库提交，分别适用其发行许可和使用条件 |
 
 H3 原声明：

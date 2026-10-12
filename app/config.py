@@ -105,4 +105,5 @@ class ConfigStore:
     def renderer_config(self):
         legacy = read_json(self.root / 'config.json', {})
         legacy.update(self.get()['environment'])
+        legacy['proxy'] = self.get().get('proxy', '')
         return legacy

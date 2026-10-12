@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .schemas import Options, Story, durations
 from .continuity import validate_links
+from .quality import POST_FIELDS, story_report
 from .storage import ROOT, digest, identifier, now, read_json, write_json
 
 
@@ -66,6 +67,7 @@ class Projects:
 
     def get(self, pid):
         project = self.path(pid)
+        from .templates import listing
         return {'id': pid, 'title': self.title(project), 'settings': self.options(project).model_dump(),
                 'busy': self.db.busy(pid),
                 'episode': read_json(project / 'episode.json', {}),
@@ -75,6 +77,7 @@ class Projects:
                 'story': self.normalize(pid, read_json(project / '分镜.json')) if (project / '分镜.json').exists() else None,
                 'assets': read_json(project / 'assets.json', {}),
                 'references': read_json(project / 'references.json', {}),
+                'prompt_templates':listing(project),
                 'versions': read_json(project / 'versions.json', []),
                 'final': (project / '成片.mp4').exists(), 'subtitled': (project / '成片_字幕版.mp4').exists()}
 
@@ -133,6 +136,9 @@ class Projects:
         if old and old != story:
             self.version(project, 'storyboard-before-edit', old)
         old_by_uid = {s['uid']: s for s in self.normalize(pid, old)['shots']} if old else {}
+        old_cast = {c['id']: c for c in (old or {}).get('characters', [])}
+        new_cast = {c['id']: c for c in story.get('characters', [])}
+        changed_cast = {cid for cid in old_cast.keys() | new_cast.keys() if old_cast.get(cid) != new_cast.get(cid)} if old else set()
         changed = []
         for shot in story['shots']:
             before = old_by_uid.get(shot['uid'])
@@ -141,24 +147,30 @@ class Projects:
                 for field in ('id', 'locked'):
                     left.pop(field, None)
                     right.pop(field, None)
-                if left != right:
-                    if before.get('locked') and shot.get('locked'):
+                identity_changed = bool(set(shot['characters']) & changed_cast)
+                if left != right or identity_changed:
+                    native_left={k:v for k,v in left.items() if k not in POST_FIELDS}
+                    native_right={k:v for k,v in right.items() if k not in POST_FIELDS}
+                    native_change=native_left!=native_right or identity_changed
+                    if before.get('locked') and shot.get('locked') and native_change:
                         raise ValueError('请先解锁镜头，再编辑其内容、素材或种子。')
-                    changed.append(shot['uid'])
+                    if native_change:changed.append(shot['uid'])
                     # 明确编辑了提示词时保留；修改剧情时使旧提示词失效。
-                    semantic_left, semantic_right = copy.deepcopy(left), copy.deepcopy(right)
+                    semantic_left, semantic_right = copy.deepcopy(native_left), copy.deepcopy(native_right)
                     for field in ('seed', 'seed_offset'):
                         semantic_left.pop(field, None)
                         semantic_right.pop(field, None)
-                    if before.get('prompt') == shot.get('prompt') and semantic_left != semantic_right:
+                    if before.get('prompt') == shot.get('prompt') and (semantic_left != semantic_right or identity_changed):
                         shot['prompt'] = ''
                         shot.pop('prompt_snapshot', None)
+                        shot.pop('prompt_manual', None)
                     elif before.get('prompt') != shot.get('prompt') and shot.get('prompt'):
                         shot['prompt_manual'] = True
                         shot.pop('prompt_snapshot', None)
             elif shot.get('prompt') and not shot.get('prompt_snapshot'):
                 shot['prompt_manual'] = True
         write_json(project / '分镜.json', story)
+        write_json(project / '出片预检.json', story_report(story, self.options(project)))
         if old != story:
             for path in project.glob('成片*.mp4'):
                 history = project / 'takes' / ('final_' + uuid.uuid4().hex[:8])

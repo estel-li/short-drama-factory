@@ -337,65 +337,11 @@ def timestamp(seconds):
 
 
 def assemble(project, story, clips, ratio, status=None, subtitles=True):
-    normalized = project / 'normalized'
-    normalized.mkdir(exist_ok=True)
-    width, height = canvas(CONFIG['profiles'][load_json(project / 'settings.json')['profile']]['megapixels'], ratio)
-    paths, captions, offset, checks = [], [], 0.0, []
-    for shot, clip in zip(story['shots'], clips, strict=True):
-        if status:
-            status(f'合片准备：镜头 {shot["id"]}/{len(clips)}')
-        info = media_info(clip, verify_timestamps=True)
-        if info['frames'] <= 0 or not info['timestamps_monotonic']:
-            raise RuntimeError('镜头为空或时间戳不递增：' + str(shot['id']))
-        output = normalized / f'{shot["id"]:03d}.mp4'
-        args = ['-i', clip]
-        if not info['audio']:
-            args += ['-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo']
-        args += ['-map', '0:v:0', '-map', '0:a:0' if info['audio'] else '1:a:0',
-                 '-vf', f'scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setpts=N/(24*TB),tpad=stop_mode=clone:stop_duration=1,format=yuv420p',
-                 '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-c:a', 'aac', '-ar', '48000', '-ac', '2',
-                 '-af', f'asetpts=PTS-STARTPTS,apad,atrim=duration={info["duration"]}',
-                 '-frames:v', str(round(info['duration'] * FPS)), '-fps_mode', 'cfr', '-r', str(FPS), '-movflags', '+faststart', output]
-        ffmpeg(args)
-        normalized_info = media_info(output, verify_timestamps=True)
-        expected_frames = round(info['duration'] * FPS)
-        if normalized_info['frames'] != expected_frames or not normalized_info['audio'] or not normalized_info['timestamps_monotonic']:
-            raise RuntimeError('镜头规范化后的帧数、音频或时间戳校验失败。')
-        checks.append({'shot_id': shot['id'], 'uid': shot.get('uid'), 'source': info, 'normalized': normalized_info})
-        paths.append(output)
-        dialogue = shot.get('dialogue', [])
-        usable = max(0.5, info['duration'] - 1.0)
-        total_chars = sum(max(1, len(line['text'])) for line in dialogue)
-        start = offset + 0.4
-        for line in dialogue:
-            end = start + usable * max(1, len(line['text'])) / max(1, total_chars)
-            caption = line['text'].replace('\n', ' ')
-            captions.append(f'{len(captions)+1}\n{timestamp(start)} --> {timestamp(end)}\n{caption}\n')
-            start = end
-        offset += info['duration']
-    listing = normalized / 'concat.txt'
-    listing.write_text(''.join(f"file '{p.name}'\nduration {check['normalized']['frames'] / FPS:.15f}\n" for p, check in zip(paths, checks, strict=True)), encoding='utf-8')
-    clean = project / '成片.mp4'
-    ffmpeg(['-f', 'concat', '-safe', '0', '-i', listing, '-c', 'copy', '-movflags', '+faststart', clean])
-    final_info = media_info(clean, verify_timestamps=True)
-    expected_total = sum(check['normalized']['frames'] for check in checks)
-    if final_info['frames'] != expected_total or not final_info['audio'] or not final_info['timestamps_monotonic'] or abs(final_info['duration'] - expected_total / FPS) > 1 / FPS:
-        raise RuntimeError('合片的帧数、音频或时间戳校验失败，镜头原片已保留。')
-    save_json(project / '媒体验收.json', {'shots': checks, 'final': final_info, 'expected_frames': expected_total,
-                                        'subtitle_timing': '按对白字数分配的近似时间，未做语音识别对齐'})
-    (project / '字幕.srt').write_text('\n'.join(captions), encoding='utf-8')
-    if subtitles and captions:
-        # 固定文件名与工作目录避免 Windows 盘符、中文路径及滤镜转义问题。
-        result = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-y',
-            '-i', '成片.mp4', '-vf', "subtitles=字幕.srt:force_style='FontName=Microsoft YaHei,FontSize=18,Outline=2,MarginV=24'",
-            '-c:v', 'libx264', '-preset', 'fast', '-crf', '18', '-c:a', 'copy', '-movflags', '+faststart', '成片_字幕版.mp4'],
-            cwd=project, capture_output=True, encoding='utf-8', errors='replace', creationflags=0x08000000 if os.name == 'nt' else 0)
-        if result.returncode:
-            raise RuntimeError('无字幕成片已保存，字幕烧录失败：' + result.stderr[-1200:])
-        subtitled_info = media_info(project / '成片_字幕版.mp4', verify_timestamps=True)
-        if subtitled_info['frames'] != expected_total or not subtitled_info['audio']:
-            raise RuntimeError('字幕版帧数或音频校验失败，无字幕成片已保留。')
-    return clean
+    from app.finishing import build
+    settings = load_json(project / 'settings.json')
+    settings['subtitles'] = subtitles
+    width, height = canvas(CONFIG['profiles'][settings['profile']]['megapixels'], ratio)
+    return build(project, story, clips, width, height, settings, status or (lambda text: None),proxy=CONFIG.get('proxy',''))
 
 
 class Runner:
@@ -465,7 +411,7 @@ class Runner:
             if image and image_path.is_file():
                 name = next(c['name'] for c in story['characters'] if c['id'] == cid)
                 refs.append({'image': image, 'name': name,
-                             'sha256': hashlib.sha256(image_path.read_bytes()).hexdigest(), 'local_file': local_file})
+                             'sha256': hashlib.sha256(image_path.read_bytes()).hexdigest(), 'local_file': local_file,'character':cid})
         return refs[:2]
 
     def capture_reference(self, shot, clip):
@@ -599,9 +545,12 @@ class Runner:
                     self.report('已停止，生成完的镜头已保存。', status='paused')
                     return
                 locked_record = records[shot.get('uid') or str(shot['id'])]
+                from app.quality import render_contract
                 from app.continuity import enabled, extract_last_frame, materialize_frame
                 chained = enabled(shot)
                 if not chained and shot.get('locked') and locked_record.get('status') == 'done' and locked_record.get('clip'):
+                    if (locked_record.get('render_contract') and locked_record['render_contract']!=render_contract(story,shot)) or (not locked_record.get('render_contract') and shot.get('uid') in self.state.get('changed_shots',[])):
+                        raise RuntimeError('锁定镜头内容已变化，请解锁并重生成，不能复用旧配音。')
                     locked_clip = Path(locked_record['clip'])
                     if not locked_clip.resolve().is_relative_to(self.project.resolve()):
                         raise RuntimeError('锁定镜头产物不属于当前项目。')
@@ -655,7 +604,7 @@ class Runner:
                 if not clip.resolve().is_relative_to(self.project.resolve()):
                     raise RuntimeError('镜头产物路径不属于当前项目。')
                 if (record.get('signature') == signature or compatible_legacy or shot.get('locked')) and record.get('status') == 'done' and clip.exists():
-                    record.update(signature=signature, model_versions=self.model_versions)
+                    record.update(signature=signature, model_versions=self.model_versions, render_contract=render_contract(story,shot))
                     self.capture_reference(shot, clip)
                     clips.append(clip)
                     continue
@@ -717,6 +666,8 @@ class Runner:
                     raise RuntimeError('生成镜头的帧数、尺寸、原生音频或时间戳校验失败。')
                 record['media'] = info
                 self.state['shots'][str(shot['id'])].update(status='done', clip=str(clip), clip_relative=str(clip.relative_to(self.project)).replace('\\', '/'))
+                record['render_contract']=render_contract(story,shot)
+                self.state['changed_shots']=[uid for uid in self.state.get('changed_shots',[]) if uid!=shot.get('uid')]
                 self.report(f'镜头 {shot["id"]} 已保存。')
                 self.capture_reference(shot, clip)
                 clips.append(clip)
