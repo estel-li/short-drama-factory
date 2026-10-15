@@ -44,6 +44,16 @@ def locked_wheels(folder, requirements):
     return [chosen[name][1] for name in expected]
 
 
+def copy_agent_entrypoints(package):
+    """Ship the same AI entrypoints and operator skill as the source checkout."""
+    package = Path(package)
+    for name in ('AGENTS.md', 'CLAUDE.md', 'GEMINI.md'):
+        shutil.copy2(ROOT / name, package / name)
+    relative = Path('agent-skills/short-drama-factory')
+    shutil.copytree(ROOT / relative, package / relative,
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.tmp'))
+
+
 def build():
     dist = ROOT / 'dist'
     build = dist / ('build-' + time.strftime('%Y%m%d_%H%M%S') + '-' + uuid.uuid4().hex[:6])
@@ -99,6 +109,7 @@ def build():
         shutil.copytree(ROOT / name, package / name, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.tmp'))
     from launcher.seed_resources import seed
     seed(package)
+    copy_agent_entrypoints(package)
     # 用户预设可通过迁移导出；标准安装包只含内置预设。
     (package / 'presets/personal.json').unlink(missing_ok=True)
     for name in ('pipeline.py', 'server.py', 'config.default.json', 'requirements.lock.txt', '启动短剧工厂.cmd', '使用说明.md', '更新说明-2.1.md', '更新说明-2.2.md', '更新说明-2.3.md', '更新说明-2.4.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
@@ -106,7 +117,7 @@ def build():
     write_json(package / 'package.json', {'version': '2.4.1', 'python': PYTHON_VERSION, 'python_sha256': checksum,
         'created_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'platform': 'Windows x64', 'models_included': False,
         'credentials_included': False})
-    (package / 'README.md').write_text('# 短剧工厂便携版\n\n解压到可写目录，双击“启动短剧工厂.cmd”。首次打开“模型与环境”：复用已有 ComfyUI，或选择从零安装。目标电脑需要可用的 NVIDIA 驱动，也可以连接远程服务。模型下载清单固定版本且可恢复。API key 和 HF token 在本机重新填写，标准包不包含模型和私人配置。详细步骤见“使用说明.md”。\n', encoding='utf-8')
+    (package / 'README.md').write_text('# 短剧工厂便携版\n\n> **AI 操作入口：[AGENTS.md](AGENTS.md) → [视频制作 Skill](agent-skills/short-drama-factory/SKILL.md)。**\n\n解压到可写目录，双击“启动短剧工厂.cmd”。首次打开“模型与环境”：复用已有 ComfyUI，或选择从零安装。目标电脑需要可用的 NVIDIA 驱动，也可以连接远程服务。模型下载清单固定版本且可恢复。API key 和 HF token 在本机重新填写，标准包不包含模型和私人配置。详细步骤见“使用说明.md”。\n', encoding='utf-8')
     subprocess.run([str(runtime / 'python.exe'), '-c', 'import fastapi,uvicorn,av,httpx,psutil,numpy,onnxruntime; import app.api; print("portable imports passed")'], cwd=package, check=True, env=build_env)
     output = dist / ('短剧工厂-Windows-x64-' + time.strftime('%Y%m%d_%H%M%S') + '.zip')
     with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=5) as archive:

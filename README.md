@@ -1,5 +1,7 @@
 # 短剧工厂 · Short Drama Factory
 
+> **让 AI 操作本项目：先读 [AGENTS.md](AGENTS.md)，再按 [视频制作 Skill](agent-skills/short-drama-factory/SKILL.md) 执行。** 内含调用脚本、请求模板、故障诊断与成片验收。Claude、Gemini 也有根目录入口文件。
+
 一个运行在本地的 AI 短剧工作台：从灵感、大纲、剧本或已有分镜出发，自动生成分镜和 MiniMax H3 提示词，串行调用 ComfyUI，保存镜头视频并合成为带原生音频的短剧。
 
 文字模型默认使用 DeepSeek，也支持 Ollama、LM Studio 和兼容 OpenAI Chat Completions 接口的服务。大纲、分镜、提示词三个阶段可以分别配置模型与 Skill。
@@ -87,6 +89,16 @@ py -3.13 -m venv .venv
 5. 在项目工作区播放、下载视频，或导出迁移包。
 
 整剧批量生成使用“分集 / 批量”。完整操作见 [使用指南](使用说明.md)。
+
+### 让其他 AI 操作工作台
+
+仓库提供 [short-drama-factory 操作技能](agent-skills/short-drama-factory/SKILL.md)，包含中文操作流程、HTTP 客户端、两种请求模板及故障恢复说明。支持让工厂调用文字模型，或让外部 AI 编写完整分镜和 H3 提示词后直接渲染。另有实战制作经验、只读素材与耗时诊断，以及解码、接缝、字幕三类成片验收指导。
+
+将 `agent-skills/short-drama-factory` 整个文件夹复制到 AI 工具的技能目录；Codex 默认目录为 `~/.codex/skills/`。其他能执行本地命令的 AI 可直接读取其中的 `SKILL.md` 并使用脚本，无需额外 Python 库。这是外部操作技能，不应导入工作台内部的提示词 Skill 列表。
+
+示例请求：`使用 $short-drama-factory，把这份大纲做成 6 镜、9:16 的短片，先检查分镜，再生成并验收。`
+
+AI 需能访问运行工作台的电脑。只有云端聊天能力的 AI 无法直接访问本机端口；技能不会公开服务、携带密钥或自动下载模型。
 
 ## 首帧功能
 

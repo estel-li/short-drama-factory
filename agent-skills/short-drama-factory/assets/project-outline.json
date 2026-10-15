@@ -1,0 +1,25 @@
+{
+  "input": "标题：雨停之前。一个带着旧蓝伞的年轻邮递员在雨巷里找到等待回信的老人，将迟到多年的信交到他手中。老人读信后微笑，把屋檐下的一杯热茶递给邮递员。六个镜头，温暖克制，中文短对白，人物服装和伞保持一致。",
+  "start": false,
+  "options": {
+    "input_mode": "outline",
+    "execution_mode": "auto",
+    "duration_rule": "count",
+    "total_seconds": 24,
+    "shot_count": 6,
+    "shot_seconds": 4,
+    "style": "温暖的二维动漫短剧，柔和光影，统一人物造型",
+    "genre": "治愈",
+    "ratio": "9:16",
+    "profile": "draft",
+    "auto_reference": true,
+    "subtitles": true,
+    "h3_mode": "auto",
+    "dialogue_language": "Chinese",
+    "stages": {
+      "outline": {"provider": "deepseek", "model": "", "skill": "outline-hook"},
+      "storyboard": {"provider": "deepseek", "model": "", "skill": "storyboard-fast"},
+      "prompt": {"provider": "deepseek", "model": "", "skill": "h3-t2va"}
+    }
+  }
+}
