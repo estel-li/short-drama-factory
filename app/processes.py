@@ -1,6 +1,36 @@
 import ctypes
 import os
+import subprocess
 from pathlib import Path
+
+
+def run_process(args, *, cancel=None, **kwargs):
+    """Reap only the child we launched when a CPU job is cancelled."""
+    from .providers import Cancelled
+    if cancel is None:
+        return subprocess.run(args, **kwargs)
+    if cancel():
+        raise Cancelled('后期任务已停止，原片和已有成片已保留。')
+    if kwargs.pop('capture_output', False):
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    process = subprocess.Popen(args, **kwargs)
+    try:
+        while True:
+            if cancel():
+                raise Cancelled('后期任务已停止，原片和已有成片已保留。')
+            try:
+                stdout, stderr = process.communicate(timeout=.2)
+                return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired:
+                continue
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
 
 
 class InstanceLock:

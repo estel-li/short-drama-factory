@@ -44,7 +44,7 @@ def ensure_comfy(status=None):
             '--disable-auto-launch', '--disable-api-nodes', '--reserve-vram', '1.5',
             '--cache-none', '--disable-pinned-memory', '--disable-async-offload',
             '--disable-comfy-compiler', '--disable-all-custom-nodes', '--whitelist-custom-nodes',
-            'ComfyUI-DramaFactory']
+            'ComfyUI-DramaFactory-Runtime']
     if CONFIG.get('fast_disk', True):
         args.append('--fast-disk')
     if CONFIG.get('disable_dynamic_vram', False):
@@ -54,6 +54,32 @@ def ensure_comfy(status=None):
         args += ['--extra-model-paths-config', str(model_paths)]
     stamp = time.strftime('%Y%m%d_%H%M%S')
     process_env = os.environ.copy()
+    # Portable installs must not depend on the launcher's system temp directory.
+    temporary = ROOT / 'data/comfy-temp'
+    temporary.mkdir(parents=True, exist_ok=True)
+    for name in ('TEMP', 'TMP', 'TMPDIR'):
+        process_env[name] = str(temporary)
+    numba_cache = ROOT / 'data/numba-cache'
+    numba_cache.mkdir(parents=True, exist_ok=True)
+    process_env['NUMBA_CACHE_DIR'] = str(numba_cache)
+    runtime = ROOT / 'data/comfy-runtime'
+    for kind in ('input', 'output', 'user', 'temp', 'cache'):
+        (runtime / kind).mkdir(parents=True, exist_ok=True)
+    for kind in ('input', 'output', 'user', 'temp'):
+        args += ['--' + kind + '-directory', str(runtime / kind)]
+    args += ['--database-url', 'sqlite:///' + (runtime / 'user/comfyui.db').as_posix()]
+    process_env['DRAMA_FACTORY_CACHE_DIR'] = str(runtime / 'cache')
+    bundled_node = ROOT / 'nodes/ComfyUI-DramaFactory'
+    if not bundled_node.is_dir():
+        raise RuntimeError('随包缓存节点缺失，请重新解压完整工作台。')
+    shutil.copytree(bundled_node, runtime / 'custom_nodes/ComfyUI-DramaFactory-Runtime', dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+    import yaml
+    node_paths = runtime / 'node_paths.yaml'
+    node_paths.write_text(yaml.safe_dump({'drama_factory_runtime': {'base_path': str(runtime),
+                          'custom_nodes': 'custom_nodes', 'is_default': True}}, allow_unicode=True), encoding='utf-8')
+    args += ['--extra-model-paths-config', str(node_paths)]
+    (ROOT / 'logs').mkdir(parents=True, exist_ok=True)
     if CONFIG.get('safe_file_read', True):
         process_env['DRAMA_SAFE_FILE_READ'] = '1'
     with (ROOT / f'logs/comfy_{stamp}.stdout.log').open('wb') as out, (ROOT / f'logs/comfy_{stamp}.stderr.log').open('wb') as err:
@@ -109,10 +135,8 @@ def api(path, data=None):
 
 
 def cache_exists(category, filename, local_path):
-    if CONFIG.get('mode') == 'remote':
-        from urllib.parse import urlencode
-        return api('/drama/cache?' + urlencode({'category': category, 'filename': filename}))['exists']
-    return local_path.is_file()
+    from urllib.parse import urlencode
+    return api('/drama/cache?' + urlencode({'category': category, 'filename': filename}))['exists']
 
 
 def validate_story(story, max_shots=150):
@@ -336,12 +360,14 @@ def timestamp(seconds):
     return f'{h:02d}:{m:02d}:{s:02d},{ms:03d}'
 
 
-def assemble(project, story, clips, ratio, status=None, subtitles=True):
+def assemble(project, story, clips, ratio, status=None, subtitles=True, cancel=None):
     from app.finishing import build
     settings = load_json(project / 'settings.json')
+    if (project / 'finishing-settings.json').is_file():
+        settings.update(load_json(project / 'finishing-settings.json'))
     settings['subtitles'] = subtitles
     width, height = canvas(CONFIG['profiles'][settings['profile']]['megapixels'], ratio)
-    return build(project, story, clips, width, height, settings, status or (lambda text: None),proxy=CONFIG.get('proxy',''))
+    return build(project, story, clips, width, height, settings, status or (lambda text: None),cancel=cancel,proxy=CONFIG.get('proxy',''))
 
 
 class Runner:
@@ -409,6 +435,14 @@ class Runner:
             if not image_path.resolve().is_relative_to(image_root.resolve()):
                 raise RuntimeError('参考素材路径越出允许目录。')
             if image and image_path.is_file():
+                if not local_file:
+                    local_file = 'assets/legacy_ref_' + cid + image_path.suffix
+                    target = self.project / local_file
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(image_path, target)
+                    image_path = target
+                    assets[cid] = {**(asset if isinstance(asset, dict) else {'image':image,'shot_id':origin}), 'local_file':local_file}
+                    save_json(self.project / 'references.json', assets)
                 name = next(c['name'] for c in story['characters'] if c['id'] == cid)
                 refs.append({'image': image, 'name': name,
                              'sha256': hashlib.sha256(image_path.read_bytes()).hexdigest(), 'local_file': local_file,'character':cid})
@@ -439,18 +473,8 @@ class Runner:
         target = self.project / local_relative
         target.parent.mkdir(parents=True, exist_ok=True)
         ffmpeg(['-ss', '0.6', '-i', clip, '-frames:v', '1', target])
-        if CONFIG.get('mode') == 'remote':
-            headers = {'Authorization': 'Bearer ' + CONFIG['comfy_auth_token']} if CONFIG.get('comfy_auth_token') else {}
-            with target.open('rb') as source:
-                response = requests.post(CONFIG['comfy_url'] + '/upload/image', files={'image': (target.name, source)},
-                    data={'subfolder': f'drama_refs/{self.project.name}', 'type': 'input', 'overwrite': 'true'}, headers=headers, timeout=60)
-            response.raise_for_status()
-            uploaded = response.json()
-            relative = uploaded.get('subfolder', '') + '/' + uploaded['name']
-        else:
-            remote_target = Path(CONFIG['comfy_dir']) / 'input' / relative
-            remote_target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(target, remote_target)
+        from app.comfyio import upload_file
+        relative = upload_file(target, f'drama_refs/{self.project.name}', target.name, CONFIG['comfy_url'], CONFIG.get('comfy_auth_token',''))
         assets[cast[0]] = {'image': relative, 'shot_id': shot['id'], 'shot_uid': shot.get('uid'), 'local_file': local_relative,
                           'sha256': hashlib.sha256(target.read_bytes()).hexdigest(), 'clip_sha256': clip_hash}
         save_json(path, assets)
@@ -545,11 +569,11 @@ class Runner:
                     self.report('已停止，生成完的镜头已保存。', status='paused')
                     return
                 locked_record = records[shot.get('uid') or str(shot['id'])]
-                from app.quality import render_contract
+                from app.quality import render_contract, render_contract_matches
                 from app.continuity import enabled, extract_last_frame, materialize_frame
                 chained = enabled(shot)
                 if not chained and shot.get('locked') and locked_record.get('status') == 'done' and locked_record.get('clip'):
-                    if (locked_record.get('render_contract') and locked_record['render_contract']!=render_contract(story,shot)) or (not locked_record.get('render_contract') and shot.get('uid') in self.state.get('changed_shots',[])):
+                    if (locked_record.get('render_contract') and not render_contract_matches(locked_record['render_contract'],story,shot)) or (not locked_record.get('render_contract') and shot.get('uid') in self.state.get('changed_shots',[])):
                         raise RuntimeError('锁定镜头内容已变化，请解锁并重生成，不能复用旧配音。')
                     locked_clip = Path(locked_record['clip'])
                     if not locked_clip.resolve().is_relative_to(self.project.resolve()):
@@ -650,16 +674,8 @@ class Runner:
                 if not source.resolve().is_relative_to(output_root.resolve()):
                     raise RuntimeError('ComfyUI 返回了无效的输出路径。')
                 clip.parent.mkdir(exist_ok=True)
-                if CONFIG.get('mode') == 'remote':
-                    headers = {'Authorization': 'Bearer ' + CONFIG['comfy_auth_token']} if CONFIG.get('comfy_auth_token') else {}
-                    response = requests.get(CONFIG['comfy_url'] + '/view', params={k: item[k] for k in ('filename', 'subfolder', 'type') if k in item},
-                                            headers=headers, stream=True, timeout=60)
-                    response.raise_for_status()
-                    with response, clip.open('wb') as output:
-                        for block in response.iter_content(1024 * 1024):
-                            output.write(block)
-                else:
-                    shutil.copy2(source, clip)
+                from app.comfyio import download_file
+                download_file(item, clip, CONFIG['comfy_url'], CONFIG.get('comfy_auth_token',''), self.stop.is_set)
                 info = media_info(clip, verify_timestamps=True)
                 expected_width, expected_height = canvas(CONFIG['profiles'][settings['profile']]['megapixels'], settings['ratio'])
                 if info['frames'] != frames(shot['duration']) or (info['width'], info['height']) != (expected_width, expected_height) or not info['audio'] or not info['timestamps_monotonic']:
@@ -673,7 +689,7 @@ class Runner:
                 clips.append(clip)
                 render_count += 1
             self.report('全部镜头完成，正在合片与生成字幕……', status='assembling', current_stage='assembling')
-            output = assemble(self.project, story, clips, settings['ratio'], self.report, settings.get('subtitles', True))
+            output = assemble(self.project, story, clips, settings['ratio'], self.report, settings.get('subtitles', True),cancel=lambda: self.stop.is_set() or (self.project / '.stop').exists())
             self.report('短剧已完成。', status='complete', current_stage='done', output=str(output))
         except Exception as exc:
             self.report(str(exc), status='error')

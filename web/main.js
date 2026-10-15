@@ -1,8 +1,8 @@
-import { api, el, field, select, download } from "./api.js?v=2.4.0";
-import { optionsEditor } from "./options.js?v=2.4.0";
-import { Workspace } from "./project.js?v=2.4.0";
-import { STAGES, isBusy, projectStatus } from "./state.js?v=2.4.0";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.4.0";
+import { api, el, field, select, download } from "./api.js?v=2.4.1";
+import { optionsEditor } from "./options.js?v=2.4.1";
+import { Workspace } from "./project.js?v=2.4.1";
+import { STAGES, isBusy, projectStatus } from "./state.js?v=2.4.1";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.4.1";
 const $ = (id) => document.getElementById(id);
 let config,
   presets,
@@ -32,6 +32,7 @@ let projectListStamp = "",
   newFormTouched = false,
   seriesFormTouched = false;
 let userNavigated = false;
+let booted = false;
 let skillRevision = 0,
   skillLoadVersion = 0,
   appliedSkillFilter = "all",
@@ -197,6 +198,7 @@ async function boot() {
     environmentTab = "comfy";
     renderEnvironmentTabs();
   }
+  booted = true;
 }
 function schedulePreview(options) {
   newFormTouched = true;
@@ -379,7 +381,11 @@ function renderProjectList() {
             (workspace.current?.id === project.id ? " selected" : ""),
           "aria-current":
             workspace.current?.id === project.id ? "true" : undefined,
-          onclick: () => act(() => openProject(project.id)),
+          onclick: () =>
+            project.unavailable
+              ? toast(project.state.message, true)
+              : act(() => openProject(project.id)),
+          title: project.unavailable ? project.state.message : title,
         },
         el("span", { class: "project-name" }, title),
         el(
@@ -546,7 +552,7 @@ function poll() {
   clearTimeout(pollTimer);
   pollTimer = setTimeout(async () => {
     try {
-      if (!document.hidden) await refresh();
+      if (!document.hidden && booted) await refresh();
     } catch {
       $("connection-warning").hidden = false;
     } finally {
@@ -554,7 +560,8 @@ function poll() {
     }
   }, 4000);
 }
-$("retry-connection").onclick = (event) => act(refresh, event.currentTarget);
+$("retry-connection").onclick = (event) =>
+  act(booted ? refresh : boot, event.currentTarget);
 function renderSeriesList() {
   const stamp = JSON.stringify([seriesList, currentSeries?.id]);
   if (stamp === seriesListStamp) return;
@@ -1877,5 +1884,5 @@ $("transfer-import").onchange = (event) =>
     );
     event.target.value = "";
   });
-await act(boot);
+if ((await act(boot)) === false) $("connection-warning").hidden = false;
 poll();

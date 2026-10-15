@@ -1,5 +1,5 @@
-import { api, el, field, select, download } from "./api.js?v=2.4.0";
-import { optionsEditor, MODES } from "./options.js?v=2.4.0";
+import { api, el, field, select, download } from "./api.js?v=2.4.1";
+import { optionsEditor, MODES } from "./options.js?v=2.4.1";
 import {
   ProjectDraft,
   STAGES,
@@ -7,11 +7,17 @@ import {
   projectStatus,
   shotRecord,
   continuationIssue,
-} from "./state.js?v=2.4.0";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.4.0";
-import { renderQuality } from "./quality.js?v=2.4.0";
+  finishingPayload,
+} from "./state.js?v=2.4.1";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.4.1";
+import { renderQuality } from "./quality.js?v=2.4.1";
 
-const SCOPES = { story: "分镜", settings: "项目设置", outline: "大纲" };
+const SCOPES = {
+  story: "分镜",
+  settings: "项目设置",
+  outline: "大纲",
+  quality: "后期设置",
+};
 const PANEL_NAMES = [
   { id: "story", label: "分镜" },
   { id: "media", label: "成片与镜头" },
@@ -78,6 +84,7 @@ export class Workspace {
         this.draft.data.story,
         this.draft.data.outline,
         this.draft.data.settings,
+        this.draft.data.quality,
         Object.values(this.current.state.shots || {}).map((record) => [
           record.status,
           record.clip_relative,
@@ -94,6 +101,7 @@ export class Workspace {
       this.draft.data.story,
       this.draft.data.outline,
       this.draft.data.settings,
+      this.draft.data.quality,
       Object.values(project.state.shots || {}).map((record) => [
         record.status,
         record.clip_relative,
@@ -162,12 +170,20 @@ export class Workspace {
         throw Error("大纲 JSON 格式有误。请检查引号、逗号和括号。");
       }
       await api(`/api/projects/${pid}/outline`, outline);
+    } else if (scope === "quality") {
+      await api(
+        `/api/projects/${pid}/finishing-settings`,
+        finishingPayload(value),
+      );
     } else await api(`/api/projects/${pid}/settings`, value);
     const next = await api("/api/project/" + pid);
     this.draft.commit(scope, revision, next);
   }
   async saveAll() {
     if (this.saving) return false;
+    const nativeChanges = ["story", "settings", "outline"].some((scope) =>
+      this.draft.dirty.has(scope),
+    );
     const invalid = this.container.querySelector(
       "input:invalid,select:invalid,textarea:invalid",
     );
@@ -189,7 +205,7 @@ export class Workspace {
     this.saving = true;
     this.renderSaveBar();
     try {
-      for (const scope of ["outline", "settings", "story"])
+      for (const scope of ["outline", "settings", "story", "quality"])
         if (this.draft.dirty.has(scope)) await this.save(scope);
       this.render();
       await this.services.refresh();
@@ -199,7 +215,11 @@ export class Workspace {
         );
         return false;
       }
-      this.services.toast("修改已保存。受影响的提示词和视频会在继续时更新。");
+      this.services.toast(
+        nativeChanges
+          ? "修改已保存。受影响的提示词和视频会在继续时更新。"
+          : "后期设置已保存，将在下次质检或合片时使用。",
+      );
       return true;
     } catch (error) {
       this.services.toast(error.message, true);

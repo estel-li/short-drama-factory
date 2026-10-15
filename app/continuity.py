@@ -120,23 +120,10 @@ def extract_last_frame(project, shot, previous, clip, cancel=None):
 
 def materialize_frame(project, asset, config):
     """Also support the standalone pipeline and remote ComfyUI."""
-    import shutil
+    from .comfyio import upload_file
     path = contained(project, asset['file'])
     subfolder = 'drama_assets/' + Path(project).name
     name = asset['sha256'][:20] + '.png'
     value = dict(asset)
-    if config.get('mode') == 'remote':
-        headers = {'Authorization': 'Bearer ' + config['comfy_auth_token']} if config.get('comfy_auth_token') else {}
-        with path.open('rb') as source:
-            response = requests.post(config['comfy_url'] + '/upload/image', files={'image': (name, source)},
-                                     data={'subfolder': subfolder, 'type': 'input', 'overwrite': 'true'}, headers=headers, timeout=60)
-        response.raise_for_status()
-        uploaded = response.json()
-        value['comfy_file'] = uploaded.get('subfolder', '') + '/' + uploaded['name']
-    else:
-        target = contained(Path(config['comfy_dir']) / 'input', subfolder + '/' + name)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.is_file() or hashlib.sha256(target.read_bytes()).hexdigest() != asset['sha256']:
-            shutil.copy2(path, target)
-        value['comfy_file'] = subfolder + '/' + name
+    value['comfy_file'] = upload_file(path, subfolder, name, config['comfy_url'], config.get('comfy_auth_token',''))
     return value

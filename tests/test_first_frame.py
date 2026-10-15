@@ -180,7 +180,14 @@ class FirstFrameTests(unittest.TestCase):
                     value.sample = lambda graph, shot, signature: graph
                     value.wait = lambda prompt_id: {'filename':'test.mp4','subfolder':'','type':'output'}
                     return value
-                with patch('pipeline.ensure_comfy'), patch('pipeline.validate_graph'), patch('pipeline.api', side_effect=api), patch('pipeline.assemble', return_value=project/'成片.mp4'):
+                def upload(path, subfolder, name, url, token=''):
+                    target=Path(pipeline.CONFIG['comfy_dir'])/'input'/subfolder/name
+                    target.parent.mkdir(parents=True,exist_ok=True)
+                    target.write_bytes(Path(path).read_bytes())
+                    return subfolder+'/'+name
+                def download(item, target, *args):
+                    Path(target).write_bytes(source.read_bytes())
+                with patch('pipeline.ensure_comfy'), patch('pipeline.validate_graph'), patch('pipeline.api', side_effect=api), patch('pipeline.assemble', return_value=project/'成片.mp4'), patch('app.comfyio.upload_file',side_effect=upload), patch('app.comfyio.download_file',side_effect=download):
                     first = runner()
                     first.run()
                     self.assertEqual(len(submitted), 2)

@@ -36,11 +36,12 @@ def model_session(path, mtime_ns):
     return ort.InferenceSession(path, sess_options=settings, providers=['CPUExecutionProvider'])
 
 
-def pcm_audio(path, duration):
+def pcm_audio(path, duration, cancel=None):
     import numpy as np
-    result = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error',
+    from .processes import run_process
+    result = run_process([imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error',
         '-i', str(path), '-map', '0:a:0', '-vn', '-af', f'aresample={SAMPLE_RATE}:async=1:first_pts=0,atrim=duration={duration:.9f}',
-        '-ac', '1', '-ar', str(SAMPLE_RATE), '-f', 'f32le', 'pipe:1'], capture_output=True,
+        '-ac', '1', '-ar', str(SAMPLE_RATE), '-f', 'f32le', 'pipe:1'], capture_output=True,cancel=cancel,
         creationflags=0x08000000 if os.name == 'nt' else 0)
     if result.returncode:
         raise RuntimeError('无法解码音频用于质检：' + result.stderr.decode('utf-8', 'replace')[-800:])

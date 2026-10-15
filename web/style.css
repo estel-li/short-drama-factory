@@ -1897,6 +1897,48 @@ pre {
   overflow-wrap: anywhere;
 }
 /* Production quality workbench */
+.quality-panel > h2 {
+  margin: 28px 0 12px;
+}
+.quality-panel > h2:first-child {
+  margin-top: 0;
+}
+.quality-panel > button {
+  margin: 12px 8px 8px 0;
+}
+.quality-panel .option-section {
+  margin: 16px 0;
+}
+.quality-panel small {
+  overflow-wrap: anywhere;
+}
+.note-editor {
+  margin: 12px 0 20px;
+}
+.note-row {
+  display: grid;
+  grid-template-columns: 110px 110px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 14px;
+  border: 1px solid var(--line, #e7e4ef);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.note-row .field {
+  margin: 0;
+}
+.note-row button {
+  margin-bottom: 4px;
+}
+@media (max-width: 760px) {
+  .note-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .note-row .field:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+}
 .quality-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

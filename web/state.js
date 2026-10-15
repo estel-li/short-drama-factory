@@ -12,6 +12,7 @@ export const STATUS = {
   review: ["待检查", "warning"],
   paused: ["已暂停", "warning"],
   error: ["遇到问题", "error"],
+  unavailable: ["目录或记录不可用", "error"],
   cancelled: ["已停止", "neutral"],
   planned: ["已规划", "neutral"],
   unplanned: ["待规划", "neutral"],
@@ -84,7 +85,7 @@ export function shotRecord(project, shot) {
 export class ProjectDraft {
   constructor(project) {
     this.dirty = new Set();
-    this.revisions = { story: 0, settings: 0, outline: 0 };
+    this.revisions = { story: 0, settings: 0, outline: 0, quality: 0 };
     this.data = {};
     this.ingest(project);
   }
@@ -96,6 +97,18 @@ export class ProjectDraft {
       outline: project.outline_result
         ? JSON.stringify(project.outline_result, null, 2)
         : project.outline || "",
+      quality: {
+        preset:
+          project.finishing_settings?.edit_preset ??
+          project.settings.edit_preset ??
+          "gentle",
+        interval:
+          project.finishing_settings?.review_interval ??
+          project.settings.review_interval ??
+          0.75,
+        notes: JSON.stringify(project.finishing_settings?.notes || [], null, 2),
+        masks: JSON.stringify(project.finishing_settings?.masks || [], null, 2),
+      },
     };
     for (const [scope, value] of Object.entries(data)) {
       if (this.dirty.has(scope)) continue;
@@ -126,6 +139,24 @@ export class ProjectDraft {
     this.dirty.clear();
     this.ingest(this.project);
   }
+}
+
+export function finishingPayload(draft) {
+  let notes, masks;
+  try {
+    notes = JSON.parse(draft.notes);
+    masks = JSON.parse(draft.masks);
+  } catch {
+    throw Error("注释或遮罩 JSON 格式不正确，原输入已保留。");
+  }
+  if (!Array.isArray(notes) || !Array.isArray(masks))
+    throw Error("注释和遮罩必须是 JSON 数组，暂不使用时填写 []。");
+  return {
+    edit_preset: draft.preset,
+    review_interval: draft.interval,
+    notes,
+    masks,
+  };
 }
 
 export function continuationIssue(shots, index) {

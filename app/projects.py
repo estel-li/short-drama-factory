@@ -21,11 +21,19 @@ class Projects:
     def refresh(self):
         roots = {ROOT / 'projects', Path(self.config.get()['projects_dir'])}
         for root in roots:
-            root.mkdir(parents=True, exist_ok=True)
-            for folder in root.iterdir():
+            try:
+                root.mkdir(parents=True, exist_ok=True)
+                folders = list(root.iterdir())
+            except OSError:
+                continue  # An offline project disk must not prevent the workbench from opening.
+            for folder in folders:
                 if folder.is_dir() and (folder / 'settings.json').exists():
-                    story = read_json(folder / '分镜.json', {})
-                    self.db.index(folder, self.title(folder, story), touch=False)
+                    try:
+                        story = read_json(folder / '分镜.json', {})
+                        title = self.title(folder, story)
+                    except (OSError, ValueError, AttributeError):
+                        title = folder.name
+                    self.db.index(folder, title, touch=False)
 
     def title(self, project, story=None):
         story = story if story is not None else read_json(project / '分镜.json', {})
@@ -55,9 +63,16 @@ class Projects:
             busy_ids = {row[0] for row in db.execute("SELECT DISTINCT project_id FROM jobs WHERE status IN ('queued','running')")}
         for row in rows:
             row['busy'] = row['id'] in busy_ids
-            row.pop('path', None)
-            row['state'] = read_json(self.path(row['id']) / 'state.json', {})
-            row['episode'] = read_json(self.path(row['id']) / 'episode.json', {})
+            path = Path(row.pop('path'))
+            try:
+                if not path.is_dir():
+                    raise OSError('项目目录不可用，请连接原磁盘或恢复目录后刷新。')
+                row['state'] = read_json(path / 'state.json', {})
+                row['episode'] = read_json(path / 'episode.json', {})
+                if not isinstance(row['state'], dict) or not isinstance(row['episode'], dict):
+                    raise ValueError('项目记录格式错误。')
+            except (OSError, ValueError):
+                row.update(unavailable=True, state={'status':'unavailable','message':'项目目录或记录暂时无法读取。请连接原磁盘或恢复文件后刷新，其他项目仍可使用。'}, episode={})
         return rows
 
     def options(self, project):
@@ -78,6 +93,7 @@ class Projects:
                 'assets': read_json(project / 'assets.json', {}),
                 'references': read_json(project / 'references.json', {}),
                 'prompt_templates':listing(project),
+                'finishing_settings':read_json(project / 'finishing-settings.json'),
                 'versions': read_json(project / 'versions.json', []),
                 'final': (project / '成片.mp4').exists(), 'subtitled': (project / '成片_字幕版.mp4').exists()}
 
@@ -90,11 +106,7 @@ class Projects:
             raise ValueError('未知生成质量预设。')
         pid = time.strftime('%Y%m%d_%H%M%S') + '_' + uuid.uuid4().hex[:6]
         project = Path(self.config.get()['projects_dir']) / pid
-        project.mkdir(parents=True)
-        (project / '大纲.txt').write_text(text, encoding='utf-8')
-        write_json(project / 'settings.json', options.model_dump())
-        write_json(project / 'state.json', {'status': 'new', 'shots': {}, 'message': '项目已创建。', 'stages': {}})
-        self.db.index(project, self.title(project))
+        story = None
         if options.input_mode == 'storyboard':
             if storyboard is None:
                 try:
@@ -102,6 +114,12 @@ class Projects:
                 except ValueError as exc:
                     raise ValueError('已有分镜模式需要合法的分镜 JSON。') from exc
             story = self.normalize(pid, storyboard)
+        project.mkdir(parents=True)
+        (project / '大纲.txt').write_text(text, encoding='utf-8')
+        write_json(project / 'settings.json', options.model_dump())
+        write_json(project / 'state.json', {'status': 'new', 'shots': {}, 'message': '项目已创建。', 'stages': {}})
+        self.db.index(project, self.title(project))
+        if story is not None:
             self.save_story(pid, story)
         return project
 

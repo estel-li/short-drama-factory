@@ -5,6 +5,7 @@ import {
   projectStatus,
   isBusy,
   continuationIssue,
+  finishingPayload,
 } from "../web/state.js";
 import { api, ApiError, el } from "../web/api.js";
 
@@ -22,6 +23,27 @@ const project = () => ({
     premise: "story",
     beats: [{ description: "beat" }],
   },
+});
+test("editing settings survive polling and participate in save/discard protection", () => {
+  const draft = new ProjectDraft(project());
+  draft.data.quality.notes = '[{"start":0,"end":1.2,"text":"说明"}]';
+  draft.data.quality.interval = 0.25;
+  draft.mark("quality");
+  const snapshot = draft.snapshot("quality");
+  draft.ingest(project());
+  assert.equal(draft.dirty.has("quality"), true);
+  const payload = finishingPayload(draft.data.quality);
+  assert.equal(payload.notes[0].text, "说明");
+  assert.equal(payload.review_interval, 0.25);
+  const saved = { ...project(), finishing_settings: payload };
+  draft.commit("quality", snapshot.revision, saved);
+  assert.equal(draft.dirty.size, 0);
+  assert.deepEqual(finishingPayload(new ProjectDraft(saved).data.quality), payload);
+  draft.data.quality.notes = "{broken";
+  draft.mark("quality");
+  assert.throws(() => finishingPayload(draft.data.quality), /原输入已保留/);
+  draft.discard();
+  assert.equal(finishingPayload(draft.data.quality).notes[0].text, "说明");
 });
 test("an unchanged poll preserves object references used by live input handlers", () => {
   const draft = new ProjectDraft(project()),

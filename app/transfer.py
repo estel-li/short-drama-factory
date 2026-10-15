@@ -12,11 +12,12 @@ from pathlib import Path
 from .schemas import Options, Provider
 from .storage import ROOT, contained, identifier, read_json, write_json
 
-TEXT_SUFFIXES = {'.json', '.txt', '.md', '.srt'}
+TEXT_SUFFIXES = {'.json', '.txt', '.md', '.srt', '.ass'}
 MEDIA_SUFFIXES = {'.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm', '.wav', '.mp3', '.flac', '.m4a', '.ogg', '.mov'}
 PROJECT_FILES = {'大纲.txt', 'outline.json', '分镜.json', 'settings.json', 'state.json', 'assets.json', 'references.json', 'versions.json',
-                 'renderer_snapshot.json', '媒体验收.json', '成片.mp4', '成片_字幕版.mp4', '字幕.srt', 'episode.json'}
-PROJECT_FOLDERS = {'assets', 'clips', 'versions', 'requests', 'prompts', 'takes'}
+                 'renderer_snapshot.json', '媒体验收.json', '成片.mp4', '成片_字幕版.mp4', '字幕.srt', '字幕.ass', 'episode.json',
+                 'finishing-settings.json', 'current_edit.json', '出片预检.json'}
+PROJECT_FOLDERS = {'assets', 'clips', 'versions', 'requests', 'prompts', 'takes', 'edits', 'source_cache', 'prompt_templates'}
 
 
 class Transfer:
@@ -33,6 +34,19 @@ class Transfer:
         for secret in self.secrets():
             text = text.replace(secret, '[REDACTED]')
         return json.loads(text) if not isinstance(value, str) else text
+
+    def write_media(self, archive, name, path):
+        secrets = [value.encode() for value in self.secrets()]
+        overlap = max([len(value) for value in secrets] or [1]) - 1
+        checksum = hashlib.sha256(); tail = b''
+        with path.open('rb') as source, archive.open(name, 'w', force_zip64=True) as target:
+            for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                combined = tail + chunk
+                if any(value in combined for value in secrets):
+                    raise ValueError('素材包含私密认证信息，无法导出：' + path.name)
+                tail = combined[-overlap:] if overlap else b''
+                checksum.update(chunk); target.write(chunk)
+        return checksum.hexdigest()
 
     def export(self, pids=None, include_videos=False):
         pids = pids or []
@@ -79,10 +93,23 @@ class Transfer:
                     if not path.is_file():
                         continue
                     relative = path.relative_to(project)
+                    if not path.resolve().is_relative_to(project.resolve()):
+                        raise ValueError('项目包含指向外部目录的文件，请先复制素材到项目内。')
                     if not (len(relative.parts) == 1 and path.name in PROJECT_FILES or relative.parts[0] in PROJECT_FOLDERS):
                         continue
                     if path.suffix.lower() not in TEXT_SUFFIXES | MEDIA_SUFFIXES or not include_videos and relative.parts[0] != 'assets' and path.suffix.lower() in ('.mp4', '.webm', '.mov'):
                         continue
+                    if not include_videos and (relative.parts[0] in ('edits', 'source_cache') or path.name in ('current_edit.json', '媒体验收.json')):
+                        continue
+                    if relative.parts[0] == 'edits':
+                        if len(relative.parts) < 3 or not (project / 'edits' / relative.parts[1] / 'completed.json').is_file():continue
+                        if relative.parts[2] != 'review' and path.name not in ('recipe.json','completed.json','媒体验收.json','成片.mp4','成片_字幕版.mp4','字幕.ass','字幕.srt'):continue
+                    name = 'projects/' + pid + '/' + str(relative).replace('\\', '/')
+                    if path.suffix.lower() in MEDIA_SUFFIXES:
+                        manifest['files'][name] = self.write_media(archive, name, path)
+                        continue
+                    if path.stat().st_size > 12_000_000:
+                        raise ValueError('项目文本记录超过 12MB，请拆分后再迁移：' + path.name)
                     content = path.read_bytes()
                     if path.suffix in TEXT_SUFFIXES:
                         content = self.redact(content.decode('utf-8-sig')).encode('utf-8')
@@ -90,7 +117,6 @@ class Transfer:
                         content = json.dumps(self.redact(state), ensure_ascii=False, indent=2).encode()
                     if path.name == 'references.json' and len(relative.parts) == 1:
                         content = json.dumps(self.redact(refs), ensure_ascii=False, indent=2).encode()
-                    name = 'projects/' + pid + '/' + str(relative).replace('\\', '/')
                     if any(secret.encode() in content for secret in self.secrets()):
                         raise ValueError('素材包含私密认证信息，无法导出：' + str(relative))
                     archive.writestr(name, content)
@@ -108,6 +134,8 @@ class Transfer:
         with zipfile.ZipFile(source) as archive:
             if sum(item.file_size for item in archive.infolist()) > 4 * 1024**3 or len(archive.infolist()) > 50000:
                 raise ValueError('迁移包过大。')
+            if 'transfer.json' not in archive.namelist() or archive.getinfo('transfer.json').file_size > 12_000_000:
+                raise ValueError('迁移包缺少有效清单，或清单超过 12MB。')
             manifest = json.loads(archive.read('transfer.json'))
             if manifest.get('kind') != 'drama-factory-transfer' or manifest.get('version') != 2:
                 raise ValueError('不是支持的短剧工厂迁移包。')
@@ -123,16 +151,23 @@ class Transfer:
                 if relative.suffix.lower() not in TEXT_SUFFIXES | MEDIA_SUFFIXES:
                     raise ValueError('迁移包文件类型不允许。')
                 target = contained(stage, name)
-                content = archive.read(name)
-                if hashlib.sha256(content).hexdigest() != expected:
-                    raise ValueError('迁移包文件校验失败：' + relative.name)
+                if relative.suffix.lower() in TEXT_SUFFIXES and archive.getinfo(name).file_size > 12_000_000:
+                    raise ValueError('项目文本记录超过 12MB：' + relative.name)
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(content)
+                checksum = hashlib.sha256()
+                with archive.open(name) as incoming, target.open('wb') as output:
+                    for chunk in iter(lambda: incoming.read(1024 * 1024), b''):
+                        checksum.update(chunk); output.write(chunk)
+                if checksum.hexdigest() != expected:
+                    raise ValueError('迁移包文件校验失败：' + relative.name)
         # 在写入用户目录前校验项目和所有 skill 内容。
         for pid in manifest['projects']:
             folder = stage / 'projects' / identifier(pid)
             Options.model_validate(read_json(folder / 'settings.json'))
             self.projects.normalize(pid, read_json(folder / '分镜.json')) if (folder / '分镜.json').exists() else None
+            if (folder / 'finishing-settings.json').exists():
+                from .finishing_settings import validate_settings
+                validate_settings(read_json(folder / 'finishing-settings.json'), read_json(folder / '分镜.json'))
             state = read_json(folder / 'state.json', {})
             for collection in ('shots', 'shots_by_uid'):
                 for record in state.get(collection, {}).values():

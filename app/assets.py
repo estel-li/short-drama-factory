@@ -140,21 +140,8 @@ class Assets:
                 value['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
                 subfolder = 'drama_assets/' + project.name
                 name = value['sha256'][:20] + path.suffix
-                if env.get('mode', 'existing') == 'remote':
-                    with path.open('rb') as source:
-                        headers = {'Authorization': 'Bearer ' + self.config.key('comfy')} if self.config.key('comfy') else {}
-                        response = requests.post(env['comfy_url'] + '/upload/image', files={'image': (name, source)},
-                            data={'subfolder': subfolder, 'type': 'input', 'overwrite': 'true'}, headers=headers, timeout=60)
-                    if not response.ok:
-                        raise RuntimeError('向远程 ComfyUI 上传素材失败 HTTP ' + str(response.status_code))
-                    uploaded = response.json()
-                    value['comfy_file'] = uploaded.get('subfolder', '') + '/' + uploaded['name']
-                else:
-                    target = contained(Path(env['comfy_dir']) / 'input', subfolder + '/' + name)
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    if not target.exists():
-                        shutil.copy2(path, target)
-                    value['comfy_file'] = subfolder + '/' + name
+                from .comfyio import upload_file
+                value['comfy_file'] = upload_file(path, subfolder, name, env['comfy_url'], self.config.key('comfy'))
                 mapped.append(value)
             result[kind] = mapped if multiple else mapped[0] if mapped else None
         return result

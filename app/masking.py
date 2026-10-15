@@ -65,8 +65,9 @@ def mask_frame(mask,time,width,height):
     return alpha
 
 
-def apply_masks(source,output,masks,width,height,frames,folder,fps=24):
+def apply_masks(source,output,masks,width,height,frames,folder,fps=24,cancel=None):
     from .finishing import ffmpeg,verify
+    from .providers import Cancelled
     selected=[Mask.model_validate(mask) for mask in masks]
     if not selected:return source,[]
     folder.mkdir(parents=True,exist_ok=True)
@@ -78,6 +79,7 @@ def apply_masks(source,output,masks,width,height,frames,folder,fps=24):
         with av.open(str(path),'w') as container:
             stream=container.add_stream('ffv1',rate=fps);stream.width=width;stream.height=height;stream.pix_fmt='gray'
             for frame_index in range(frames):
+                if cancel and cancel():raise Cancelled('遮罩生成已停止，原片已保留。')
                 alpha=mask_frame(mask,frame_index/fps,width,height)
                 coverage.append(alpha.histogram()[255]/(width*height))
                 frame=av.VideoFrame.from_image(alpha);frame.pts=frame_index;frame.time_base=Fraction(1,fps)
@@ -93,5 +95,5 @@ def apply_masks(source,output,masks,width,height,frames,folder,fps=24):
                         'foreground_tracks':len(mask.protect),'note':'逐帧生成 alpha；前景保护依赖所提供的轨迹，须查看审核帧确认没有残字或遮住人物。'})
     arguments+=['-filter_complex',';'.join(graph),'-map',f'[{current}]','-map','0:a:0','-c:v','libx264',
                 '-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','copy','-frames:v',frames,'-movflags','+faststart',output]
-    ffmpeg(arguments);verify(output,frames,width,height)
+    ffmpeg(arguments,cancel=cancel);verify(output,frames,width,height)
     return output,reports

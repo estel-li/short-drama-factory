@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, Request, UploadFile, File
@@ -42,13 +43,19 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='2.4.0', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='2.4.1', lifespan=lifespan)
 
 
 @app.middleware('http')
 async def local_origin(request: Request, call_next):
     origin = request.headers.get('origin')
     host = request.headers.get('host', '')
+    try:
+        hostname = urlsplit('//' + host).hostname
+    except ValueError:
+        hostname = None
+    if hostname not in ('127.0.0.1', 'localhost', '::1'):
+        return JSONResponse({'error': '工作台仅接受本机地址，请使用 127.0.0.1 或 localhost。'}, status_code=403)
     if request.method not in ('GET', 'HEAD') and origin and origin not in ('http://' + host, 'https://' + host):
         return JSONResponse({'error': '请求来源不允许。'}, status_code=403)
     try:
@@ -67,7 +74,8 @@ def validation_message(errors):
     labels = {'body':'', 'characters':'人物列表', 'shots':'分镜', 'title':'标题', 'premise':'故事主线',
               'beats':'剧情节拍', 'duration':'时长', 'visual_description':'人物外观', 'id':'编号', 'uid':'镜头编号',
               'use_previous_last_frame':'首帧功能', 'scene':'场景', 'seed':'随机种子', 'providers':'提供商',
-              'base_url':'服务地址', 'name':'名称', 'settings':'项目设置', 'profile':'视频质量'}
+              'base_url':'服务地址', 'name':'名称', 'settings':'项目设置', 'profile':'视频质量',
+              'notes':'成片注释','masks':'遮罩','start':'开始时间','end':'结束时间','text':'文字','review_interval':'抽帧间隔','edit_preset':'剪辑强度'}
     messages = {'list_type':'请填写列表格式（JSON 数组）', 'dict_type':'请填写对象格式（JSON 对象）',
                 'string_type':'请填写文字', 'bool_type':'请填写 true 或 false', 'bool_parsing':'请填写 true 或 false',
                 'missing':'请补充这一项', 'int_parsing':'请填写整数', 'int_type':'请填写整数',
@@ -326,42 +334,39 @@ def preflight(pid: str):
 
 @app.get('/api/projects/{pid}/quality')
 def quality(pid: str):
-    from .finishing import versions
+    from .finishing import versions, readiness
     project=projects.path(pid)
     return {'preflight':preflight(pid),'report':read_json(project/'媒体验收.json'),
-            'versions':versions(project),'current_edit':read_json(project/'current_edit.json')}
+            'finishing':readiness(project,projects.get(pid)['story']),
+            'versions':versions(project),'current_edit':read_json(project/'current_edit.json') if (project/'成片.mp4').is_file() else None}
+
+
+@app.post('/api/projects/{pid}/finishing-settings')
+def save_finishing_settings(pid: str, body: dict):
+    from .finishing_settings import validate_settings
+    projects.assert_idle(pid)
+    project = projects.path(pid)
+    value = validate_settings(body, projects.get(pid)['story'])
+    write_json(project / 'finishing-settings.json', value)
+    return value
 
 
 @app.post('/api/projects/{pid}/finish',status_code=202)
 def finish(pid: str,body:dict):
-    from .finishing import PRESETS
-    from .masking import Mask
-    if body.get('edit_preset','gentle') not in PRESETS:raise ValueError('未知剪辑预设。')
-    from math import isfinite
-    interval=body.get('review_interval',.75)
-    if type(interval) not in (int,float) or not isfinite(interval) or not .1<=interval<=2:raise ValueError('审核抽帧间隔须为 0.1～2 秒。')
-    notes=body.get('notes',[])
-    if not isinstance(notes,list) or len(notes)>100:raise ValueError('注释须为列表，最多 100 条。')
-    for note in notes:
-        if not isinstance(note,dict) or not isinstance(note.get('text'),str) or len(note['text'])>2000:
-            raise ValueError('每条注释须有文字和 start/end 成片时间。')
-        from math import isfinite
-        try:
-            a,b=float(note['start']),float(note['end'])
-            if not isfinite(a) or not isfinite(b) or not 0<=a<b<=1200:raise ValueError()
-        except (KeyError,ValueError,TypeError):raise ValueError('注释时间须为有限数字，0 ≤ start < end ≤ 1200。') from None
-    masks=body.get('masks',[])
-    if not isinstance(masks,list) or len(masks)>100:raise ValueError('遮罩最多 100 条。')
-    masks=[Mask.model_validate(mask).model_dump() for mask in masks]
-    uids={s['uid'] for s in (projects.get(pid)['story'] or {}).get('shots',[])}
-    if any(mask['shot_uid'] not in uids for mask in masks):raise ValueError('遮罩引用的镜头不存在。')
-    return {'job_id':worker.enqueue(pid,'finish',{'edit_preset':body.get('edit_preset','gentle'),'notes':notes,'masks':masks,'review_interval':interval})}
+    from .finishing_settings import validate_settings
+    from .finishing import collect_clips
+    projects.assert_idle(pid)
+    project=projects.path(pid);story=projects.get(pid)['story']
+    value=validate_settings(body,story)
+    collect_clips(project,story)
+    return {'job_id':worker.enqueue(pid,'finish',value)}
 
 
 @app.post('/api/projects/{pid}/edits/{edit_id}/rebuild',status_code=202)
 def rebuild(pid:str,edit_id:str):
-    from .storage import identifier
-    identifier(edit_id)
+    from .finishing import load_recipe
+    projects.assert_idle(pid)
+    load_recipe(projects.path(pid),edit_id)
     return {'job_id':worker.enqueue(pid,'rebuild-edit',{'edit_id':edit_id})}
 
 
@@ -369,7 +374,7 @@ def rebuild(pid:str,edit_id:str):
 def template_save(pid:str,uid:str,body:dict):
     from .templates import save_template
     projects.assert_idle(pid)
-    story=projects.get(pid)['story'];shot=next((s for s in story['shots'] if s['uid']==uid),None)
+    story=projects.get(pid)['story'];shot=next((s for s in (story or {}).get('shots',[]) if s['uid']==uid),None)
     if not shot:raise ValueError('镜头不存在。')
     name=body.get('name','')
     if not isinstance(name,str) or len(name)>200:raise ValueError('样板名称最多 200 字。')
@@ -386,7 +391,7 @@ def regenerate_shot(pid: str, uid: str, body: dict):
     import secrets
     projects.assert_idle(pid)
     story = projects.get(pid)['story']
-    shot = next((s for s in story['shots'] if s['uid'] == uid), None)
+    shot = next((s for s in (story or {}).get('shots',[]) if s['uid'] == uid), None)
     if not shot:
         raise ValueError('镜头不存在。')
     if shot['locked']:
@@ -404,6 +409,8 @@ def regenerate_shot(pid: str, uid: str, body: dict):
 @app.post('/api/stop')
 def stop(body: dict):
     worker.stop(body['id'])
+    if worker.active and worker.active['project_id'] == body['id'] and worker.active.get('kind') in ('finish', 'rebuild-edit'):
+        return {'message': '已请求停止后期，当前处理进程将终止，原片和已有成片版本会保留。'}
     if body.get('immediate'):
         return {'message': '已请求立即停止，仅中断确认属于本项目的生成任务。', **worker.interrupt_owned(body['id'])}
     return {'message': '将停止文字阶段，或在当前镜头完成后停止。成果会保留。'}

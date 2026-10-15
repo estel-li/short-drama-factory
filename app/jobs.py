@@ -51,6 +51,8 @@ class Worker:
         import pipeline
         if not self.active or self.active['project_id'] != pid:
             return {'interrupted': False}
+        if self.active.get('kind') not in ('all', 'render'):
+            return {'interrupted': False}
         state = read_json(self.projects.path(pid) / 'state.json', {})
         owned = {record[field] for record in state.get('shots', {}).values() for field in ('prompt_id', 'sampling_prompt_id', 'encoding_prompt_id') if record.get(field)}
         queue = pipeline.api('/queue')
@@ -153,14 +155,10 @@ class Worker:
 
         requested = job['kind']
         if requested in ('finish','rebuild-edit'):
-            from .finishing import build, collect_clips
+            from .finishing import build, collect_clips, load_recipe
             story=self.projects.get(pid)['story']
             if requested=='rebuild-edit':
-                from .storage import contained, identifier
-                folder=contained(project/'edits',identifier(payload['edit_id']))
-                if not (folder/'completed.json').is_file():raise ValueError('所选版本尚未完成。')
-                recipe=read_json(folder/'recipe.json')
-                if digest(recipe)!=read_json(folder/'媒体验收.json')['recipe_hash']:raise ValueError('版本配方已改变，请创建新版本，不能冒充原版本重建。')
+                recipe=load_recipe(project,payload['edit_id'])
                 clips=[];width,height=recipe['width'],recipe['height'];settings=recipe['settings']
             else:
                 recipe=None;clips=collect_clips(project,story)

@@ -16,16 +16,50 @@ import imageio_ffmpeg
 from .downloads import Downloader
 from .editplan import PRESETS, align_captions, edit_plan
 from .providers import Cancelled
-from .quality import render_contract, spoken_units
+from .quality import render_contract_matches, spoken_units
 from .speech import analyze_audio, ensure_model, pcm_audio
 from .storage import contained, digest, now, read_json, write_json
 
 FPS = 24
 
 
+def readiness(project, story):
+    """Cheap readiness for the UI; full provenance is checked again before queueing."""
+    shots = (story or {}).get('shots', [])
+    state = read_json(Path(project) / 'state.json', {})
+    missing, outdated = [], []
+    for index, shot in enumerate(shots):
+        record = state.get('shots_by_uid', {}).get(shot.get('uid'), state.get('shots', {}).get(str(shot['id']), {}))
+        clip = Path(record.get('clip') or Path(project) / record.get('clip_relative', 'missing.mp4'))
+        if record.get('status') != 'done' or not clip.is_file() or not clip.resolve().is_relative_to(Path(project).resolve()):
+            missing.append(shot['id'])
+        elif (shot.get('uid') in state.get('changed_shots', [])
+              or record.get('render_contract') and not render_contract_matches(record['render_contract'], story, shot)
+              or shot.get('use_previous_last_frame') and (index == 0 or record.get('first_frame', {}).get('source_shot_uid') != shots[index - 1].get('uid'))):
+            outdated.append(shot['id'])
+    ready = bool(shots) and not missing and not outdated
+    messages = []
+    if missing: messages.append('缺少原片的镜头：' + '、'.join(map(str, missing)))
+    if outdated: messages.append('内容或首帧已改变，必须重生成的镜头：' + '、'.join(map(str, outdated)))
+    return {'ready': ready, 'total': len(shots), 'completed': len(shots) - len(missing), 'missing': missing, 'outdated': outdated,
+            'message': '原片已齐，可以进行 CPU 后期。' if ready else '；'.join(messages) or '请先完成分镜和镜头生成。'}
+
+
+def load_recipe(project, edit_id):
+    from .storage import identifier
+    folder = contained(Path(project) / 'edits', identifier(edit_id))
+    if not (folder / 'completed.json').is_file():
+        raise ValueError('所选版本不存在或尚未完成。')
+    recipe = read_json(folder / 'recipe.json')
+    if digest(recipe) != read_json(folder / '媒体验收.json', {}).get('recipe_hash'):
+        raise ValueError('版本配方已改变，请创建新版本，不能冒充原版本重建。')
+    return recipe
+
+
 def collect_clips(project, story):
     """Reject a changed script over old native speech before zero-render finishing."""
     from .content import prompt_valid
+    if not story or not story.get('shots'):raise ValueError('请先完成分镜和镜头生成。')
     project=Path(project);state=read_json(project/'state.json',{});result=[]
     for index,shot in enumerate(story['shots']):
         record=state.get('shots_by_uid',{}).get(shot.get('uid'),state.get('shots',{}).get(str(shot['id']),{}))
@@ -37,7 +71,7 @@ def collect_clips(project, story):
             if index==0 or frame.get('source_shot_uid')!=story['shots'][index-1].get('uid') or frame.get('source_clip_sha256')!=Downloader.checksum(result[-1]):
                 raise ValueError(f"镜头 {shot['id']} 的上一镜头或首帧依赖已改变，必须重生成接续镜头。")
         if record.get('render_contract'):
-            if record['render_contract']!=render_contract(story,shot):
+            if not render_contract_matches(record['render_contract'],story,shot):
                 raise ValueError(f"镜头 {shot['id']} 的剧本或台词已改变，必须重生成，不能只修改字幕。")
         else:
             graph=read_json(project/'prompts'/f"{shot['id']:03d}.json",{})
@@ -67,16 +101,17 @@ def versions(project):
         if not (folder/'completed.json').is_file():continue
         report=read_json(folder/'媒体验收.json',{})
         recipe=read_json(folder/'recipe.json',{})
-        result.append({'id':folder.name,'created_at':recipe.get('created_at'),'preset':recipe.get('settings',{}).get('edit_preset'),
+        result.append({'id':folder.name,'created_at':read_json(folder/'completed.json',{}).get('completed_at') or recipe.get('created_at'),'preset':recipe.get('settings',{}).get('edit_preset'),
                        'seconds':report.get('edited_seconds'),'original_seconds':report.get('original_seconds'),
                        'subtitled':(folder/'成片_字幕版.mp4').is_file(),'frames':report.get('expected_frames')})
     return sorted(result,key=lambda value:value['id'],reverse=True)
 
 
-def ffmpeg(args, cwd=None):
+def ffmpeg(args, cwd=None, cancel=None):
     if '-filter_complex' in args and '-af' in args:
         raise ValueError('音频过滤必须并入复合滤镜，不能同时使用 -af。')
-    result = subprocess.run([imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-y', *map(str,args)],
+    from .processes import run_process
+    result = run_process([imageio_ffmpeg.get_ffmpeg_exe(), '-hide_banner', '-loglevel', 'error', '-y', *map(str,args)], cancel=cancel,
                             cwd=cwd,capture_output=True,encoding='utf-8',errors='replace',
                             creationflags=0x08000000 if os.name=='nt' else 0)
     if result.returncode:
@@ -93,7 +128,7 @@ def verify(path, expected, width=None, height=None):
     return value
 
 
-def normalize(source, output, width, height, info):
+def normalize(source, output, width, height, info, cancel=None):
     count=round(info['duration']*FPS)
     args=['-i',source]
     if not info['audio']:args+=['-f','lavfi','-i','anullsrc=r=48000:cl=stereo']
@@ -102,11 +137,11 @@ def normalize(source, output, width, height, info):
            '-af',f'asetpts=PTS-STARTPTS,apad,atrim=duration={count/FPS:.9f}',
            '-c:v','libx264','-preset','fast','-crf','18','-c:a','aac','-ar','48000','-ac','2',
            '-frames:v',count,'-r',FPS,'-fps_mode','cfr','-movflags','+faststart',output]
-    ffmpeg(args)
+    ffmpeg(args, cancel=cancel)
     return verify(output,count,width,height)
 
 
-def render_cut(source, output, plan):
+def render_cut(source, output, plan, cancel=None):
     keep=plan['keep_frames']
     if keep==[[0,plan['source_frames']]]:
         shutil.copy2(source,output)
@@ -121,11 +156,11 @@ def render_cut(source, output, plan):
         graph += [''.join(f'[cv{i}][ca{i}]' for i in range(n))+f'concat=n={n}:v=1:a=1[v][a]']
         ffmpeg(['-i',source,'-filter_complex',';'.join(graph),'-map','[v]','-map','[a]',
                 '-c:v','libx264','-preset','fast','-crf','18','-c:a','aac','-ar','48000','-ac','2',
-                '-pix_fmt','yuv420p','-frames:v',plan['output_frames'],'-r',FPS,'-fps_mode','cfr','-movflags','+faststart',output])
+                '-pix_fmt','yuv420p','-frames:v',plan['output_frames'],'-r',FPS,'-fps_mode','cfr','-movflags','+faststart',output],cancel=cancel)
     return verify(output,plan['output_frames'])
 
 
-def concatenate(folder, outputs, checks, clean):
+def concatenate(folder, outputs, checks, clean, cancel=None):
     """Copy video packets; decode/trim each AAC stream before one audio encode."""
     if len(outputs)==1:
         shutil.copy2(outputs[0],clean)
@@ -134,7 +169,7 @@ def concatenate(folder, outputs, checks, clean):
     silent=[]
     for i,output in enumerate(outputs):
         video=folder/f'video_{i:03d}.mp4'
-        ffmpeg(['-i',output,'-map','0:v:0','-an','-c:v','copy',video])
+        ffmpeg(['-i',output,'-map','0:v:0','-an','-c:v','copy',video],cancel=cancel)
         silent.append(video)
     listing.write_text(''.join(f"file '{p.name}'\nduration {c['edited']['frames']/FPS:.15f}\n" for p,c in zip(silent,checks,strict=True)),encoding='utf-8')
     args=['-f','concat','-safe','0','-i',listing.name]
@@ -145,7 +180,7 @@ def concatenate(folder, outputs, checks, clean):
         graph.append(f'[{i}:a]aresample=48000:async=1:first_pts=0,apad,atrim=duration={duration:.15f},asetpts=N/SR/TB[a{i}]')
     graph.append(''.join(f'[a{i}]' for i in range(1,len(outputs)+1))+f'concat=n={len(outputs)}:v=0:a=1[a]')
     ffmpeg(args+['-filter_complex',';'.join(graph),'-map','0:v:0','-map','[a]',
-                 '-c:v','copy','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',clean.name],cwd=folder)
+                 '-c:v','copy','-c:a','aac','-ar','48000','-ac','2','-movflags','+faststart',clean.name],cwd=folder,cancel=cancel)
 
 
 def ass_time(seconds):
@@ -260,19 +295,19 @@ def build(project, story, clips, width, height, settings, status=lambda text:Non
         path=contained(project,source['file'])
         if Downloader.checksum(path,cancel)!=source['sha256']:raise RuntimeError('版本原片快照已改变，不能静默重建其他内容。')
         info=media_info(path,True);normal=folder/f'normal_{index:03d}.mp4'
-        normalized=normalize(path,normal,width,height,info)
+        normalized=normalize(path,normal,width,height,info,cancel)
         if frozen:
             analysis=copy.deepcopy(frozen[index]['analysis']);plan=copy.deepcopy(frozen[index]['plan'])
             if plan['source_frames']!=normalized['frames']:raise RuntimeError('冻结计划与原片帧数不一致。')
         else:
-            samples=pcm_audio(normal,normalized['duration'])
+            samples=pcm_audio(normal,normalized['duration'],cancel)
             analysis=analyze_audio(samples,normalized['duration'],model,cancel)
             next_link=index+1<len(story['shots']) and story['shots'][index+1].get('use_previous_last_frame',False)
             plan=edit_plan(shot,normalized['frames'],analysis,preset,preserve_start=shot.get('use_previous_last_frame',False),preserve_end=next_link)
         from .masking import apply_masks
         selected_masks=[mask for mask in recipe.get('masks',[]) if mask['shot_uid']==shot.get('uid')]
-        masked,mask_report=apply_masks(normal,folder/f'masked_{index:03d}.mp4',selected_masks,width,height,normalized['frames'],folder/f'masks_{index:03d}')
-        output=folder/f'shot_{index:03d}.mp4';result=render_cut(masked,output,plan)
+        masked,mask_report=apply_masks(normal,folder/f'masked_{index:03d}.mp4',selected_masks,width,height,normalized['frames'],folder/f'masks_{index:03d}',cancel=cancel)
+        output=folder/f'shot_{index:03d}.mp4';result=render_cut(masked,output,plan,cancel)
         effective=analysis if subtitle_mode=='speech' else {}
         lines=copy.deepcopy(frozen[index]['captions']) if frozen else align_captions(shot,effective,plan['keep_frames'],normalized['duration'])
         local_captions=copy.deepcopy(lines)
@@ -283,7 +318,7 @@ def build(project, story, clips, width, height, settings, status=lambda text:Non
                        'preview_source':str(masked.relative_to(folder)).replace('\\','/'),
                        'spoken_units':sum(spoken_units(x['text']) for x in shot.get('dialogue',[]))})
     clean=folder/'成片.mp4'
-    concatenate(folder,outputs,checks,clean)
+    concatenate(folder,outputs,checks,clean,cancel)
     expected=sum(c['plan']['output_frames'] for c in checks);final=verify(clean,expected,width,height)
     if any(not 0<=float(note['start'])<float(note['end'])<=expected/FPS for note in recipe.get('notes',[])):
         raise ValueError('注释必须使用本版本成片时间轴，不能超出最终时长。')
@@ -291,7 +326,7 @@ def build(project, story, clips, width, height, settings, status=lambda text:Non
     files=['成片.mp4','字幕.srt','字幕.ass','媒体验收.json']
     if burn and (captions or recipe.get('notes')):
         # The actual candidate is the only input. Root-level previous films are never read.
-        ffmpeg(['-i','成片.mp4','-vf','ass=字幕.ass','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','copy','-movflags','+faststart','成片_字幕版.mp4'],cwd=folder)
+        ffmpeg(['-i','成片.mp4','-vf','ass=字幕.ass','-c:v','libx264','-preset','fast','-crf','18','-pix_fmt','yuv420p','-c:a','copy','-movflags','+faststart','成片_字幕版.mp4'],cwd=folder,cancel=cancel)
         verify(folder/'成片_字幕版.mp4',expected,width,height);files.append('成片_字幕版.mp4')
     recipe['finishing']=[{k:c[k] for k in ('analysis','plan','captions')} for c in checks]
     write_json(folder/'recipe.json',recipe)
@@ -309,5 +344,6 @@ def build(project, story, clips, width, height, settings, status=lambda text:Non
     report['review']=evidence(folder,checks,outputs,sample_interval=settings.get('review_interval') or .75,cancel=cancel)
     write_json(folder/'媒体验收.json',report)
     write_json(folder/'completed.json',{'files':{name:Downloader.checksum(folder/name,cancel) for name in files},'completed_at':now()})
+    if cancel and cancel():raise Cancelled('后期任务已停止，已有成片未替换。')
     if publish_result:publish(project,folder,files)
     return project/'成片.mp4' if publish_result else clean

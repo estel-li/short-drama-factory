@@ -11,11 +11,29 @@ from .storage import digest
 POST_FIELDS = {'dialogue_timings', 'preserve_performance', 'annotations', 'masks'}
 
 
-def render_contract(story, shot):
+def _render_data(story, shot):
     fields = ('uid','scene','scene_id','summary','camera','action','duration','characters','continuity_group',
               'use_previous_last_frame','dialogue','prompt','mode','bindings','seed','seed_offset','props')
-    return digest({'shot':{key:shot.get(key) for key in fields},
-                   'characters':[c for c in story.get('characters',[]) if c['id'] in shot.get('characters',[])]})
+    return {'shot':{key:shot.get(key) for key in fields},
+            'characters':[c for c in story.get('characters',[]) if c['id'] in shot.get('characters',[])]}
+
+
+def render_contract(story, shot):
+    value = _render_data(story, shot)
+    if value['shot']['duration'] is not None:
+        value['shot']['duration'] = float(value['shot']['duration'])
+    return digest(value)
+
+
+def render_contract_matches(expected, story, shot):
+    if expected == render_contract(story, shot):return True
+    # 2.4 recorded default durations as integers before the next Pydantic read.
+    value = _render_data(story, shot)
+    duration = value['shot']['duration']
+    if isinstance(duration, (int, float)) and float(duration).is_integer():
+        value['shot']['duration'] = int(duration)
+        return expected == digest(value)
+    return False
 
 
 def script_dialogue(text):

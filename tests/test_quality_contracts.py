@@ -10,7 +10,7 @@ from app import api
 from app.content import REF_FIELDS
 from app.finishing import publish
 from app.quality import render_contract
-from app.storage import write_json
+from app.storage import write_json, digest
 from app.templates import listing,save_template,selected
 from tests import test_ui_contracts as contracts
 
@@ -46,20 +46,29 @@ class ProductionContractsTests(unittest.TestCase):
     def test_quality_and_pilot_api_validate_before_queueing(self):
         with tempfile.TemporaryDirectory() as directory:
             projects,db,project=contracts.UIContractsTests().setup_project(directory)
-            projects.save_story(project.name,{'title':'review','shots':[{'summary':'one'}]})
+            story=projects.save_story(project.name,{'title':'review','shots':[{'summary':'one'}]})
             calls=[]
             class Worker:
                 def enqueue(self,*args):calls.append(args);return 'test-job'
             with patch.object(api,'projects',projects),patch.object(api,'worker',Worker()):
-                client=TestClient(api.app);base='/api/projects/'+project.name
+                client=TestClient(api.app, base_url='http://127.0.0.1');base='/api/projects/'+project.name
                 self.assertTrue(client.get(base+'/quality').json()['preflight']['ready'])
                 self.assertEqual(client.post(base+'/stage/render',json={'limit':True}).status_code,400)
                 self.assertEqual(client.post(base+'/stage/render',json={'limit':0}).status_code,400)
                 self.assertEqual(client.post(base+'/stage/render',json={'limit':1}).status_code,202)
                 self.assertEqual(calls[-1][2]['limit'],1)
                 self.assertEqual(client.post(base+'/finish',json={'edit_preset':'invalid'}).status_code,400)
+                self.assertEqual(client.post(base+'/finish',json={'edit_preset':'compact','notes':[]}).status_code,400)
+                self.assertEqual(client.post(base+'/edits/version-one/rebuild').status_code,400)
+                self.assertEqual(len(calls),1)
+                clip=project/'clip.mp4';clip.write_bytes(b'fixture for route provenance')
+                write_json(project/'state.json',{'shots_by_uid':{story['shots'][0]['uid']:{'status':'done','clip':str(clip),'render_contract':render_contract(story,story['shots'][0])}}})
                 self.assertEqual(client.post(base+'/finish',json={'edit_preset':'compact','notes':[]}).status_code,202)
                 self.assertEqual(calls[-1][1],'finish')
+                recipe={'version':1,'story':story,'width':160,'height':256,'settings':{},'sources':[]}
+                write_json(project/'edits/version-one/recipe.json',recipe)
+                write_json(project/'edits/version-one/completed.json',{'files':{}})
+                write_json(project/'edits/version-one/媒体验收.json',{'recipe_hash':digest(recipe)})
                 self.assertEqual(client.post(base+'/edits/version-one/rebuild').status_code,202)
                 self.assertEqual(calls[-1][1],'rebuild-edit')
 

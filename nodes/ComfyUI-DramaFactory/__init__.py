@@ -1,6 +1,7 @@
 """Local tensor-only conditioning cache for staged H3 generation."""
 
 import json
+import os
 import asyncio
 import hashlib
 import threading
@@ -56,7 +57,7 @@ def model_file_info(category, filename):
         raise ValueError('Unknown model file.')
     path = Path(folder_paths.get_full_path(category, filename))
     stat = path.stat()
-    index_path = Path(folder_paths.get_user_directory()) / 'default/drama_model_index.json'
+    index_path = Path(os.environ['DRAMA_FACTORY_CACHE_DIR']) / 'model_index.json' if os.environ.get('DRAMA_FACTORY_CACHE_DIR') else Path(folder_paths.get_user_directory()) / 'default/drama_model_index.json'
     with MODEL_INDEX_LOCK:
         index = json.loads(index_path.read_text()) if index_path.exists() else {}
         record = index.get(str(path), {})
@@ -105,10 +106,10 @@ async def drama_cache_status(request):
 
 
 def cache_path(name):
-    root = Path(folder_paths.models_dir) / 'embeddings'
+    root = Path(os.environ['DRAMA_FACTORY_CACHE_DIR']) / 'conditioning' if os.environ.get('DRAMA_FACTORY_CACHE_DIR') else Path(folder_paths.models_dir) / 'embeddings'
     target = (root / name).resolve()
     if not target.is_relative_to(root.resolve()) or target.suffix != '.safetensors':
-        raise ValueError('Conditioning cache must be a safetensors file inside models/embeddings.')
+        raise ValueError('Conditioning cache must be a safetensors file inside the configured cache directory.')
     return target
 
 
@@ -180,7 +181,7 @@ class DramaLoadConditioning:
 
 
 def latent_path(filename):
-    root = Path(folder_paths.get_output_directory()) / 'drama_latents'
+    root = Path(os.environ['DRAMA_FACTORY_CACHE_DIR']) / 'latents' if os.environ.get('DRAMA_FACTORY_CACHE_DIR') else Path(folder_paths.get_output_directory()) / 'drama_latents'
     path = (root / filename).resolve()
     if not path.is_relative_to(root.resolve()) or path.suffix != '.safetensors':
         raise ValueError('Invalid latent cache filename.')

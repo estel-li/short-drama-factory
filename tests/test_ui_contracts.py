@@ -15,7 +15,7 @@ class UIContractsTests(unittest.TestCase):
     def test_workbench_assets_do_not_reuse_stale_cached_modules(self):
         from app import api
         from fastapi.testclient import TestClient
-        client = TestClient(api.app)
+        client = TestClient(api.app, base_url='http://127.0.0.1')
         for path in ('/', '/web/main.js', '/web/options.js?v=2.3.1', '/web/style.css'):
             response = client.get(path)
             self.assertEqual(response.status_code, 200)
@@ -69,7 +69,7 @@ class UIContractsTests(unittest.TestCase):
             story=projects.save_story(project.name, {'title':'story','shots':[{'summary':'one'}]})
             before=(project/'分镜.json').read_bytes()
             with patch.object(api,'projects',projects):
-                client=TestClient(api.app)
+                client=TestClient(api.app, base_url='http://127.0.0.1')
                 response=client.post('/api/projects/'+project.name+'/validate-story',json={'story':{'title':'new','shots':[{'summary':'new'}]}})
                 self.assertEqual(response.status_code,200)
                 self.assertTrue(response.json()['shots'][0]['uid'])

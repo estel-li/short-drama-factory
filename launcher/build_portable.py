@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,28 @@ from app.storage import ROOT, contained, read_json, write_json
 
 PYTHON_VERSION = '3.13.16'
 EMBED_URL = f'https://www.python.org/ftp/python/{PYTHON_VERSION}/python-{PYTHON_VERSION}-embed-amd64.zip'
+
+
+def locked_wheels(folder, requirements):
+    from packaging.tags import cpython_tags, compatible_tags
+    from packaging.utils import canonicalize_name, parse_wheel_filename, InvalidWheelFilename
+    from packaging.version import Version
+    expected = {canonicalize_name(name): Version(version) for line in Path(requirements).read_text().splitlines()
+                if '==' in line for name, version in [line.strip().split('==', 1)]}
+    supported = list(cpython_tags((3, 13), abis=['cp313'], platforms=['win_amd64']))
+    supported += list(compatible_tags((3, 13), interpreter='cp313', platforms=['win_amd64']))
+    ranks = {tag:index for index,tag in reversed(list(enumerate(supported)))}
+    chosen = {}
+    for path in sorted(Path(folder).glob('*.whl')):
+        try:name,version,_,tags = parse_wheel_filename(path.name)
+        except InvalidWheelFilename:continue
+        matches = [ranks[tag] for tag in tags if tag in ranks]
+        if expected.get(name) != version or not matches:continue
+        rank = min(matches)
+        if name not in chosen or rank < chosen[name][0]:chosen[name] = (rank, path)
+    missing = sorted(set(expected) - set(chosen))
+    if missing:raise ValueError('缺少锁定的 Windows Python 3.13 wheel：' + ', '.join(missing))
+    return [chosen[name][1] for name in expected]
 
 
 def build():
@@ -44,15 +67,20 @@ def build():
     (runtime / 'python313._pth').write_text('python313.zip\n.\nLib/site-packages\n..\nimport site\n', encoding='utf-8')
     wheels = dist / 'wheels-cp313'
     wheels.mkdir(parents=True, exist_ok=True)
-    subprocess.run([sys.executable, '-m', 'pip', 'download', '--only-binary=:all:', '--python-version', '3.13',
-                    '--platform', 'win_amd64', '--implementation', 'cp', '--abi', 'cp313',
-                    '-r', str(ROOT / 'requirements.lock.txt'), '-d', str(wheels)], check=True)
+    build_env = os.environ.copy()
+    temporary = build / 'temp';temporary.mkdir()
+    for key in ('TEMP','TMP','TMPDIR'):build_env[key] = str(temporary)
+    build_env['PIP_CACHE_DIR'] = str(ROOT / 'data/pip-cache')
+    try:
+        selected = locked_wheels(wheels, ROOT / 'requirements.lock.txt')
+    except ValueError:
+        subprocess.run([sys.executable, '-m', 'pip', 'download', '--only-binary=:all:', '--python-version', '3.13',
+                        '--platform', 'win_amd64', '--implementation', 'cp', '--abi', 'cp313',
+                        '-r', str(ROOT / 'requirements.lock.txt'), '-d', str(wheels), '--disable-pip-version-check'], check=True, env=build_env)
+        selected = locked_wheels(wheels, ROOT / 'requirements.lock.txt')
     site = runtime / 'Lib/site-packages'
     site.mkdir(parents=True)
-    allowed = {line.strip().split('==')[0].lower().replace('-', '_') for line in (ROOT / 'requirements.lock.txt').read_text().splitlines() if '==' in line}
-    for wheel in wheels.glob('*.whl'):
-        if wheel.name.split('-')[0].lower() not in allowed:
-            continue
+    for wheel in selected:
         with zipfile.ZipFile(wheel) as source:
             for item in source.infolist():
                 relative = item.filename
@@ -75,11 +103,11 @@ def build():
     (package / 'presets/personal.json').unlink(missing_ok=True)
     for name in ('pipeline.py', 'server.py', 'config.default.json', 'requirements.lock.txt', 'launch.ps1', '启动短剧工厂.cmd', '使用说明.md', '更新说明-2.1.md', '更新说明-2.2.md', '更新说明-2.3.md', '更新说明-2.4.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
         shutil.copy2(ROOT / name, package / name)
-    write_json(package / 'package.json', {'version': '2.4.0', 'python': PYTHON_VERSION, 'python_sha256': checksum,
+    write_json(package / 'package.json', {'version': '2.4.1', 'python': PYTHON_VERSION, 'python_sha256': checksum,
         'created_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'platform': 'Windows x64', 'models_included': False,
         'credentials_included': False})
     (package / 'README.md').write_text('# 短剧工厂便携版\n\n解压到可写目录，双击“启动短剧工厂.cmd”。首次打开“模型与环境”：复用已有 ComfyUI，或选择从零安装。目标电脑需要可用的 NVIDIA 驱动，也可以连接远程服务。模型下载清单固定版本且可恢复。API key 和 HF token 在本机重新填写，标准包不包含模型和私人配置。详细步骤见“使用说明.md”。\n', encoding='utf-8')
-    subprocess.run([str(runtime / 'python.exe'), '-c', 'import fastapi,uvicorn,av,httpx,psutil,numpy,onnxruntime; import app.api; print("portable imports passed")'], cwd=package, check=True)
+    subprocess.run([str(runtime / 'python.exe'), '-c', 'import fastapi,uvicorn,av,httpx,psutil,numpy,onnxruntime; import app.api; print("portable imports passed")'], cwd=package, check=True, env=build_env)
     output = dist / ('短剧工厂-Windows-x64-' + time.strftime('%Y%m%d_%H%M%S') + '.zip')
     with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=5) as archive:
         for path in package.rglob('*'):

@@ -1,4 +1,10 @@
-import { api, el, field, select, download } from "./api.js?v=2.4.0";
+import { api, el, field, select, download } from "./api.js?v=2.4.1";
+import { finishingPayload } from "./state.js?v=2.4.1";
+const PRESET_LABELS = {
+  original: "原始节奏",
+  gentle: "保守收紧",
+  compact: "紧凑剪辑",
+};
 
 const seconds = (value) =>
   Number.isFinite(value) ? value.toFixed(2) + " 秒" : "—";
@@ -35,7 +41,110 @@ function timeline(spans, duration, label, style) {
   );
 }
 
+function noteEditor(draft, change, disabled) {
+  const root = el("div", { class: "note-editor" });
+  const render = () => {
+    let items;
+    try {
+      items = JSON.parse(draft.notes);
+      if (
+        !Array.isArray(items) ||
+        items.some((item) => !item || typeof item !== "object")
+      )
+        throw Error();
+    } catch {
+      root.replaceChildren(
+        el(
+          "p",
+          { class: "notice warning" },
+          "注释 JSON 暂时无法读取，请在高级设置修正后继续。",
+        ),
+      );
+      return;
+    }
+    const update = () => change(JSON.stringify(items, null, 2));
+    root.replaceChildren(
+      ...items.map((note, index) => {
+        const start = el("input", {
+          type: "number",
+          min: 0,
+          max: 1200,
+          step: 0.01,
+          required: true,
+          disabled,
+          value: note.start,
+          oninput: (event) => {
+            note.start = event.target.valueAsNumber;
+            update();
+          },
+        });
+        const end = el("input", {
+          type: "number",
+          min: 0,
+          max: 1200,
+          step: 0.01,
+          required: true,
+          disabled,
+          value: note.end,
+          oninput: (event) => {
+            note.end = event.target.valueAsNumber;
+            update();
+          },
+        });
+        const text = el("textarea", {
+          rows: 2,
+          required: true,
+          maxLength: 2000,
+          disabled,
+          value: note.text || "",
+          oninput: (event) => {
+            note.text = event.target.value;
+            update();
+          },
+        });
+        return el(
+          "div",
+          { class: "note-row" },
+          field(`注释 ${index + 1} 开始（秒）`, start),
+          field(`注释 ${index + 1} 结束（秒）`, end),
+          field(`注释 ${index + 1} 文字`, text),
+          el(
+            "button",
+            {
+              disabled,
+              "aria-label": `删除注释 ${index + 1}`,
+              onclick: () => {
+                items.splice(index, 1);
+                update();
+                render();
+              },
+            },
+            "删除",
+          ),
+        );
+      }),
+      el(
+        "button",
+        {
+          disabled: disabled || items.length >= 100,
+          onclick: () => {
+            const start = Math.min(1199, Number(items.at(-1)?.end) || 0);
+            items.push({ start, end: Math.min(1200, start + 2), text: "" });
+            update();
+            render();
+            root.querySelector(".note-row:last-of-type textarea")?.focus();
+          },
+        },
+        "添加成片注释",
+      ),
+    );
+  };
+  render();
+  return { root, render };
+}
+
 export async function renderQuality(ws, box) {
+  box.classList.add("quality-panel");
   const pid = ws.current.id;
   box.append(el("p", { class: "muted" }, "正在读取预检与后期记录…"));
   let data;
@@ -49,15 +158,12 @@ export async function renderQuality(ws, box) {
   if (ws.current?.id !== pid || ws.panel !== "quality" || !box.isConnected)
     return;
   box.replaceChildren();
-  if (ws.qualityDraft?.pid !== pid)
-    ws.qualityDraft = {
-      pid,
-      preset: ws.current.settings.edit_preset || "gentle",
-      notes: "[]",
-      masks: "[]",
-      interval: ws.current.settings.review_interval || 0.75,
-    };
-  const draft = ws.qualityDraft;
+  const draft = ws.draft.data.quality;
+  const edit = (key, value) => {
+    draft[key] = value;
+    ws.mark("quality");
+    save.disabled = ws.busy;
+  };
   box.append(
     el("h2", {}, "出片预检"),
     el(
@@ -116,7 +222,8 @@ export async function renderQuality(ws, box) {
     ],
     draft.preset,
   );
-  preset.onchange = () => (draft.preset = preset.value);
+  preset.disabled = ws.busy;
+  preset.onchange = () => edit("preset", preset.value);
   const interval = select(
     [
       { value: "0.75", label: "0.75 秒（默认）" },
@@ -126,23 +233,45 @@ export async function renderQuality(ws, box) {
     ],
     String(draft.interval),
   );
-  interval.onchange = () => (draft.interval = Number(interval.value));
+  interval.disabled = ws.busy;
+  interval.onchange = () => edit("interval", Number(interval.value));
   const notes = el("textarea", {
     class: "code-editor",
     rows: 5,
     value: draft.notes,
     "aria-label": "成片注释 JSON",
-    oninput: (e) => (draft.notes = e.target.value),
+    disabled: ws.busy,
+    oninput: (e) => {
+      edit("notes", e.target.value);
+      notesForm.render();
+    },
   });
   const masks = el("textarea", {
     class: "code-editor",
     rows: 6,
     value: draft.masks,
     "aria-label": "逐帧遮罩 JSON",
-    oninput: (e) => (draft.masks = e.target.value),
+    disabled: ws.busy,
+    oninput: (e) => edit("masks", e.target.value),
   });
+  const save = ws.button("保存后期设置", () => ws.saveAll(), false, {
+    disabled: ws.busy || !ws.draft.dirty.has("quality"),
+  });
+  const notesForm = noteEditor(
+    draft,
+    (value) => {
+      edit("notes", value);
+      notes.value = value;
+    },
+    ws.busy,
+  );
   box.append(
     el("h2", {}, "无重渲后期"),
+    el(
+      "p",
+      { class: "notice " + (data.finishing?.ready ? "" : "warning") },
+      data.finishing?.message || "请先完成所有镜头生成。",
+    ),
     el(
       "p",
       { class: "field-help" },
@@ -151,9 +280,28 @@ export async function renderQuality(ws, box) {
     field("剪辑强度", preset),
     field("审核抽帧间隔", interval),
     el(
+      "p",
+      { class: "field-help" },
+      "后期设置可先保存，之后继续编辑。0.10 秒抽帧适合短片复查；长片会生成更多审核图并占用更多磁盘。",
+    ),
+    el("h3", {}, "成片注释"),
+    el(
+      "p",
+      { class: "field-help" },
+      "使用剪辑后成片的秒数，显示在对白上方。调整剪辑强度后，请重新核对开始和结束时间。",
+    ),
+    notesForm.root,
+    el(
       "details",
-      { class: "option-section" },
-      el("summary", {}, "成片注释与文字遮罩（可选）"),
+      {
+        class: "option-section",
+        open: ws.openDetails.has("quality-annotations"),
+        ontoggle: (event) => {
+          if (event.target.open) ws.openDetails.add("quality-annotations");
+          else ws.openDetails.delete("quality-annotations");
+        },
+      },
+      el("summary", {}, "高级：逐帧遮罩与注释 JSON"),
       el(
         "p",
         { class: "field-help" },
@@ -161,35 +309,42 @@ export async function renderQuality(ws, box) {
       ),
       field("成片注释 JSON", notes),
       field("逐帧遮罩 JSON", masks),
+      el(
+        "small",
+        { class: "field-help" },
+        "可用镜头编号：" +
+          (ws.current.story?.shots || [])
+            .map((s) => `镜头 ${s.id} = ${s.uid}`)
+            .join("；"),
+      ),
     ),
+    save,
     ws.button(
       "运行质检并生成新版本",
       async () => {
         if (ws.draft.dirty.size && !(await ws.saveAll())) return;
-        let annotations, regions;
-        try {
-          annotations = JSON.parse(draft.notes);
-          regions = JSON.parse(draft.masks);
-        } catch {
-          throw Error("注释或遮罩 JSON 格式不正确，原输入已保留。");
-        }
-        await api(`/api/projects/${pid}/finish`, {
-          edit_preset: draft.preset,
-          review_interval: draft.interval,
-          notes: annotations,
-          masks: regions,
-        });
+        await api(
+          `/api/projects/${pid}/finish`,
+          finishingPayload(ws.draft.data.quality),
+        );
         ws.services.toast("CPU 后期已排队，原镜头和旧成片会保留。");
         await ws.services.refresh();
       },
       true,
-      { disabled: ws.busy || !ws.current.story },
+      { disabled: ws.busy || !data.finishing?.ready },
     ),
   );
   const report = data.report;
   if (report?.version === 1) {
     box.append(
-      el("h2", {}, "本次检测结果"),
+      el("h2", {}, "最近完成版本的检测结果"),
+      !data.current_edit
+        ? el(
+            "p",
+            { class: "notice warning" },
+            "项目内容已调整，下方是历史版本结果。更新镜头并重新后期后，才会成为当前成片。",
+          )
+        : document.createDocumentFragment(),
       el(
         "div",
         { class: "quality-stats" },
@@ -306,11 +461,15 @@ export async function renderQuality(ws, box) {
         el(
           "div",
           {},
-          el("strong", {}, version.id),
+          el(
+            "strong",
+            {},
+            `${PRESET_LABELS[version.preset] || "后期版本"}${data.current_edit?.id === version.id ? " · 当前成片" : ""}`,
+          ),
           el(
             "small",
             { class: "muted" },
-            ` ${version.preset} · ${seconds(version.seconds)}`,
+            `${version.created_at || version.id} · ${seconds(version.seconds)}`,
           ),
         ),
         el(
@@ -329,6 +488,7 @@ export async function renderQuality(ws, box) {
         ws.button(
           "从冻结原片重建",
           async () => {
+            if (ws.draft.dirty.size && !(await ws.saveAll())) return;
             await api(`/api/projects/${pid}/edits/${version.id}/rebuild`, {});
             ws.services.toast(
               "按该版本的旧剧本、冻结区间和原片重建，完成后更新当前播放版本。",

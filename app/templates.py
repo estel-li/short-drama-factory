@@ -16,8 +16,8 @@ def save_template(project,story,shot,name):
     state=read_json(project/'state.json',{})
     record=state.get('shots_by_uid',{}).get(shot['uid'],state.get('shots',{}).get(str(shot['id']),{}))
     if record.get('status')!='done':raise ValueError('先生成并验看镜头，再保存已验收样板。')
-    from .quality import render_contract
-    if record.get('render_contract') and record['render_contract']!=render_contract(story,shot):raise ValueError('当前镜头内容已改动，先重生成，不能把旧视频对应的提示词冒充已验收样板。')
+    from .quality import render_contract_matches
+    if record.get('render_contract') and not render_contract_matches(record['render_contract'],story,shot):raise ValueError('当前镜头内容已改动，先重生成，不能把旧视频对应的提示词冒充已验收样板。')
     if not record.get('render_contract'):
         native=read_json(project/'prompts'/f"{shot['id']:03d}.json",{}).get('7',{}).get('inputs',{}).get('prompt','')
         if not shot.get('prompt') or not native.endswith(shot['prompt']) or shot['uid'] in state.get('changed_shots',[]):raise ValueError('旧镜头缺少匹配的生成记录，请先续跑校验。')

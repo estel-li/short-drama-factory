@@ -150,6 +150,11 @@ class Installer:
         manifest = self.manifest(options.get('manifest', 'h3-5060ti-16g'))
         env = self.config.renderer_config()
         env.update({key: options[key] for key in ('comfy_dir', 'python', 'comfy_url') if options.get(key)})
+        process_env = os.environ.copy()
+        install_temp = self.config.root / 'data/install-temp'
+        install_temp.mkdir(parents=True, exist_ok=True)
+        for name in ('TEMP', 'TMP', 'TMPDIR'):process_env[name] = str(install_temp)
+        process_env['PIP_CACHE_DIR'] = str(self.config.root / 'data/pip-cache')
         mode = options.get('mode', env.get('mode', 'existing'))
         if mode not in ('existing', 'fresh', 'remote'):
             raise ValueError('安装方式不支持。')
@@ -220,7 +225,7 @@ class Installer:
             if plan['runtime_wheels']:
                 packages = {w['package']: w['version'] for w in plan['runtime_wheels']}
                 check = subprocess.run([env['python'], '-c', 'import importlib.metadata as m,json; print(json.dumps({n:m.version(n) for n in '+repr(list(packages))+'}))'],
-                    capture_output=True, text=True, timeout=30, creationflags=0x08000000)
+                    capture_output=True, text=True, timeout=30, creationflags=0x08000000, env=process_env)
                 versions = json.loads(check.stdout) if check.returncode == 0 else {}
                 if versions != packages:
                     local_wheels = []
@@ -233,7 +238,7 @@ class Installer:
                     log_dir.mkdir(parents=True, exist_ok=True)
                     with (log_dir / 'torch_install.log').open('wb') as log:
                         process = subprocess.Popen([env['python'], '-m', 'pip', 'install', '--no-deps', '--no-index', '--force-reinstall', *local_wheels],
-                            stdout=log, stderr=subprocess.STDOUT, creationflags=0x08000000)
+                            stdout=log, stderr=subprocess.STDOUT, creationflags=0x08000000, env=process_env)
                         while process.poll() is None:
                             time.sleep(0.5)
                         if process.returncode:
@@ -260,7 +265,7 @@ class Installer:
             used[model['role']] = {'path': str(path), 'sha256': actual, 'category': model['category'],
                                   'source': 'manifest' if actual == model['sha256'] else 'user-local-variant'}
             env[model['role']] = path.name
-        node_target = contained(Path(env['comfy_dir']) / 'custom_nodes', 'ComfyUI-DramaFactory')
+        node_target = contained(self.config.root / 'data/comfy-runtime/custom_nodes', 'ComfyUI-DramaFactory-Runtime')
         node_source = ROOT / 'nodes/ComfyUI-DramaFactory'
         if node_target.exists():
             shutil.copytree(node_target, self.config.root / 'data/backups' / ('nodes-' + str(time.time_ns())))
