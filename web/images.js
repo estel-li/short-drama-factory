@@ -1,5 +1,5 @@
-import { api, el, field, select } from "./api.js?v=2.5.0";
-import { badge, icon } from "./ui.js?v=2.5.0";
+import { api, el, field, select } from "./api.js?v=3.0.0";
+import { badge, icon } from "./ui.js?v=3.0.0";
 
 const kinds = { general: "自由创作", character: "角色参考", scene: "场景参考", prop: "道具参考" };
 const variants = [{ value: "auto", label: "根据显存自动选择" }, { value: "turbo-int8", label: "Turbo INT8 · 快速预览" }, { value: "turbo-bf16", label: "Turbo BF16 · 大显存" }, { value: "quality-int8", label: "标准 INT8 · 细节优先" }];
@@ -119,7 +119,7 @@ export class ImageWorkspace {
       el("p", {}, `本次方案：${plan.variants[plan.variant].name}`),
       el("p", {}, plan.engine === "managed" ? "使用独立图片引擎" : "复用已有 ComfyUI"),
       el("p", {}, `待下载 ${bytes(plan.download_bytes)} · 磁盘剩余 ${bytes(plan.free_disk_bytes)}`),
-      plan.bootstrap_needed ? el("p", { class: "muted" }, `首次还会准备独立 GPU 运行时（下载 ${bytes(plan.runtime_download_bytes)}，另需解压空间）。`) : null,
+      ...(plan.bootstrap_needed ? [el("p", { class: "muted" }, `首次还会准备独立 GPU 运行时（下载 ${bytes(plan.runtime_download_bytes)}，另需解压空间）。`)] : []),
       el("ul", { class: "model-download-list" }, plan.models.map(m => el("li", {}, `${m.action === "available" ? "已识别" : m.action === "verify" ? "待校验" : "需下载"} · ${m.name} · ${bytes(m.size)}`))),
       el("p", { class: "notice warning" }, plan.license.notice, " ", el("a", { href: plan.license.url, target: "_blank", rel: "noopener noreferrer" }, "模型许可")),
       el("div", { class: "actions" }, this.button("检查环境", () => this.refreshEnvironment()),

@@ -1,4 +1,4 @@
-import { el, field, select } from "./api.js?v=2.5.0";
+import { el, field, select } from "./api.js?v=3.0.0";
 
 const DEFAULTS = {
   duration_rule: "total",

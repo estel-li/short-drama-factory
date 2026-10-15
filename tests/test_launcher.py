@@ -9,10 +9,11 @@ from launcher import start
 class LauncherTests(unittest.TestCase):
     def test_running_panel_is_reused_without_spawning(self):
         with tempfile.TemporaryDirectory() as directory:
-            value={'version':'2.4.1','application_root':directory}
-            with patch.object(start,'health',return_value=value),patch.object(start.subprocess,'Popen') as spawn,patch.object(start.webbrowser,'open') as browser:
-                self.assertEqual(start.launch(directory,no_browser=True),value)
-                spawn.assert_not_called();browser.assert_not_called()
+            for version in ('2.4.1', '3.0.0'):
+                value={'version':version,'application_root':directory}
+                with patch.object(start,'health',return_value=value),patch.object(start.subprocess,'Popen') as spawn,patch.object(start.webbrowser,'open') as browser:
+                    self.assertEqual(start.launch(directory,no_browser=True),value)
+                    spawn.assert_not_called();browser.assert_not_called()
 
     def test_other_directory_or_service_is_not_reused(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -30,7 +31,7 @@ class LauncherTests(unittest.TestCase):
     def test_fresh_start_uses_own_runtime_logs_and_temporary_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory).resolve();python=root/'runtime/python.exe';python.parent.mkdir();python.touch()
-            value={'version':'2.4.1','application_root':str(root)}
+            value={'version':'3.0.0','application_root':str(root)}
             process=Mock();process.poll.return_value=None
             with patch.object(start,'health',side_effect=[None,value]),patch.object(start.socket,'socket') as sock,patch.object(start.subprocess,'Popen',return_value=process) as spawn,patch.object(start.webbrowser,'open') as browser:
                 sock.return_value.__enter__.return_value.connect_ex.return_value=1

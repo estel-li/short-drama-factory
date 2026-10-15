@@ -25,7 +25,7 @@ def health(url):
 
 
 def check_owner(value, root):
-    if not str(value.get('version', '')).startswith('2.') or not value.get('application_root'):
+    if not str(value.get('version', '')).startswith(('2.', '3.')) or not value.get('application_root'):
         raise RuntimeError('端口已被其他服务占用，请使用 --port 指定空闲端口。')
     if Path(value['application_root']).resolve() != root.resolve():
         raise RuntimeError('端口已被另一目录的工作台占用，请使用 --port 指定空闲端口。')

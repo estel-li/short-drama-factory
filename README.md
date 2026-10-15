@@ -6,7 +6,7 @@
 
 文字模型默认使用 DeepSeek，也支持 Ollama、LM Studio 和兼容 OpenAI Chat Completions 接口的服务。大纲、分镜、提示词三个阶段可以分别配置模型与 Skill。
 
-**当前版本：2.5.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+**当前版本：3.0.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ![2.3 创作工作台](docs/images/ui-workspace.jpg)
 
@@ -96,7 +96,7 @@ py -3.13 -m venv .venv
 
 仓库提供 [short-drama-factory 操作技能](agent-skills/short-drama-factory/SKILL.md)，包含中文操作流程、HTTP 客户端、两种请求模板及故障恢复说明。支持让工厂调用文字模型，或让外部 AI 编写完整分镜和 H3 提示词后直接渲染。另有实战制作经验、只读素材与耗时诊断，以及解码、接缝、字幕三类成片验收指导。
 
-2.5 新增 [图片与参考图操作接口](agent-skills/short-drama-factory/references/images.md)，其他 AI 可生成独立图片、下载 PNG、管理项目参考图历史。Qwen-Image 2.1 权重采用非商用研究许可，商业用途需模型方授权；首次准备会在页面列出模型与运行时下载量。
+3.0 新增 [图片与参考图操作接口](agent-skills/short-drama-factory/references/images.md)，其他 AI 可生成独立图片、下载 PNG、管理项目参考图历史。Qwen-Image 2.1 权重采用非商用研究许可，商业用途需模型方授权；首次准备会在页面列出模型与运行时下载量。
 
 将 `agent-skills/short-drama-factory` 整个文件夹复制到 AI 工具的技能目录；Codex 默认目录为 `~/.codex/skills/`。其他能执行本地命令的 AI 可直接读取其中的 `SKILL.md` 并使用脚本，无需额外 Python 库。这是外部操作技能，不应导入工作台内部的提示词 Skill 列表。
 

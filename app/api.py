@@ -44,7 +44,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='2.5.0', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='3.0.0', lifespan=lifespan)
 
 
 @app.middleware('http')
