@@ -2,7 +2,7 @@
 name: short-drama-factory
 license: MIT
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
 description: 操作本地短剧工厂（Short Drama Factory），将灵感、大纲、剧本或外部 AI 编写的分镜与 H3 提示词变成视频，也可用 Qwen 生成独立图片和项目参考图。支持审核、素材绑定、续跑、重生成与导出。用于通过该程序制作图片或视频；不用于修改应用代码或一般视频剪辑。
 ---
 
@@ -12,7 +12,7 @@ description: 操作本地短剧工厂（Short Drama Factory），将灵感、大
 
 ## 连接与准备
 
-适配短剧工厂 **3.0.0** 的实际 API；图片功能要求 3.0.0 及以上。需要 AI 能执行本地命令或访问本机 HTTP；客户端脚本只用 Python 3.10+ 标准库，不依赖 Codex 专属工具。只有云端聊天能力的 AI 无法直接访问用户电脑的 `127.0.0.1`，应由本机代理执行命令。不要为此公开工作台端口。
+适配短剧工厂 **3.0.1** 的实际 API；基本图片功能要求 3.0.0，下载确认、图片删除及编辑后继续原任务要求 3.0.1。需要 AI 能执行本地命令或访问本机 HTTP；客户端脚本只用 Python 3.10+ 标准库，不依赖 Codex 专属工具。只有云端聊天能力的 AI 无法直接访问用户电脑的 `127.0.0.1`，应由本机代理执行命令。不要为此公开工作台端口。
 
 1. 找到用户指定的应用目录与端口，先 `GET /api/health`。默认 `http://127.0.0.1:8765`，返回 `version`、`application_root`、`comfy`、`active_project`。不要把技能目录误当作应用目录。已启动的正确实例直接复用。
 2. 未启动时，在应用目录运行 `启动短剧工厂.cmd --no-browser`；也可用该应用的 `runtime/python.exe`（便携包）或 `.venv/Scripts/python.exe` 运行 `launcher/start.py --no-browser`。后台启动时隐藏窗口，轮询健康接口。端口冲突时先辨认实例，明确使用 `--port 8770` 等空闲端口，客户端对应传入 `--base-url`。

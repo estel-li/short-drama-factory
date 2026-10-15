@@ -74,6 +74,19 @@ class Database:
                 ids.append(jid)
             return ids
 
+    def requeue_image(self, jid, owner, iid, kind):
+        """Continue an image's CPU/GPU phases under its existing durable job ID."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
+            if not row or row['project_id'] != owner or row['kind'] not in ('image-optimize', 'image-generate') or json.loads(row['payload']).get('image_id') != iid:
+                raise ValueError('原图片任务记录不匹配，请刷新后重试。')
+            if db.execute("SELECT id FROM jobs WHERE project_id=? AND status IN ('queued','running')", (owner,)).fetchone():
+                raise ValueError('图片或所属项目仍在处理，请等待完成。')
+            # A resumed phase joins the queue tail, while references keep the stable job ID.
+            db.execute("UPDATE jobs SET rowid=(SELECT COALESCE(MAX(rowid),0)+1 FROM jobs),kind=?,status='queued',cancel_requested=0,message='继续原图片任务',created_at=?,updated_at=? WHERE id=?", (kind, now(), now(), jid))
+        return jid
+
     def recover(self):
         with self.connect() as db:
             db.execute("UPDATE jobs SET status=CASE WHEN cancel_requested=1 THEN 'paused' ELSE 'queued' END,message='服务重启，等待从持久化阶段恢复',updated_at=? WHERE status='running'", (now(),))

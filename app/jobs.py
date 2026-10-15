@@ -138,7 +138,10 @@ class Worker:
     def image_failure(self, job, status, message):
         payload = json.loads(job['payload'])
         if job['project_id'] == '__image_environment':
-            write_json(self.config.root / 'data/image-environment-progress.json', {'status': status, 'message': message})
+            path = self.config.root / 'data/image-environment-progress.json'
+            previous = read_json(path, {})
+            write_json(path, {**(previous if previous.get('job_id') == job['id'] else {}),
+                              'job_id': job['id'], 'status': status, 'message': message})
         elif payload.get('image_id'):
             value = self.images.get(payload['image_id'])
             if value.get('status') != 'complete':
@@ -152,7 +155,7 @@ class Worker:
             def image_report(message, **extra):
                 self.db.update(jid, message=message, event={'message': message, **extra})
                 if job['kind'] == 'image-prepare':
-                    write_json(self.config.root / 'data/image-environment-progress.json', {'status': 'running', 'message': message, **extra})
+                    write_json(self.config.root / 'data/image-environment-progress.json', {'job_id': jid, 'status': 'running', 'message': message, **extra})
                 else:
                     self.images.update(payload['image_id'], message=message, **extra)
                     if not pid.startswith('__'):
@@ -163,8 +166,9 @@ class Worker:
                         write_json(path, state)
             cancel = lambda: self.db.cancelled(jid) or self.shutdown.is_set()
             if job['kind'] == 'image-prepare':
-                self.images.environment.prepare(payload.get('variant', 'auto'), image_report, cancel)
-                write_json(self.config.root / 'data/image-environment-progress.json', {'status': 'done', 'message': '图片环境已就绪。'})
+                self.images.environment.prepare(payload.get('variant', 'auto'), image_report, cancel,
+                                                payload.get('models'), payload.get('download_confirmation', ''))
+                write_json(self.config.root / 'data/image-environment-progress.json', {'job_id': jid, 'status': 'done', 'message': '图片环境已就绪。'})
             else:
                 result = self.images.generate(payload['image_id'], image_report, cancel, job['kind'] == 'image-optimize')
                 if result.get('target') and result.get('project_id') and job['kind'] == 'image-generate':
@@ -216,7 +220,7 @@ class Worker:
         requested = job['kind']
         if requested == 'image-references':
             report('开始生成项目参考图。', status='planning', current_stage='reference_images')
-            self.images.ensure_references(pid, report, cancelled, payload.get('targets'))
+            self.images.ensure_references(pid, report, cancelled, payload.get('targets'), payload.get('download_confirmation', ''))
             report('参考图已生成并绑定到对应分镜。', status='ready', current_stage='reference_images')
             return 'done'
         if requested in ('finish','rebuild-edit'):

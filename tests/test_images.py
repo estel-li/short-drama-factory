@@ -242,6 +242,152 @@ class ImageTests(unittest.TestCase):
             self.assertEqual(client.get('/api/images/' + first['id']).json()['status'], 'paused')
             client.close()
 
+    def test_optimized_image_continues_same_record_and_job_with_user_edits(self):
+        image = self.studio.create({'prompt': 'old prompt'})
+        jid = self.db.enqueue(image['owner'], 'image-optimize', {'image_id': image['id']})
+        self.studio.update(image['id'], job_id=jid)
+        self.db.claim()
+        self.studio.update(image['id'], status='ready', optimized_prompt='machine prompt')
+        self.db.update(jid, 'done')
+        result = self.studio.start(image['id'], self.db.enqueue,
+                                   request={'optimized_prompt': 'edited prompt', 'seed': None})
+        self.assertEqual(result, {'id': image['id'], 'job_id': jid})
+        self.assertEqual(len(self.db.jobs()), 1)
+        self.assertEqual(self.db.jobs()[0]['kind'], 'image-generate')
+        with patch('app.image_studio.LLMClient', side_effect=AssertionError('must not optimize again')):
+            self.assertEqual(self.studio.optimize(image['id'], lambda *a, **k: None, lambda: False), 'edited prompt')
+        self.assertEqual(self.studio.get(image['id'])['request']['seed'], image['request']['seed'])
+        with self.assertRaisesRegex(ValueError, '正在处理'):
+            self.studio.start(image['id'], self.db.enqueue)
+        self.db.update(jid, 'done')
+        self.studio.start(image['id'], self.db.enqueue, request={'prompt': 'new original', 'optimize': False, 'optimized_prompt': ''})
+        self.assertEqual(self.studio.optimize(image['id'], lambda *a, **k: None, lambda: False), 'new original')
+
+    def test_submitted_image_cannot_change_request_on_resume(self):
+        image = self.studio.create({'prompt': 'original', 'optimize': False})
+        self.studio.update(image['id'], prompt_id='already-submitted', status='paused')
+        with self.assertRaisesRegex(ValueError, '不能修改参数'):
+            self.studio.start(image['id'], self.db.enqueue, request={'prompt': 'changed'})
+        self.assertEqual(self.studio.get(image['id'])['request']['prompt'], 'original')
+        self.assertEqual(self.db.jobs(), [])
+
+    def test_continued_image_joins_queue_tail_without_changing_job_id(self):
+        from unittest.mock import patch
+        with patch('app.database.now', return_value='2026-10-15 21:00:00'):
+            image = self.studio.create({'prompt': 'a room'})
+            jid = self.db.enqueue(image['owner'], 'image-optimize', {'image_id': image['id']})
+            self.db.update(jid, 'done')
+            other = self.studio.create({'prompt': 'another room'})
+            next_job = self.db.enqueue(other['owner'], 'image-generate', {'image_id': other['id']})
+            self.assertEqual(self.db.requeue_image(jid, image['owner'], image['id'], 'image-generate'), jid)
+            self.assertEqual(self.db.claim()['id'], next_job)
+            self.assertEqual(self.db.claim()['id'], jid)
+
+    def test_confirmed_plan_downloads_and_reports_actual_progress(self):
+        import hashlib
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        data = b'controlled local download' * 1000
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200); self.send_header('Content-Length', str(len(data))); self.end_headers(); self.wfile.write(data)
+            def log_message(self, *args): pass
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close); self.addCleanup(server.shutdown)
+        target = self.root / 'models/test.safetensors'
+        pending = {**self.plan, 'ready': False, 'selection_errors': [], 'requires_confirmation': True, 'confirmation_token': 'explicit-plan',
+                   'engine': 'shared', 'local_download': True, 'missing_nodes': [], 'free_disk_bytes': 10**10,
+                   'models_download_bytes': len(data), 'selection': {},
+                   'models': [{'action': 'download', 'name': target.name, 'target': str(target), 'size': len(data),
+                               'sha256': hashlib.sha256(data).hexdigest(), 'url': f'http://127.0.0.1:{server.server_port}/model'}]}
+        events = []
+        with patch.object(self.studio.environment, 'plan', side_effect=[pending, self.plan]):
+            result = self.studio.environment.prepare('auto', lambda message, **detail: events.append(detail), lambda: False, confirmation='explicit-plan')
+        self.assertTrue(result['ready'])
+        self.assertEqual(target.read_bytes(), data)
+        self.assertTrue(any(e.get('progress', {}).get('bytes') == len(data) for e in events))
+
+    def test_environment_pause_keeps_file_and_byte_progress(self):
+        from app.jobs import Worker
+        from app import api
+        worker = Worker(self.db, self.config, self.projects, None, self.assets)
+        jid = self.db.enqueue('__image_environment', 'image-prepare', {'variant': 'auto'})
+        job = self.db.claim()
+        path = self.root / 'data/image-environment-progress.json'
+        progress = {'file': 'model.safetensors', 'bytes': 40, 'total': 100}
+        write_json(path, {'job_id': jid, 'status': 'running', 'progress': progress})
+        with patch.object(api, 'worker', worker), patch.object(api, 'config', self.config):
+            api.image_prepare_stop()
+        worker.image_failure(job, 'paused', 'paused')
+        saved = read_json(path)
+        self.assertEqual(saved['status'], 'paused')
+        self.assertEqual(saved['job_id'], jid)
+        self.assertEqual(saved['progress'], progress)
+
+    def test_delete_removes_gallery_record_but_preserves_adopted_project_asset(self):
+        pid = self.project()
+        image = self.completed(pid, 'character-hero')
+        adopted = self.studio.adopt(pid, 'character-hero', image['id'])
+        other = self.completed()
+        asset = self.projects.get(pid)['assets'][adopted['asset_id']]
+        self.studio.delete(image['id'])
+        self.assertFalse((self.studio.root / image['id']).exists())
+        self.assertTrue((self.projects.path(pid) / asset['file']).exists())
+        self.assertTrue(self.studio.get(other['id'])['file_available'])
+        self.assertNotIn(image['id'], [i['id'] for i in self.studio.listing()])
+        self.studio.adopt(pid, 'character-hero', image['id'])
+        self.assertEqual(self.projects.get(pid)['story']['shots'][0]['bindings']['images'], [adopted['asset_id']])
+
+    def test_delete_refuses_active_worker_or_owned_comfy_task(self):
+        image = self.completed()
+        jid = self.db.enqueue(image['owner'], 'image-generate', {'image_id': image['id']})
+        with self.assertRaisesRegex(ValueError, '正在处理'):
+            self.studio.delete(image['id'])
+        self.db.update(jid, 'paused')
+        self.studio.update(image['id'], prompt_id='owned', comfy_url='http://localhost:8190', submission='submitted')
+        with patch.object(self.studio, 'request', return_value={'queue_running': [[0, 'owned']]}):
+            with self.assertRaisesRegex(ValueError, 'ComfyUI 队列'):
+                self.studio.delete(image['id'])
+        self.assertTrue(self.studio.path(image['id']).is_dir())
+
+    def test_missing_models_require_confirmation_even_with_legacy_auto_download(self):
+        from app.image_environment import DownloadConfirmationRequired
+        config = self.config.get();config['image_generation'] = {'engine': 'managed', 'auto_download': True};self.config.save(config)
+        unavailable = {'connected': False, 'missing_nodes': ['TextEncodeQwenImage21'], 'choices': {}, 'gpu': None, 'vram_mb': None}
+        with patch.object(self.studio.environment, 'probe', return_value=unavailable), \
+             patch('app.image_environment.hardware', return_value={'gpu': [{'name': 'test', 'vram_mb': 16311}]}), \
+             patch('app.image_environment.Downloader') as downloader:
+            plan = self.studio.environment.plan()
+            self.assertTrue(plan['requires_confirmation'])
+            with self.assertRaises(DownloadConfirmationRequired):
+                self.studio.environment.prepare('auto', lambda *a, **k: None, lambda: False)
+            with self.assertRaises(DownloadConfirmationRequired):
+                self.studio.environment.prepare('quality-int8', lambda *a, **k: None, lambda: False, confirmation=plan['confirmation_token'])
+            downloader.assert_not_called()
+
+    def test_custom_model_catalog_round_trip_and_request_graph(self):
+        config = self.config.get();config['image_generation'] = {'engine': 'shared', 'comfy_url': 'http://localhost:8190', 'models_dir': str(self.root/'models')};self.config.save(config)
+        choices = {c: ['custom/' + c + '.safetensors'] for c in ('diffusion_models', 'text_encoders', 'vae')}
+        remote = {'connected': True, 'missing_nodes': [], 'choices': choices, 'gpu': {'name': 'GPU'}, 'vram_mb': 16311}
+        models = {c: names[0] for c, names in choices.items()}
+        local = self.root/'models/diffusion_models/another.safetensors';local.parent.mkdir(parents=True);local.write_bytes(b'local model')
+        with patch.object(self.studio.environment, 'probe', return_value=remote):
+            plan = self.studio.environment.plan('turbo-int8', models)
+            self.assertTrue(plan['ready'])
+            self.assertEqual(plan['download_bytes'], 0)
+            self.assertFalse(plan['requires_confirmation'])
+            self.assertIn('another.safetensors', [i['name'] for i in plan['available_models']['diffusion_models']])
+            graph, _, _ = image_graph(ImageRequest(prompt='p', seed=1, models=models), 'p', plan, self.studio.environment.manifest, 'test')
+            self.assertEqual(graph['1']['inputs']['unet_name'], models['diffusion_models'])
+            self.assertEqual(graph['2']['inputs']['clip_name'], models['text_encoders'])
+            self.assertEqual(graph['5']['inputs']['vae_name'], models['vae'])
+            missing = self.studio.environment.plan(models={**models, 'vae': 'missing.safetensors'})
+            self.assertFalse(missing['ready'])
+            self.assertTrue(missing['selection_errors'])
+        with self.assertRaises(ValueError):
+            ImageRequest(prompt='p', models={'vae': '../outside.safetensors'})
+
 
 if __name__ == '__main__':
     unittest.main()

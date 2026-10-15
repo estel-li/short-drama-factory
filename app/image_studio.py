@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 import secrets
+import shutil
 import time
 import threading
 import uuid
@@ -83,7 +84,69 @@ class ImageStudio:
     def listing(self, project_id=None):
         records = [read_json(p) for p in self.root.glob('*/image.json')]
         records = [r for r in records if r and (project_id is None or r.get('project_id') == project_id)]
-        return [self.get(r['id']) for r in sorted(records, key=lambda r: r['created_at'], reverse=True)[:200]]
+        values = []
+        for row in sorted(records, key=lambda r: r['created_at'], reverse=True)[:200]:
+            try:
+                values.append(self.get(row['id']))
+            except (ValueError, FileNotFoundError):
+                pass  # A concurrent deletion must not break the gallery refresh.
+        return values
+
+    def delete(self, iid):
+        with self.lock:
+            value = self.get(iid)
+            if value['busy'] or value['project_busy']:
+                raise ValueError('图片或所属项目正在处理，请停止并等待任务结束后删除。')
+            if value.get('prompt_id') and value.get('submission') != 'complete':
+                queue = self.request(value['comfy_url'], '/queue')
+                if any(row[1] == value['prompt_id'] for key in ('queue_running', 'queue_pending') for row in queue.get(key, [])):
+                    raise ValueError('图片仍在 ComfyUI 队列中，请先停止并等待退出后删除。')
+            folder = self.path(iid).resolve()
+            if folder.parent != self.root.resolve() or folder.name != iid or folder == self.root.resolve() or self.path(iid).is_symlink():
+                raise ValueError('图片目录不在允许的删除范围内。')
+            shutil.rmtree(folder)
+            return {'id': iid, 'deleted': True, 'message': '已删除图片库原图与记录；项目中已采用的素材和历史版本保留。'}
+
+    def start(self, iid, enqueue, request=None, optimize_only=False, confirmation=None):
+        """Edit an unsampled image and continue its existing queue task."""
+        with self.lock:
+            value = self.get(iid)
+            if value['busy'] or value['project_busy']:
+                raise ValueError('图片或所属项目正在处理，请等待完成。')
+            if value.get('file') and value.get('file_available'):
+                raise ValueError('这张图片已生成，请使用重新生成创建新版本。')
+            if value.get('prompt_id') and (request is not None or optimize_only):
+                raise ValueError('图片已经提交到生成引擎，继续原任务时不能修改参数；请使用重新生成。')
+            changes = {}
+            if request is not None or optimize_only:
+                raw = {**value['request'], **(request or {})}
+                if raw.get('seed') is None:
+                    raw['seed'] = value['request']['seed']
+                invalidate = optimize_only or not raw.get('optimize', True) or any(
+                    raw.get(key) != value['request'].get(key) for key in ('prompt', 'purpose', 'style', 'ratio', 'transparent'))
+                if optimize_only:
+                    raw.update(optimize=True, optimized_prompt='')
+                elif invalidate and not (request or {}).get('optimized_prompt'):
+                    raw['optimized_prompt'] = ''
+                changes['request'] = ImageRequest.model_validate(raw).model_dump()
+                if invalidate or raw.get('optimized_prompt'):
+                    changes['optimized_prompt'] = raw.get('optimized_prompt', '')
+                    if invalidate or raw.get('optimized_prompt') != value.get('optimized_prompt'):
+                        changes.update(optimization_summary='', optimization={})
+            if confirmation is not None:
+                changes['download_confirmation'] = confirmation
+            self.update(iid, **changes)
+            kind = 'image-optimize' if optimize_only else 'image-generate'
+            try:
+                if value.get('job_id'):
+                    jid = self.db.requeue_image(value['job_id'], value['owner'], iid, kind)
+                else:
+                    jid = enqueue(value['owner'], kind, {'image_id': iid})
+            except Exception:
+                write_json(self.path(iid) / 'image.json', {k:v for k,v in value.items() if k not in ('busy', 'project_busy', 'url', 'file_available')})
+                raise
+            self.update(iid, job_id=jid)
+            return {'id': iid, 'job_id': jid}
 
     def update(self, iid, **changes):
         with self.lock:
@@ -93,7 +156,7 @@ class ImageStudio:
             write_json(path, value)
             return value
 
-    def create(self, raw, project_id='', target='', parent_id=''):
+    def create(self, raw, project_id='', target='', parent_id='', confirmation=''):
         request = ImageRequest.model_validate(raw)
         if project_id:
             self.projects.path(project_id)
@@ -103,7 +166,7 @@ class ImageStudio:
         if request.seed is None:
             request.seed = secrets.randbelow(2**53)
         value = {'id': iid, 'owner': project_id or '__image_' + iid, 'project_id': project_id,
-                 'target': target, 'parent_id': parent_id, 'request': request.model_dump(),
+                 'target': target, 'parent_id': parent_id, 'request': request.model_dump(), 'download_confirmation': confirmation,
                  'status': 'new', 'message': '图片任务已创建。', 'created_at': now(), 'updated_at': now()}
         write_json(self.root / iid / 'image.json', value)
         return value
@@ -133,10 +196,10 @@ class ImageStudio:
         request = ImageRequest.model_validate(value['request'])
         if request.optimized_prompt:
             return request.optimized_prompt
-        if value.get('optimized_prompt'):
-            return value['optimized_prompt']
         if not request.optimize:
             return request.prompt
+        if value.get('optimized_prompt'):
+            return value['optimized_prompt']
         settings = self.environment.settings()
         provider = self.config.provider(request.provider or settings.provider)
         model = request.model or settings.model or provider.model
@@ -193,13 +256,12 @@ class ImageStudio:
             raise Cancelled('图片生成已停止。')
         request = ImageRequest.model_validate(value['request'])
         self.update(iid, status='preparing', message='正在检查图片环境。', effective_prompt=prompt)
-        plan = value.get('model_plan') if value.get('prompt_id') else self.environment.plan(request.variant)
+        models = request.models.model_dump() if request.models is not None else None
+        plan = value.get('model_plan') if value.get('prompt_id') else self.environment.plan(request.variant, models)
         if not plan:
             raise RuntimeError('原图片任务缺少环境快照，请核对历史后重新生成。')
         if not value.get('prompt_id') and not plan['ready']:
-            if not self.environment.settings().auto_download:
-                raise RuntimeError('图片环境尚未就绪，请先准备模型或开启自动下载。')
-            plan = self.environment.prepare(request.variant, report, cancel)
+            plan = self.environment.prepare(request.variant, report, cancel, models, value.get('download_confirmation', ''))
         shared = self.config.renderer_config().get('comfy_url')
         if shared and shared != plan['comfy_url']:
             self.release_idle(shared, required=True)
@@ -381,7 +443,7 @@ class ImageStudio:
         write_json(folder / 'reference-images.json', book)
         return {'asset_id': version['asset_id'], 'image_id': iid, 'target': target}
 
-    def ensure_references(self, pid, report, cancel, targets=None):
+    def ensure_references(self, pid, report, cancel, targets=None, confirmation=''):
         options = self.projects.options(self.projects.path(pid))
         preferences = options.reference_images
         wanted = {'character': preferences.characters, 'scene': preferences.scenes, 'prop': preferences.props}
@@ -402,7 +464,9 @@ class ImageStudio:
             request = self.reference_request(pid, candidate['key'])
             existing = next((x for x in self.listing(pid) if targets is None and x.get('target') == candidate['key'] and x['status'] in ('new', 'queued', 'optimizing', 'preparing', 'rendering', 'paused', 'error', 'complete') and
                              {k:v for k,v in x['request'].items() if k != 'seed'} == {k:v for k,v in ImageRequest.model_validate(request).model_dump().items() if k != 'seed'}), None)
-            image = existing or self.create(request, pid, candidate['key'])
+            image = existing or self.create(request, pid, candidate['key'], confirmation=confirmation)
+            if existing and confirmation:
+                self.update(image['id'], download_confirmation=confirmation)
             report('正在生成参考图：' + candidate['name'], image_id=image['id'])
             try:
                 self.generate(image['id'], lambda text, **extra: report(candidate['name'] + '：' + text, **extra), cancel)

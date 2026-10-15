@@ -7,6 +7,21 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+class ImageModels(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    diffusion_models: str = Field(default='', max_length=500)
+    text_encoders: str = Field(default='', max_length=500)
+    vae: str = Field(default='', max_length=500)
+
+    @field_validator('*')
+    @classmethod
+    def relative_model(cls, value):
+        value = value.strip().replace('\\', '/')
+        if value and (value.startswith('/') or ':' in value or any(p in ('', '.', '..') for p in value.split('/')) or not value.endswith('.safetensors')):
+            raise ValueError('请选择模型目录内的 safetensors 文件，不接受绝对路径或上级目录。')
+        return value
+
+
 class ImageSettings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     engine: Literal['auto', 'shared', 'managed'] = 'auto'
@@ -17,7 +32,8 @@ class ImageSettings(BaseModel):
     provider: str = 'deepseek'
     model: str = ''
     skill: str = 'image-qwen-general'
-    auto_download: bool = True
+    auto_download: bool = False  # Legacy setting; downloads still require per-plan confirmation.
+    models: ImageModels = Field(default_factory=ImageModels)
     timeout: int = Field(default=1800, ge=60, le=7200)
 
     @field_validator('comfy_url')
@@ -57,6 +73,7 @@ class ImageRequest(BaseModel):
     ratio: str = '1:1'
     resolution: Literal['auto', '512', '768', '1024', '1536', '2048'] = 'auto'
     variant: Literal['auto', 'turbo-int8', 'turbo-bf16', 'quality-int8'] = 'auto'
+    models: ImageModels | None = None
     seed: int | None = Field(default=None, ge=0, le=2**53 - 1)
     transparent: bool = False
 

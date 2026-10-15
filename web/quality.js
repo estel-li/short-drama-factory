@@ -1,5 +1,5 @@
-import { api, el, field, select, download } from "./api.js?v=3.0.0";
-import { finishingPayload } from "./state.js?v=3.0.0";
+import { api, el, field, select, download } from "./api.js?v=3.0.1";
+import { finishingPayload } from "./state.js?v=3.0.1";
 const PRESET_LABELS = {
   original: "原始节奏",
   gentle: "保守收紧",

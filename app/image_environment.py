@@ -16,10 +16,16 @@ import httpx
 
 from .downloads import Downloader
 from .environment import hardware, extract_portable
-from .image_schemas import ImageSettings
+from .image_schemas import ImageSettings, ImageModels
 from .processes import run_process
 from .providers import Cancelled
-from .storage import ROOT, contained, read_json, write_json
+from .storage import ROOT, contained, digest, read_json, write_json
+
+
+class DownloadConfirmationRequired(Cancelled):
+    def __init__(self, plan):
+        super().__init__('图片环境需要下载或校验模型，请在图片生成页面确认下载后继续。')
+        self.plan = plan
 
 
 REQUIRED_NODES = ('TextEncodeQwenImage21', 'UNETLoader', 'CLIPLoader', 'VAELoader',
@@ -83,7 +89,21 @@ class ImageEnvironment:
         except (httpx.HTTPError, ValueError, TypeError, KeyError):
             return {'connected': False, 'missing_nodes': list(REQUIRED_NODES), 'choices': {}, 'gpu': None, 'vram_mb': None}
 
-    def plan(self, variant='auto'):
+    def inventory(self, model_root, current, local):
+        result = {}
+        for category in MODEL_FIELDS:
+            found = {name.replace('\\', '/'): {'name': name.replace('\\', '/'), 'source': 'service'}
+                     for name in current['choices'].get(category, []) if isinstance(name, str) and name.endswith('.safetensors')}
+            folder = model_root / category
+            if local and folder.is_dir():
+                for path in folder.rglob('*.safetensors'):
+                    if path.is_file() and path.resolve().is_relative_to(folder.resolve()):
+                        name = path.relative_to(folder).as_posix()
+                        found.setdefault(name, {'name': name, 'source': 'folder', 'size': path.stat().st_size})
+            result[category] = sorted(found.values(), key=lambda item: item['name'].lower())
+        return result
+
+    def plan(self, variant='auto', models=None):
         settings = self.settings()
         env = self.config.renderer_config()
         shared_url = settings.comfy_url or env.get('comfy_url', 'http://127.0.0.1:8188')
@@ -103,38 +123,74 @@ class ImageEnvironment:
         if selected not in self.manifest['variants']:
             raise ValueError('图片模型方案不存在。')
         model_root = Path(settings.models_dir or (self.root / 'models/qwen-image-2.1' if managed else Path(env.get('comfy_dir') or self.root / 'engines/ComfyUI') / 'models')).resolve()
+        local_files = managed or (local and bool(settings.models_dir or (shared_url == env.get('comfy_url') and env.get('comfy_dir'))))
+        available = self.inventory(model_root, current, local_files)
+        selection = ImageModels.model_validate(models).model_dump() if models is not None else settings.models.model_dump()
+        main_name = selection['diffusion_models'].rsplit('/', 1)[-1]
+        known_variant = next((key for key, spec in self.manifest['variants'].items()
+                              if main_name == self.manifest['models'][spec['files'][0]]['name']), None)
+        if known_variant:
+            if variant != 'auto' and selected != known_variant:
+                raise ValueError('所选主模型与采样方案不一致，请选择自动方案或对应的 Turbo／标准方案。')
+            selected = known_variant
         rows = []
+        selection_errors = []
         for role in self.manifest['variants'][selected]['files']:
             model = self.manifest['models'][role]
+            category = model['category']
+            chosen = selection[category]
+            missing = chosen and chosen not in {item['name'] for item in available[category]}
+            if missing:
+                selection_errors.append('所选模型文件不存在或尚未被目标服务识别：' + chosen)
+            if chosen:
+                known = next((m for m in self.manifest['models'].values() if m['category'] == category and m['name'] == chosen.rsplit('/', 1)[-1]), None)
+                target = contained(model_root, category + '/' + chosen)
+                size = target.stat().st_size if local_files and target.is_file() else 0
+                model = {**(known or {}), 'name': chosen, 'category': category,
+                         'size': known['size'] if known else size, 'custom': not bool(known)}
             available_name = next((name for name in current['choices'].get(model['category'], [])
-                                   if name.replace('\\', '/').split('/')[-1] == model['name']), None)
+                                   if (name.replace('\\', '/') == chosen if chosen else name.replace('\\', '/').split('/')[-1] == model['name'])), None)
             target = contained(model_root, model['category'] + '/' + model['name'])
             rows.append({**model, 'role': role, 'target': str(target), 'comfy_name': available_name,
-                         'action': 'available' if available_name else 'verify' if target.is_file() and target.stat().st_size == model['size'] else 'download'})
+                         'action': 'missing' if missing else 'available' if available_name else 'local' if model.get('custom') else 'verify' if target.is_file() and target.stat().st_size == model['size'] else 'download'})
         disk = model_root
         while not disk.exists():
             disk = disk.parent
-        engine_root, _, runtime_python = self.paths()
+        engine_root, source, runtime_python = self.paths()
         base_python = env.get('python')
         bootstrap_needed = managed and not runtime_python.is_file() and (not base_python or not Path(base_python).is_file())
         model_bytes = sum(m['size'] for m in rows if m['action'] == 'download')
         runtime_bytes = self.manifest['bootstrap']['size'] if bootstrap_needed else 0
+        source_needed = managed and not current['connected'] and (not (source / 'main.py').is_file() or read_json(engine_root / 'source-ready.json', {}).get('revision') != self.manifest['comfyui']['revision'])
+        source_bytes = self.manifest['comfyui']['size'] if source_needed else 0
+        ready = current['connected'] and not current['missing_nodes'] and all(m['comfy_name'] for m in rows)
+        requires_confirmation = not ready and (any(m['action'] in ('download', 'verify') for m in rows) or bootstrap_needed or source_needed)
+        token = digest({'url': url, 'variant': selected, 'directory': str(model_root), 'revision': self.manifest['comfyui']['revision'],
+                        'models': [{k: m.get(k) for k in ('name', 'category', 'sha256', 'size')} for m in rows]})
         return {'engine': 'managed' if managed else 'shared', 'comfy_url': url,
                 'connected': current['connected'], 'missing_nodes': current['missing_nodes'],
                 'gpu': device, 'vram_mb': vram, 'recommendation': recommended, 'variant': selected,
                 'variants': self.manifest['variants'], 'models': rows, 'models_dir': str(model_root),
-                'download_bytes': model_bytes + runtime_bytes, 'models_download_bytes': model_bytes,
+                'download_bytes': model_bytes + runtime_bytes + source_bytes, 'models_download_bytes': model_bytes,
                 'runtime_download_bytes': runtime_bytes, 'bootstrap_needed': bootstrap_needed,
+                'source_download_bytes': source_bytes, 'available_models': available, 'selection': selection,
+                'selection_errors': selection_errors, 'verify_bytes': sum(m['size'] for m in rows if m['action'] == 'verify'),
+                'requires_confirmation': requires_confirmation, 'confirmation_token': token,
                 'engine_free_disk_bytes': shutil.disk_usage(self.root).free,
                 'free_disk_bytes': shutil.disk_usage(disk).free,
-                'ready': current['connected'] and not current['missing_nodes'] and all(m['comfy_name'] for m in rows),
-                'local_download': managed or (local and bool(settings.models_dir or (shared_url == env.get('comfy_url') and env.get('comfy_dir')))),
+                'ready': ready,
+                'local_download': local_files,
                 'license': self.manifest['license'], 'auto_download': settings.auto_download}
 
-    def prepare(self, variant, report, cancel):
-        plan = self.plan(variant)
+    def prepare(self, variant, report, cancel, models=None, confirmation=''):
+        plan = self.plan(variant, models)
         if plan['ready']:
             return plan
+        if plan['selection_errors']:
+            raise ValueError('；'.join(plan['selection_errors']))
+        if plan['requires_confirmation'] and confirmation != plan['confirmation_token']:
+            report('请先确认图片模型下载。', download_required=True, download_plan=plan)
+            raise DownloadConfirmationRequired(plan)
         if plan['engine'] == 'managed' and not plan['connected'] and not plan['gpu']:
             raise RuntimeError('未检测到可用的 NVIDIA 显卡。请检查驱动和显卡坞连接，或配置已有的远程图片服务。')
         if not plan['local_download']:
@@ -149,7 +205,7 @@ class ImageEnvironment:
         for model in plan['models']:
             if cancel():
                 raise Cancelled('图片环境准备已停止，下载可以恢复。')
-            if model['action'] == 'available':
+            if model['action'] in ('available', 'local'):
                 continue
             report('正在准备图片模型：' + model['name'], file=model['name'])
             downloader.fetch(model['url'], model['target'], model['size'], model['sha256'],
@@ -157,7 +213,7 @@ class ImageEnvironment:
         if plan['engine'] == 'managed':
             self.prepare_engine(plan, downloader, report, cancel)
             self.start_engine(plan, report, cancel)
-        result = self.plan(plan['variant'])
+        result = self.plan(plan['variant'], plan['selection'])
         if not result['ready']:
             raise RuntimeError('模型已保存，但图片服务尚未识别这些文件。检查模型目录映射或重启图片服务后继续。')
         return result

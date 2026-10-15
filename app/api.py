@@ -21,7 +21,7 @@ from .jobs import Worker
 from .projects import Projects
 from .providers import LLMClient, ProviderError
 from .schemas import Options, durations
-from .image_schemas import ImageSettings
+from .image_schemas import ImageSettings, ImageModels
 from .skills import Skills
 from .storage import ROOT, contained, now, read_json, write_json
 from .transfer import Transfer
@@ -44,7 +44,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='3.0.0', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='3.0.1', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -440,6 +440,12 @@ def image_environment_progress():
     return read_json(config.root / 'data/image-environment-progress.json', {})
 
 
+@app.post('/api/images/environment/plan')
+def image_environment_plan(body: dict):
+    ImageSettings(variant=body.get('variant', 'auto'))
+    return worker.images.environment.plan(body.get('variant', 'auto'), body.get('models'))
+
+
 @app.post('/api/images/settings')
 def image_settings(body: dict):
     if worker.active:
@@ -455,13 +461,18 @@ def image_settings(body: dict):
 def image_prepare(body: dict):
     variant = body.get('variant', 'auto')
     ImageSettings(variant=variant)
-    return {'job_id': worker.enqueue('__image_environment', 'image-prepare', {'variant': variant})}
+    models = ImageModels.model_validate(body['models']).model_dump() if body.get('models') is not None else None
+    jid = worker.enqueue('__image_environment', 'image-prepare', {'variant': variant, 'models': models,
+                         'download_confirmation': body.get('download_confirmation', '')})
+    # Worker owns subsequent progress; avoid replacing a running/done state after enqueue.
+    return {'job_id': jid}
 
 
 @app.post('/api/images/environment/stop')
 def image_prepare_stop():
     worker.stop('__image_environment')
-    write_json(config.root / 'data/image-environment-progress.json', {'status': 'paused', 'message': '已请求停止图片环境准备，已下载的数据可继续使用。'})
+    path = config.root / 'data/image-environment-progress.json'
+    write_json(path, {**read_json(path, {}), 'status': 'paused', 'message': '已请求停止图片环境准备，已下载的数据可继续使用。'})
     return {'message': '已请求停止图片环境准备，已下载的数据可继续使用。'}
 
 
@@ -472,7 +483,7 @@ def images_list():
 
 @app.post('/api/images', status_code=202)
 def image_create(body: dict):
-    image = worker.images.create(body.get('request', {}))
+    image = worker.images.create(body.get('request', {}), confirmation=body.get('download_confirmation', ''))
     kind = 'image-optimize' if body.get('optimize_only') else 'image-generate'
     jid = worker.enqueue(image['owner'], kind, {'image_id': image['id']})
     worker.images.update(image['id'], job_id=jid)
@@ -496,11 +507,32 @@ def image_file(iid: str):
 
 
 @app.post('/api/images/{iid}/resume', status_code=202)
-def image_resume(iid: str):
-    image = worker.images.get(iid)
-    jid = worker.enqueue(image['owner'], 'image-generate', {'image_id': iid})
-    worker.images.update(iid, job_id=jid)
-    return {'id': iid, 'job_id': jid}
+def image_resume(iid: str, body: dict | None = None):
+    image_assert_idle(iid)
+    result = worker.images.start(iid, worker.enqueue, confirmation=(body or {}).get('download_confirmation'))
+    worker.wake.set()
+    return result
+
+
+@app.post('/api/images/{iid}/generate', status_code=202)
+def image_generate_existing(iid: str, body: dict):
+    image_assert_idle(iid)
+    result = worker.images.start(iid, worker.enqueue, request=body.get('request'),
+                                 optimize_only=bool(body.get('optimize_only')), confirmation=body.get('download_confirmation'))
+    worker.wake.set()
+    return result
+
+
+@app.post('/api/images/{iid}/delete')
+def image_delete(iid: str):
+    image_assert_idle(iid)
+    return worker.images.delete(iid)
+
+
+def image_assert_idle(iid):
+    value = worker.images.get(iid)
+    if worker.active and worker.active['project_id'] == value['owner']:
+        raise ValueError('原任务正在完成收尾，请稍后重试。')
 
 
 @app.post('/api/images/{iid}/regenerate', status_code=202)
@@ -515,7 +547,8 @@ def image_regenerate(iid: str, body: dict):
     if 'prompt' in changes and changes['prompt'] != request['prompt']:
         request['optimized_prompt'] = ''
     request.update(changes)
-    image = worker.images.create(request, previous['project_id'], previous['target'], parent_id=iid)
+    image = worker.images.create(request, previous['project_id'], previous['target'], parent_id=iid,
+                                  confirmation=body.get('download_confirmation', ''))
     jid = worker.enqueue(image['owner'], 'image-generate', {'image_id': image['id']})
     worker.images.update(image['id'], job_id=jid)
     return {'id': image['id'], 'job_id': jid}
@@ -547,14 +580,14 @@ def image_reference_generate(pid: str, body: dict):
         raise ValueError('请选择当前项目中的角色、场景或道具。')
     if not candidates:
         raise ValueError('请先生成分镜和角色设定，再生成参考图。')
-    return {'job_id': worker.enqueue(pid, 'image-references', {'targets': targets})}
+    return {'job_id': worker.enqueue(pid, 'image-references', {'targets': targets, 'download_confirmation': body.get('download_confirmation', '')})}
 
 
 @app.post('/api/projects/{pid}/image-references/{target}/generate', status_code=202)
 def image_reference_one(pid: str, target: str, body: dict):
     projects.assert_idle(pid)
     request = worker.images.reference_request(pid, target, body.get('request'))
-    image = worker.images.create(request, pid, target)
+    image = worker.images.create(request, pid, target, confirmation=body.get('download_confirmation', ''))
     jid = worker.enqueue(pid, 'image-generate', {'image_id': image['id']})
     worker.images.update(image['id'], job_id=jid)
     return {'id': image['id'], 'job_id': jid}

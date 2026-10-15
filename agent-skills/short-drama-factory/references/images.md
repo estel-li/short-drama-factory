@@ -1,4 +1,4 @@
-# 图片与项目参考图（3.0.0+）
+# 图片与项目参考图（3.0.1）
 
 先读 `/api/health` 核对实例及版本，再读 `/api/images/environment`。该接口检测目标 ComfyUI 的节点、模型、显存、下载清单与许可；`ready:true` 才表示当前方案可以生成。`/api/images/environment/progress` 返回准备状态。Qwen-Image 2.1 为非商用研究许可，商业用途需要模型方授权；应用 MIT 不覆盖模型权重。
 
@@ -22,12 +22,15 @@
 
 - 返回 `id` 和 `job_id`。记录它们；每次通过 `GET /api/images/{id}` 观察原任务，不因超时重复创建。
 - `optimize_only:true` 只优化，结果为 `optimized_prompt`，状态为 `ready`；没有图片文件。
+- 优化完成后用 `POST /api/images/{id}/generate`，传 `{"request":{"optimized_prompt":"用户编辑后的结果"}}`，继续原图片及任务 ID。可覆盖尚未采样的其他请求字段；`optimize_only:true` 可在原记录重新优化。必须等 `busy:false`；已提交到 ComfyUI 的任务只能原样恢复，不能悄悄改参数。
 - `request.optimized_prompt` 可以传用户编辑后的最终提示词，非空时不再调用文字模型；`optimize:false` 且未填该字段时直接使用原描述。
 - `provider`、`model`、`skill` 可覆盖图片默认设置；Skill 阶段为 `image_prompt`。`purpose` 可选 `general/character/scene/prop`。尺寸档为 `auto/512/768/1024/1536/2048`；`seed` 可留空或为 0～9007199254740991 的整数。
 - `status:complete`、`busy:false`、`file_available:true` 才表示图片已落盘；还需实际查看图片是否满足用户要求。通过 `download /api/images/IMAGE_ID/file --output result.png` 下载，不覆盖同名文件。
 - `POST /api/images/{id}/resume`，请求体 `{}`，继续同一任务并核对原 ComfyUI 提交；结果未知时不会自动重生成。
 - `POST /api/images/{id}/regenerate`，请求体 `{}`，新建图片记录并更换种子；可传 `{"request":{"prompt":"新的描述"}}` 覆盖参数。旧图保留。
 - `POST /api/images/{id}/stop`，请求体 `{}`，停止该图片自己的任务；旧图的停止操作不应取消同项目其他任务。
+- `POST /api/images/{id}/delete`，请求体 `{}`，在用户要求删除时移除图片库中的原图、工作流与记录；任务和所属项目必须空闲，仍在 ComfyUI 执行的图片先停止。项目已有素材副本与历史引用保留。
+- `request.models` 可选对象，字段为 `diffusion_models`、`text_encoders`、`vae`，值须取自环境计划的 `available_models`。省略对象继承全局选择，字段留空使用推荐文件；文件须为 Qwen-Image 2.1 兼容组合，不接受绝对路径。
 
 `GET /api/images` 返回最近 200 条记录，不代表全部历史。任务 `error/paused` 要先看 `message`；`complete` 记录缺失文件时应恢复文件或明确重新生成。
 
@@ -61,6 +64,10 @@
 
 ## 环境准备
 
-遵照用户的安装和下载授权。自动下载默认开启，生成前必须查看实际清单；首次可能下载大型模型及独立运行时。需要准备时 `POST /api/images/environment/prepare`，请求体 `{"variant":"auto"}`；暂停用 `/api/images/environment/stop`。远程缺模型要在远端安装，本机下载不会修复远端。
+遵照用户的安装和下载授权。先 `POST /api/images/environment/plan`，请求体 `{"variant":"auto","models":null}`，读取文件、下载大小、目标目录、`requires_confirmation` 与 `confirmation_token`。缺模型时应向用户展示实际清单并确认是否下载；不要把读取到 token 当作用户已同意。
+
+确认后将原计划的 `confirmation_token` 作为 `download_confirmation` 传入 `/api/images`、`/{id}/generate`、`/{id}/resume`、`/{id}/regenerate` 或项目参考图生成接口。也可 `POST /api/images/environment/prepare`，传原 `variant`、`models` 和 `download_confirmation` 仅准备环境。模型／位置变化时重新读取并确认，不能复用过期确认。旧 `auto_download:true` 不绕过检查。取消后不会下载；未确认的后台任务会暂停并保留记录。
+
+环境进度读取 `/api/images/environment/progress`，核对 `job_id`，并结合 `/api/jobs` 的排队状态；图片任务准备进度在 `GET /api/images/{id}`。`progress` 含 `file`、`bytes`、`total`，任务信息包含当前阶段。暂停环境用 `/api/images/environment/stop`，暂停图片用对应图片的 `/stop`；恢复时确认当前清单后继续。远程缺模型要在远端安装，本机下载不会修复远端。
 
 全局设置用 `GET /api/config` 的 `image_generation` 获取，保留未知字段，仅改必要项，再 `POST /api/images/settings` 保存完整设置。不要为单个请求覆盖全局提供商或环境。模型选项、授权与硬件说明见项目 `docs/image-studio.md`。

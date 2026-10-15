@@ -209,3 +209,59 @@ test("ordinary buttons cannot accidentally submit a surrounding form", () => {
     globalThis.Node = previousNode;
   }
 });
+import { ImageWorkspace } from '../web/images.js';
+
+test('optimized image continues the original record and retains edited prompt', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  let request = { prompt: 'a room', optimize: true, optimized_prompt: '', variant: 'auto', models: {}, seed: null };
+  const workspace = new ImageWorkspace({}, { toast() {} });
+  workspace.optimizeButton = {}; workspace.generateButton = {};
+  workspace.read = () => ({ ...request });
+  workspace.refresh = async () => { workspace.draftBusy = false; };
+  globalThis.fetch = async (path, options) => {
+    calls.push({ path, body: options.body && JSON.parse(options.body) });
+    const result = path === '/api/images/original'
+      ? { id: 'original', status: 'ready', busy: false, optimized_prompt: 'machine output' }
+      : path === '/api/images/environment/plan' ? { ready: true, confirmation_token: 'plan' }
+      : { id: 'original', job_id: 'same-job' };
+    return { ok: true, status: 200, json: async () => result };
+  };
+  try {
+    await workspace.submit(true);
+    assert.equal(workspace.draftId, 'original');
+    request.optimized_prompt = 'edited by user';
+    await workspace.submit(false);
+    assert.equal(calls.filter(c => c.path === '/api/images').length, 1);
+    const continued = calls.find(c => c.path === '/api/images/original/generate');
+    assert.equal(continued.body.request.optimized_prompt, 'edited by user');
+    assert.equal(continued.body.optimize_only, false);
+    assert.equal(workspace.draftId, 'original');
+  } finally { globalThis.fetch = previousFetch; }
+});
+
+test('double-click optimization sends once and retains the revision submitted', async () => {
+  const previousFetch = globalThis.fetch;
+  let finish, writes = 0;
+  const workspace = new ImageWorkspace({}, { toast() {} });
+  workspace.optimizeButton = {}; workspace.generateButton = {};
+  workspace.read = () => ({ prompt: 'old draft', optimize: true });
+  workspace.refresh = async () => {};
+  globalThis.fetch = async () => {
+    writes++;
+    await new Promise(resolve => { finish = resolve; });
+    return { ok: true, status: 200, json: async () => ({ id: 'original', job_id: 'job' }) };
+  };
+  try {
+    const first = workspace.submit(true);
+    await workspace.submit(true);
+    workspace.revision++;
+    finish(); await first;
+    assert.equal(writes, 1);
+    assert.equal(workspace.pendingOptimize.revision, 0);
+    assert.equal(workspace.revision, 1);
+    assert.equal(workspace.generateButton.disabled, true);
+    await workspace.submit(false);
+    assert.equal(writes, 1);
+  } finally { globalThis.fetch = previousFetch; }
+});
