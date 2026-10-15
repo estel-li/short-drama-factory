@@ -210,6 +210,24 @@ class AgentSkillTests(unittest.TestCase):
         with self.assertRaises(client_module.APIError):
             self.client.request('GET', '//example.com/api/health')
 
+    def test_image_download_checks_file_and_keeps_original_bytes(self):
+        image = self.worker.images.create({'prompt': '测试图片', 'optimize': False})
+        source = self.worker.images.path(image['id']) / 'image.png'
+        Image.new('RGB', (16, 16), 'blue').save(source)
+        self.worker.images.update(image['id'], status='complete', file='image.png')
+        path = '/api/images/' + image['id']
+        self.assertTrue(self.client.request('GET', path)['file_available'])
+        target = self.root / 'download.png'
+        self.client.download(path + '/file', target)
+        self.assertEqual(target.read_bytes(), source.read_bytes())
+        source.unlink()
+        record = self.client.request('GET', path)
+        self.assertFalse(record['file_available'])
+        self.assertNotIn('url', record)
+        with self.assertRaises(client_module.APIError):
+            self.client.download(path + '/file', self.root / 'missing.png')
+        self.assertFalse((self.root / 'missing.png').exists())
+
     def test_utf8_bom_json_and_error_body_do_not_echo_payload(self):
         path = self.root / '请求.json'
         path.write_text('{"input":"中文"}', encoding='utf-8-sig')

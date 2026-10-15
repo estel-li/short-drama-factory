@@ -13,7 +13,11 @@
     "h3-i2va",
     "h3-fl2va",
     "h3-l2va",
-    "h3-ref2va"
+    "h3-ref2va",
+    "image-qwen-general",
+    "image-qwen-character",
+    "image-qwen-scene",
+    "image-qwen-prop"
   ],
   "skills": [
     {
@@ -93,6 +97,30 @@
       "stage": "prompt",
       "sources": 5,
       "bytes": 79772
+    },
+    {
+      "id": "image-qwen-general",
+      "stage": "image_prompt",
+      "sources": 0,
+      "bytes": 1670
+    },
+    {
+      "id": "image-qwen-character",
+      "stage": "image_prompt",
+      "sources": 0,
+      "bytes": 1820
+    },
+    {
+      "id": "image-qwen-scene",
+      "stage": "image_prompt",
+      "sources": 0,
+      "bytes": 1783
+    },
+    {
+      "id": "image-qwen-prop",
+      "stage": "image_prompt",
+      "sources": 0,
+      "bytes": 1728
     }
   ],
   "license_source": {

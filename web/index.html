@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>短剧工厂 · 创作工作台</title>
-    <link rel="stylesheet" href="/web/style.css?v=2.4.1" />
+    <link rel="stylesheet" href="/web/style.css?v=2.5.0" />
   </head>
   <body>
     <a class="skip-link" href="#main">跳到工作区</a>
@@ -14,7 +14,7 @@
         ><span>短剧工厂<small>让故事成为画面</small></span></a
       >
       <div class="header-right">
-        <span class="version">本地工作台 · 2.4.1</span
+        <span class="version">本地工作台 · 2.5.0</span
         ><span id="health" class="badge neutral" role="status">正在连接</span>
       </div>
     </header>
@@ -26,6 +26,7 @@
       ><button data-tab="series">
         <span data-icon="series"></span>分集与批量
       </button>
+      <button data-tab="images"><span data-icon="image"></span>图片生成</button>
       <div class="nav-caption">工作台设置</div>
       <button data-tab="providers">
         <span data-icon="settings"></span>模型与环境</button
@@ -437,7 +438,7 @@
                 <option value="outline">大纲策划</option>
                 <option value="storyboard">AI 分镜</option>
                 <option value="prompt">H3 提示词</option>
-              </select></label
+              <option value="image_prompt">图片提示词</option></select></label
             ><label>选择 Skill<select id="skill-select"></select></label>
             <div id="skill-info"></div>
             <div class="actions">
@@ -460,7 +461,7 @@
                   <option value="outline">大纲策划</option>
                   <option value="storyboard">AI 分镜</option>
                   <option value="prompt">H3 提示词</option>
-                </select></label
+                <option value="image_prompt">图片提示词</option></select></label
               >
             </div>
             <label
@@ -514,6 +515,10 @@
           </article>
         </div>
       </section>
+      <section id="images" class="page hidden">
+        <div class="page-heading"><p class="eyebrow">IMAGE STUDIO</p><h1>让想象先成为一张画面</h1><p>本地 Qwen 生图，保留每次创作，也为短剧准备角色与场景。</p></div>
+        <div id="image-studio"></div>
+      </section>
       <section id="jobs" class="page hidden">
         <div class="page-heading">
           <p class="eyebrow">EVERY STEP, SAVED</p>
@@ -536,6 +541,6 @@
     </main>
     <div id="save-bar" class="save-bar" hidden></div>
     <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-    <script type="module" src="/web/main.js?v=2.4.1"></script>
+    <script type="module" src="/web/main.js?v=2.5.0"></script>
   </body>
 </html>

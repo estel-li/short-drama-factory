@@ -21,6 +21,7 @@ from .jobs import Worker
 from .projects import Projects
 from .providers import LLMClient, ProviderError
 from .schemas import Options, durations
+from .image_schemas import ImageSettings
 from .skills import Skills
 from .storage import ROOT, contained, now, read_json, write_json
 from .transfer import Transfer
@@ -43,7 +44,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='2.4.1', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='2.5.0', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -426,6 +427,142 @@ def add_asset(pid: str, body: dict):
 @app.get('/api/jobs')
 def jobs():
     return db.jobs()
+
+
+@app.get('/api/images/environment')
+def image_environment(variant: str = 'auto'):
+    ImageSettings(variant=variant)
+    return worker.images.environment.plan(variant)
+
+
+@app.get('/api/images/environment/progress')
+def image_environment_progress():
+    return read_json(config.root / 'data/image-environment-progress.json', {})
+
+
+@app.post('/api/images/settings')
+def image_settings(body: dict):
+    if worker.active:
+        raise ValueError('请等待当前任务完成或停止后，再修改图片引擎设置。')
+    settings = ImageSettings.model_validate(body)
+    config.provider(settings.provider)
+    value = config.get()
+    value['image_generation'] = settings.model_dump()
+    return config.save(value)['image_generation']
+
+
+@app.post('/api/images/environment/prepare', status_code=202)
+def image_prepare(body: dict):
+    variant = body.get('variant', 'auto')
+    ImageSettings(variant=variant)
+    return {'job_id': worker.enqueue('__image_environment', 'image-prepare', {'variant': variant})}
+
+
+@app.post('/api/images/environment/stop')
+def image_prepare_stop():
+    worker.stop('__image_environment')
+    write_json(config.root / 'data/image-environment-progress.json', {'status': 'paused', 'message': '已请求停止图片环境准备，已下载的数据可继续使用。'})
+    return {'message': '已请求停止图片环境准备，已下载的数据可继续使用。'}
+
+
+@app.get('/api/images')
+def images_list():
+    return worker.images.listing()
+
+
+@app.post('/api/images', status_code=202)
+def image_create(body: dict):
+    image = worker.images.create(body.get('request', {}))
+    kind = 'image-optimize' if body.get('optimize_only') else 'image-generate'
+    jid = worker.enqueue(image['owner'], kind, {'image_id': image['id']})
+    worker.images.update(image['id'], job_id=jid)
+    return {'id': image['id'], 'job_id': jid}
+
+
+@app.get('/api/images/{iid}')
+def image_get(iid: str):
+    return worker.images.get(iid)
+
+
+@app.get('/api/images/{iid}/file')
+def image_file(iid: str):
+    value = worker.images.get(iid)
+    if not value.get('file'):
+        raise ValueError('图片尚未生成。')
+    path = contained(worker.images.path(iid), value['file'])
+    if not path.is_file() or path.suffix.lower() != '.png':
+        raise ValueError('图片文件不存在。')
+    return FileResponse(path, media_type='image/png', filename=iid + '.png', content_disposition_type='inline')
+
+
+@app.post('/api/images/{iid}/resume', status_code=202)
+def image_resume(iid: str):
+    image = worker.images.get(iid)
+    jid = worker.enqueue(image['owner'], 'image-generate', {'image_id': iid})
+    worker.images.update(iid, job_id=jid)
+    return {'id': iid, 'job_id': jid}
+
+
+@app.post('/api/images/{iid}/regenerate', status_code=202)
+def image_regenerate(iid: str, body: dict):
+    previous = worker.images.get(iid)
+    if previous['project_id']:
+        projects.assert_idle(previous['project_id'])
+        if previous['target']:
+            worker.images.reference_request(previous['project_id'], previous['target'])
+    request = {**previous['request'], 'seed': None, 'optimized_prompt': previous.get('optimized_prompt', '')}
+    changes = body.get('request', {})
+    if 'prompt' in changes and changes['prompt'] != request['prompt']:
+        request['optimized_prompt'] = ''
+    request.update(changes)
+    image = worker.images.create(request, previous['project_id'], previous['target'], parent_id=iid)
+    jid = worker.enqueue(image['owner'], 'image-generate', {'image_id': image['id']})
+    worker.images.update(image['id'], job_id=jid)
+    return {'id': image['id'], 'job_id': jid}
+
+
+@app.post('/api/images/{iid}/stop')
+def image_stop(iid: str):
+    image = worker.images.get(iid)
+    if image['busy']:
+        worker.stop(image['owner'])
+    worker.images.interrupt(iid)
+    if image.get('status') != 'complete':
+        worker.images.update(iid, status='paused', message='已请求停止图片任务，已有结果保留。')
+    return {'message': '已请求停止图片任务，已有图片保留。'}
+
+
+@app.get('/api/projects/{pid}/image-references')
+def image_references(pid: str):
+    return {'candidates': worker.images.candidates(pid), 'images': worker.images.listing(pid)}
+
+
+@app.post('/api/projects/{pid}/image-references/generate', status_code=202)
+def image_reference_generate(pid: str, body: dict):
+    projects.assert_idle(pid)
+    candidates = worker.images.candidates(pid)
+    targets = body.get('targets')
+    if targets is not None and (not isinstance(targets, list) or not targets or
+                               any(not isinstance(t, str) or t not in {c['key'] for c in candidates} for t in targets)):
+        raise ValueError('请选择当前项目中的角色、场景或道具。')
+    if not candidates:
+        raise ValueError('请先生成分镜和角色设定，再生成参考图。')
+    return {'job_id': worker.enqueue(pid, 'image-references', {'targets': targets})}
+
+
+@app.post('/api/projects/{pid}/image-references/{target}/generate', status_code=202)
+def image_reference_one(pid: str, target: str, body: dict):
+    projects.assert_idle(pid)
+    request = worker.images.reference_request(pid, target, body.get('request'))
+    image = worker.images.create(request, pid, target)
+    jid = worker.enqueue(pid, 'image-generate', {'image_id': image['id']})
+    worker.images.update(image['id'], job_id=jid)
+    return {'id': image['id'], 'job_id': jid}
+
+
+@app.post('/api/projects/{pid}/image-references/{target}/adopt')
+def image_reference_adopt(pid: str, target: str, body: dict):
+    return worker.images.adopt(pid, target, body['image_id'])
 
 
 @app.get('/api/health')

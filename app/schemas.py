@@ -5,6 +5,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from .image_schemas import ReferenceImageOptions
 
 
 class Provider(BaseModel):
@@ -85,6 +86,7 @@ class Options(BaseModel):
     profile: str = 'draft'
     seed: int = Field(default=12345, ge=0, le=2**63 - 151)
     auto_reference: bool = True
+    reference_images: ReferenceImageOptions = Field(default_factory=ReferenceImageOptions)
     subtitles: bool = True
     render_retries: int = Field(default=1, ge=0, le=2)
     h3_mode: Literal['auto', 'T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA'] = 'auto'

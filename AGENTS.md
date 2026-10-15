@@ -1,6 +1,6 @@
 # AI 操作入口 · Start here
 
-使用本项目生成、续跑、修复或导出视频时，先读取：
+使用本项目生成图片、管理角色／场景参考图，或生成、续跑、修复、导出视频时，先读取：
 
 **[短剧工厂操作技能 → agent-skills/short-drama-factory/SKILL.md](agent-skills/short-drama-factory/SKILL.md)**
 
@@ -13,6 +13,6 @@
 3. 在项目根目录可运行 `python agent-skills/short-drama-factory/scripts/factory_api.py get /api/health`；也可用应用的 `runtime/python.exe` 或 `.venv/Scripts/python.exe` 替换 python。
 4. 使用技能里的接口保存和排队；保留项目 ID、任务 ID、镜头 UID。超时先查原任务，避免重复提交。
 
-完整操作说明只有上述技能一份。本目录的 `skills/` 是应用内部的大纲／分镜／H3 提示词模板，与外部操作技能用途不同。
+完整操作说明只有上述技能一份。本目录的 `skills/` 是应用内部的大纲／分镜／H3／图片提示词模板，与外部操作技能用途不同。
 
 如果用户要求开发、审查或修复应用代码，按代码任务处理；不因此启动生成、调用收费 API、下载模型或修改用户项目。认证保留在用户配置的本地凭证机制中，不写入仓库或日志。

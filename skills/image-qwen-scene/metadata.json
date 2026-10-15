@@ -1,0 +1,15 @@
+{
+  "id": "image-qwen-scene",
+  "name": "场景空间参考图",
+  "stage": "image_prompt",
+  "version": "1.0.0",
+  "variables": [
+    "style",
+    "purpose",
+    "ratio"
+  ],
+  "references": [],
+  "description": "本项目原创 Qwen-Image 2.1 提示词优化规则。",
+  "sources": [],
+  "context_references": []
+}

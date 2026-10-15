@@ -56,7 +56,7 @@ class Skills:
     def save(self, sid, metadata, files):
         identifier(sid)
         value = copy.deepcopy(metadata)
-        if value.get('stage') not in ('outline', 'storyboard', 'prompt') or not value.get('name'):
+        if value.get('stage') not in ('outline', 'storyboard', 'prompt', 'image_prompt') or not value.get('name'):
             raise ValueError('Skill 必须声明名称和阶段。')
         if 'SKILL.md' not in files:
             raise ValueError('缺少 SKILL.md。')

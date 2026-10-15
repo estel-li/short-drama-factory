@@ -1,4 +1,6 @@
 export const STATUS = {
+  optimizing: ["优化提示词", "running"],
+  preparing: ["准备模型", "running"],
   new: ["草稿", "neutral"],
   ready: ["待生成", "neutral"],
   queued: ["排队中", "running"],
@@ -21,6 +23,12 @@ export const STATUS = {
   verifying: ["校验中", "running"],
 };
 export const STAGES = {
+  image_prompt: "图片提示词",
+  reference_images: "项目参考图",
+  "image-prepare": "图片环境准备",
+  "image-generate": "图片生成",
+  "image-optimize": "图片提示词优化",
+  "image-references": "项目参考图生成",
   finishing: "质检与后期",
   finish: "质检与后期",
   "rebuild-edit": "重建后期版本",

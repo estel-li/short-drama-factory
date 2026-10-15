@@ -13,9 +13,9 @@ class SourceSkillTests(unittest.TestCase):
     def test_bundled_sources_are_complete_exact_and_loaded(self):
         skills = Skills(ROOT / 'resources/builtin_skills')
         entries = skills.list()
-        self.assertEqual(len(entries), 13)
+        self.assertEqual(len(entries), 17)
         self.assertEqual([sum(s['stage'] == stage for s in entries) for stage in ('outline','storyboard','prompt')], [4,4,5])
-        variables = {'style':'水彩绘本','genre':'治愈','duration':4.46,'language':'Chinese','music':'N/A','mode':'T2VA'}
+        variables = {'style':'水彩绘本','genre':'治愈','duration':4.46,'language':'Chinese','music':'N/A','mode':'T2VA','purpose':'general','ratio':'1:1'}
         for entry in entries:
             value = skills.get(entry['id'])
             for source in value['sources']:

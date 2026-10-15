@@ -14,6 +14,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 import time
 from urllib.error import HTTPError, URLError
@@ -79,8 +80,9 @@ class Client:
             raise APIError("响应未完整读取或不是有效 JSON。" + detail) from exc
 
     def download(self, path, target):
-        if not path.startswith(("/media/", "/api/exports/")):
-            raise APIError("download 仅用于 /media/ 和 /api/exports/。")
+        if not (path.startswith(("/media/", "/api/exports/"))
+                or re.fullmatch(r'/api/images/[A-Za-z0-9_-]+/file', path)):
+            raise APIError("download 仅用于媒体、项目导出和 /api/images/{id}/file。")
         target = Path(target).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         created = False

@@ -1,5 +1,5 @@
-import { api, el, field, select, download } from "./api.js?v=2.4.1";
-import { optionsEditor, MODES } from "./options.js?v=2.4.1";
+import { api, el, field, select, download } from "./api.js?v=2.5.0";
+import { optionsEditor, MODES } from "./options.js?v=2.5.0";
 import {
   ProjectDraft,
   STAGES,
@@ -8,9 +8,10 @@ import {
   shotRecord,
   continuationIssue,
   finishingPayload,
-} from "./state.js?v=2.4.1";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.4.1";
-import { renderQuality } from "./quality.js?v=2.4.1";
+} from "./state.js?v=2.5.0";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.5.0";
+import { renderQuality } from "./quality.js?v=2.5.0";
+import { renderReferenceImages } from "./images.js?v=2.5.0";
 
 const SCOPES = {
   story: "分镜",
@@ -1255,6 +1256,7 @@ export class Workspace {
     );
   }
   renderAssets(box) {
+    renderReferenceImages(this, box).catch(error => this.services.toast(error.message, true));
     const p = this.current,
       story = this.draft.data.story;
     box.append(

@@ -16,7 +16,7 @@ TEXT_SUFFIXES = {'.json', '.txt', '.md', '.srt', '.ass'}
 MEDIA_SUFFIXES = {'.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm', '.wav', '.mp3', '.flac', '.m4a', '.ogg', '.mov'}
 PROJECT_FILES = {'大纲.txt', 'outline.json', '分镜.json', 'settings.json', 'state.json', 'assets.json', 'references.json', 'versions.json',
                  'renderer_snapshot.json', '媒体验收.json', '成片.mp4', '成片_字幕版.mp4', '字幕.srt', '字幕.ass', 'episode.json',
-                 'finishing-settings.json', 'current_edit.json', '出片预检.json'}
+                 'finishing-settings.json', 'current_edit.json', '出片预检.json', 'reference-images.json'}
 PROJECT_FOLDERS = {'assets', 'clips', 'versions', 'requests', 'prompts', 'takes', 'edits', 'source_cache', 'prompt_templates'}
 
 
@@ -223,6 +223,9 @@ class Transfer:
             for choice in settings.get('stages', {}).values():
                 choice['skill'] = skill_mapping.get(choice.get('skill'), choice.get('skill', ''))
                 choice['provider'] = provider_mapping.get(choice.get('provider'), choice.get('provider', 'deepseek'))
+            reference_images = settings.get('reference_images', {})
+            if reference_images.get('provider'):
+                reference_images['provider'] = provider_mapping.get(reference_images['provider'], reference_images['provider'])
             write_json(target / 'settings.json', settings)
             state = read_json(target / 'state.json', {})
             for collection in ('shots', 'shots_by_uid'):
@@ -241,6 +244,9 @@ class Transfer:
             for choice in preset['options'].get('stages', {}).values():
                 choice['skill'] = skill_mapping.get(choice.get('skill'), choice.get('skill', ''))
                 choice['provider'] = provider_mapping.get(choice.get('provider'), choice.get('provider', 'deepseek'))
+            reference_images = preset['options'].get('reference_images', {})
+            if reference_images.get('provider'):
+                reference_images['provider'] = provider_mapping.get(reference_images['provider'], reference_images['provider'])
             personal[identifier(key) if key not in personal else 'import-' + uuid.uuid4().hex[:12]] = preset
         write_json(self.root / 'presets/personal.json', personal)
         return {'projects': imported, 'skills': imported_skills}

@@ -12,6 +12,8 @@ from .environment import Installer
 from .rendering import fingerprint_models
 from .processes import InstanceLock
 from .series import Series
+from .image_studio import ImageStudio
+from .skills import Skills
 from .storage import ROOT, digest, now, read_json, write_json
 
 
@@ -24,6 +26,7 @@ class Worker:
         self.execution_lock = threading.RLock()
         self.installer = Installer(config)
         self.series = Series(config, db, projects, content)
+        self.images = ImageStudio(config, db, projects, assets, getattr(content, 'skills', None) or Skills())
         self.instance_lock = InstanceLock(db.path.with_suffix('.worker.lock'))
 
     def start(self):
@@ -35,7 +38,11 @@ class Worker:
         self.thread.start()
 
     def enqueue(self, pid, kind='all', payload=None):
-        if pid.startswith('__series_'):
+        if pid == '__image_environment':
+            pass
+        elif pid.startswith('__image_'):
+            self.images.path(pid.removeprefix('__image_'))
+        elif pid.startswith('__series_'):
             self.series.path(pid.removeprefix('__series_'))
         elif pid != '__environment':
             self.projects.path(pid)
@@ -45,12 +52,27 @@ class Worker:
 
     def stop(self, pid):
         self.db.cancel(pid)
+        if pid.startswith('__image_'):
+            if pid != '__image_environment':
+                self.images.update(pid.removeprefix('__image_'), status='paused', message='已请求停止图片任务。')
+            return
         (self.projects.path(pid) / '.stop').touch()
 
     def interrupt_owned(self, pid):
         import pipeline
         if not self.active or self.active['project_id'] != pid:
             return {'interrupted': False}
+        if self.active.get('kind') not in ('all', 'render', 'image-generate', 'image-optimize', 'image-references'):
+            return {'interrupted': False}
+        payload = json.loads(self.active.get('payload', '{}'))
+        iid = payload.get('image_id')
+        if not iid and not pid.startswith('__'):
+            state = read_json(self.projects.path(pid) / 'state.json', {})
+            if state.get('current_stage') == 'reference_images':
+                iid = state.get('image_id')
+        if iid:
+            self.images.interrupt(iid)
+            return {'interrupted': True}
         if self.active.get('kind') not in ('all', 'render'):
             return {'interrupted': False}
         state = read_json(self.projects.path(pid) / 'state.json', {})
@@ -78,9 +100,10 @@ class Worker:
                 self.db.update(job['id'], result or 'done', '任务阶段已完成。')
             except Cancelled as exc:
                 self.db.update(job['id'], 'paused', str(exc))
+                self.image_failure(job, 'paused', str(exc))
                 if job['project_id'] == '__environment':
                     write_json(ROOT / 'data/installation_progress.json', {'status': 'paused', 'message': str(exc)})
-                elif job['project_id'].startswith('__series_'):
+                elif job['project_id'].startswith(('__series_', '__image_')):
                     pass  # Durable job and partial series plans are the recovery source.
                 else:
                     path = self.projects.path(job['project_id']) / 'state.json'
@@ -91,9 +114,10 @@ class Worker:
                 was_cancelled = self.db.cancelled(job['id'])
                 message = '任务已停止，成果已保留。' if was_cancelled else str(exc)[:2000]
                 self.db.update(job['id'], 'paused' if was_cancelled else 'error', message)
+                self.image_failure(job, 'paused' if was_cancelled else 'error', message)
                 if job['project_id'] == '__environment':
                     write_json(ROOT / 'data/installation_progress.json', {'status': 'error', 'message': str(exc)[:2000]})
-                elif job['project_id'].startswith('__series_'):
+                elif job['project_id'].startswith(('__series_', '__image_')):
                     pass
                 else:
                     project = self.projects.path(job['project_id'])
@@ -111,9 +135,45 @@ class Worker:
                 self.active = None
         self.instance_lock.release()
 
+    def image_failure(self, job, status, message):
+        payload = json.loads(job['payload'])
+        if job['project_id'] == '__image_environment':
+            write_json(self.config.root / 'data/image-environment-progress.json', {'status': status, 'message': message})
+        elif payload.get('image_id'):
+            value = self.images.get(payload['image_id'])
+            if value.get('status') != 'complete':
+                self.images.update(payload['image_id'], status=status, message=message)
+
     def execute(self, job):
         import pipeline
         pid, jid = job['project_id'], job['id']
+        if job['kind'] in ('image-prepare', 'image-generate', 'image-optimize'):
+            payload = json.loads(job['payload'])
+            def image_report(message, **extra):
+                self.db.update(jid, message=message, event={'message': message, **extra})
+                if job['kind'] == 'image-prepare':
+                    write_json(self.config.root / 'data/image-environment-progress.json', {'status': 'running', 'message': message, **extra})
+                else:
+                    self.images.update(payload['image_id'], message=message, **extra)
+                    if not pid.startswith('__'):
+                        path = self.projects.path(pid) / 'state.json'
+                        state = read_json(path, {})
+                        state.update(status='planning', current_stage='reference_images', image_id=payload['image_id'],
+                                     message=message, job_id=jid, updated_at=now())
+                        write_json(path, state)
+            cancel = lambda: self.db.cancelled(jid) or self.shutdown.is_set()
+            if job['kind'] == 'image-prepare':
+                self.images.environment.prepare(payload.get('variant', 'auto'), image_report, cancel)
+                write_json(self.config.root / 'data/image-environment-progress.json', {'status': 'done', 'message': '图片环境已就绪。'})
+            else:
+                result = self.images.generate(payload['image_id'], image_report, cancel, job['kind'] == 'image-optimize')
+                if result.get('target') and result.get('project_id') and job['kind'] == 'image-generate':
+                    self.images.adopt(result['project_id'], result['target'], result['id'], generated=True)
+                    path = self.projects.path(pid) / 'state.json'
+                    state = read_json(path, {})
+                    state.update(status='ready', message='参考图已生成并采用。', current_stage='reference_images', updated_at=now())
+                    write_json(path, state)
+            return 'done'
         if job['kind'] == 'series-plan' and pid.startswith('__series_'):
             sid = pid.removeprefix('__series_')
             payload = json.loads(job['payload'])
@@ -154,6 +214,11 @@ class Worker:
             self.db.update(jid, message=message, event={'message': message, **changes})
 
         requested = job['kind']
+        if requested == 'image-references':
+            report('开始生成项目参考图。', status='planning', current_stage='reference_images')
+            self.images.ensure_references(pid, report, cancelled, payload.get('targets'))
+            report('参考图已生成并绑定到对应分镜。', status='ready', current_stage='reference_images')
+            return 'done'
         if requested in ('finish','rebuild-edit'):
             from .finishing import build, collect_clips, load_recipe
             story=self.projects.get(pid)['story']
@@ -174,6 +239,9 @@ class Worker:
         for stage in stages:
             if cancelled():
                 raise Cancelled('已停止，阶段成果已保存。')
+            if stage == 'prompt' and options.reference_images.enabled and requested in ('all', 'plan', 'render'):
+                report('正在准备项目角色和场景参考图。', status='planning', current_stage='reference_images')
+                self.images.ensure_references(pid, report, cancelled)
             existing = {'outline': project / 'outline.json', 'storyboard': project / '分镜.json', 'prompt': project / '分镜.json'}[stage]
             force = requested == stage and payload.get('force', True)
             done = existing.exists()

@@ -12,6 +12,9 @@
 | Silero VAD CPU 模型 | [snakers4/silero-vad](https://github.com/snakers4/silero-vad) | MIT；固定 6.2.1 提交与 SHA256 见 `manifests/quality.json`；模型首次使用时独立下载 |
 | ONNX Runtime / NumPy | [microsoft/onnxruntime](https://github.com/microsoft/onnxruntime)、[numpy/numpy](https://github.com/numpy/numpy) | 分别采用 MIT / BSD-3-Clause，发行包保留其许可 |
 | ComfyUI 与模型 | 用户独立安装或通过固定清单下载 | 不随源码仓库提交，分别适用其发行许可和使用条件 |
+| Qwen-Image 2.1 权重 | [QwenLM/Qwen-Image-2.1](https://github.com/QwenLM/Qwen-Image-2.1)、[Comfy-Org 转换权重](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) | [Qwen Research License Agreement](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE)，限非商用研究；商业用途需模型方授权。固定 revision 与 SHA256 见 `manifests/qwen-image-2.1.json`，权重不随源码提交 |
+
+4 个 `image-qwen-*` 提示词 Skill 为本项目原创适配规则，使用 MIT；其许可不替代生成模型的使用条款。
 
 H3 原声明：
 

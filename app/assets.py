@@ -18,8 +18,9 @@ class Assets:
     def __init__(self, config, projects):
         self.config, self.projects = config, projects
 
-    def add_image(self, pid, encoded, name='', character=''):
-        self.projects.assert_idle(pid)
+    def add_image(self, pid, encoded, name='', character='', generated=False, generation=None):
+        if not generated:
+            self.projects.assert_idle(pid)
         project = self.projects.path(pid)
         raw = base64.b64decode(encoded, validate=True)
         if len(raw) > 8_000_000:
@@ -35,6 +36,8 @@ class Assets:
         contained(project, relative).write_bytes(raw)
         value = {'id': aid, 'type': 'image', 'name': name or aid, 'file': relative,
                  'sha256': hashlib.sha256(raw).hexdigest(), 'source': 'user', 'character': character, 'created_at': now()}
+        if generation:
+            value.update(source='qwen-image', generation=generation)
         assets = read_json(project / 'assets.json', {})
         assets[aid] = value
         write_json(project / 'assets.json', assets)

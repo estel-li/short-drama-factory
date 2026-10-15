@@ -1,8 +1,9 @@
-import { api, el, field, select, download } from "./api.js?v=2.4.1";
-import { optionsEditor } from "./options.js?v=2.4.1";
-import { Workspace } from "./project.js?v=2.4.1";
-import { STAGES, isBusy, projectStatus } from "./state.js?v=2.4.1";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.4.1";
+import { api, el, field, select, download } from "./api.js?v=2.5.0";
+import { optionsEditor } from "./options.js?v=2.5.0";
+import { Workspace } from "./project.js?v=2.5.0";
+import { STAGES, isBusy, projectStatus } from "./state.js?v=2.5.0";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=2.5.0";
+import { ImageWorkspace } from "./images.js?v=2.5.0";
 const $ = (id) => document.getElementById(id);
 let config,
   presets,
@@ -51,6 +52,10 @@ const workspace = new Workspace($("workspace"), {
   act,
   toast,
   refresh,
+});
+const imageWorkspace = new ImageWorkspace($("image-studio"), {
+  config: () => config, skills: () => skills, act, toast,
+  reloadConfig: async () => { config = await api("/api/config"); },
 });
 function toast(message, error = false) {
   const box = $("toast");
@@ -120,6 +125,8 @@ async function act(work, button) {
 }
 function setPage(name) {
   page = name;
+  if (name === "images") history.replaceState(null, "", "#images");
+  else if (location.hash === "#images") history.replaceState(null, "", location.pathname + location.search);
   for (const node of document.querySelectorAll(".page"))
     node.classList.toggle("hidden", node.id !== name);
   for (const node of document.querySelectorAll("[data-tab]")) {
@@ -130,6 +137,7 @@ function setPage(name) {
   }
   $("save-bar").hidden = name !== "projects" || !workspace.draft?.dirty.size;
   if (name === "jobs") renderJobs();
+  if (name === "images" && config) { imageWorkspace.mount(); act(() => imageWorkspace.refresh()); }
   if (name === "series" && !seriesList.length && !currentSeries)
     $("series-create").open = true;
 }
@@ -146,7 +154,7 @@ $("brand-home").onclick = (event) => {
 };
 window.addEventListener("beforeunload", (event) => {
   if (
-    workspace.draft?.dirty.size ||
+    workspace.draft?.dirty.size || imageWorkspace.dirty || imageWorkspace.engineDraft ||
     skillDirty ||
     newFormTouched ||
     seriesFormTouched ||
@@ -191,6 +199,8 @@ async function boot() {
   renderEnvironment();
   renderSkills();
   renderEnvironmentTabs();
+  if (location.hash === "#images") { userNavigated = true; setPage("images"); }
+  if (page === "images") imageWorkspace.mount();
   await previewDuration(readNew());
   await refresh();
   if (!config.setup_complete && !userNavigated) {
@@ -455,7 +465,8 @@ function renderJobs() {
           ),
           badge(job.status),
         );
-      if (project)
+        if (job.project_id.startsWith("__image_")) card.children[1].append(el("button", { onclick: () => setPage("images") }, "打开图片工作室"));
+        if (project)
         card.children[1].append(
           el(
             "div",
@@ -525,6 +536,7 @@ async function refresh() {
     renderProjectList();
     renderSeriesList();
     if (page === "jobs") renderJobs();
+    if (page === "images") await imageWorkspace.refresh();
     if (workspace.current) {
       try {
         workspace.update(await api("/api/project/" + workspace.current.id));

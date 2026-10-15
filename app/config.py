@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .schemas import Provider, Quality
+from .image_schemas import ImageSettings
 from .storage import ROOT, identifier, read_json, write_json
 
 
@@ -44,13 +45,16 @@ class ConfigStore:
 
     def public(self):
         value = self.get()
+        value['image_generation'] = ImageSettings.model_validate(value.get('image_generation', {})).model_dump()
         for p in value['providers']:
             p['key_configured'] = bool(self.key(p['id']))
         return value
 
     def save(self, value):
         with self.lock:
-            value = {k: copy.deepcopy(value[k]) for k in ('version', 'projects_dir', 'environment', 'providers', 'proxy', 'setup_complete', 'retry_policy_version') if k in value}
+            previous_images = self.get().get('image_generation', {})
+            value = {k: copy.deepcopy(value[k]) for k in ('version', 'projects_dir', 'environment', 'providers', 'proxy', 'setup_complete', 'retry_policy_version', 'image_generation') if k in value}
+            value['image_generation'] = ImageSettings.model_validate(value.get('image_generation', previous_images)).model_dump()
             value['retry_policy_version'] = 1
             providers = []
             for p in value['providers']:

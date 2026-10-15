@@ -1,4 +1,4 @@
-import { el, field, select } from "./api.js?v=2.4.1";
+import { el, field, select } from "./api.js?v=2.5.0";
 
 const DEFAULTS = {
   duration_rule: "total",
@@ -339,7 +339,21 @@ export function optionsEditor(
       }),
     ),
   );
-  container.append(stageBox, advanced);
+  const referenceValues = { enabled: false, characters: true, scenes: true, props: false, optimize: true,
+    variant: "auto", resolution: "auto", provider: "", model: "", ...(values.reference_images || {}) };
+  const referenceControls = {};
+  const referenceBox = section("用本地模型生成参考图", "启用后，分镜流程会先用 Qwen 生成角色与场景图片，再编写视频提示词；文字规划也会包含这一步。已有手动人物图优先保留。");
+  for (const [key, label] of [["enabled", "自动生成项目参考图"], ["characters", "角色身份图"], ["scenes", "场景图"], ["props", "道具图"], ["optimize", "优化图片提示词"]]) {
+    const input = referenceControls[key] = el("input", { type: "checkbox", checked: referenceValues[key] });
+    referenceBox.append(el("label", { class: "image-switch" }, input, label));
+  }
+  referenceControls.variant = select([{ value: "auto", label: "按显存自动选择" }, { value: "turbo-int8", label: "Turbo INT8" }, { value: "turbo-bf16", label: "Turbo BF16" }, { value: "quality-int8", label: "标准 INT8" }], referenceValues.variant);
+  referenceControls.resolution = select(["auto", "512", "768", "1024", "1536", "2048"].map(value => ({ value, label: value === "auto" ? "按显存自动选择" : value + " 档" })), referenceValues.resolution);
+  referenceControls.provider = select([{ value: "", label: "使用图片工作室默认提供商" }, ...config.providers.map(p => ({ value: p.id, label: p.name }))], referenceValues.provider);
+  referenceControls.model = el("input", { value: referenceValues.model, placeholder: "留空继承提供商模型" });
+  referenceBox.append(el("div", { class: "grid" }, field("图片模型方案", referenceControls.variant), field("图片大小", referenceControls.resolution), field("提示词优化提供商", referenceControls.provider), field("优化文字模型", referenceControls.model)),
+    el("p", { class: "field-help" }, "生图在本地运行；Qwen-Image 2.1 使用非商用研究许可，商业用途需要模型方授权。"));
+  container.append(stageBox, referenceBox, advanced);
   function read() {
     const result = { ...values };
     for (const [name, control] of Object.entries(controls))
@@ -374,6 +388,7 @@ export function optionsEditor(
     result.review_stages = Object.keys(reviews).filter(
       (key) => reviews[key].checked,
     );
+    result.reference_images = { ...referenceValues, ...Object.fromEntries(Object.entries(referenceControls).map(([key, node]) => [key, node.type === "checkbox" ? node.checked : node.value.trim()])) };
     return result;
   }
   container.oninput = () => onchange(read());
