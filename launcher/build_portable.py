@@ -101,7 +101,7 @@ def build():
     seed(package)
     # 用户预设可通过迁移导出；标准安装包只含内置预设。
     (package / 'presets/personal.json').unlink(missing_ok=True)
-    for name in ('pipeline.py', 'server.py', 'config.default.json', 'requirements.lock.txt', 'launch.ps1', '启动短剧工厂.cmd', '使用说明.md', '更新说明-2.1.md', '更新说明-2.2.md', '更新说明-2.3.md', '更新说明-2.4.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
+    for name in ('pipeline.py', 'server.py', 'config.default.json', 'requirements.lock.txt', '启动短剧工厂.cmd', '使用说明.md', '更新说明-2.1.md', '更新说明-2.2.md', '更新说明-2.3.md', '更新说明-2.4.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
         shutil.copy2(ROOT / name, package / name)
     write_json(package / 'package.json', {'version': '2.4.1', 'python': PYTHON_VERSION, 'python_sha256': checksum,
         'created_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'platform': 'Windows x64', 'models_included': False,

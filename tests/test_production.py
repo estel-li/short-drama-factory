@@ -55,7 +55,7 @@ class ReadinessTests(unittest.TestCase):
         exec(compile(ast.Module(body=functions,type_ignores=[]),'node-cache','exec'),scope)
         with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'DRAMA_FACTORY_CACHE_DIR':directory}):
             for name in ('cache_path','latent_path'):
-                self.assertTrue(scope[name]('drama/project/shot.safetensors').is_relative_to(Path(directory)))
+                self.assertTrue(scope[name]('drama/project/shot.safetensors').is_relative_to(Path(directory).resolve()))
                 with self.assertRaises(ValueError):scope[name]('../../outside.safetensors')
 
     def test_video_download_uses_server_output_and_stops_before_writing(self):

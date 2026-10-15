@@ -55,10 +55,10 @@ git clone https://github.com/estel-li/short-drama-factory.git
 cd short-drama-factory
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
-powershell -NoProfile -ExecutionPolicy Bypass -File .\launch.ps1
+.\.venv\Scripts\python.exe .\launcher\start.py
 ```
 
-启动后访问 <http://127.0.0.1:8765>。再次执行启动脚本会复用已运行的服务。端口冲突时使用 `launch.ps1 -Port 8770`。关闭网页后任务仍会继续运行。
+启动后访问 <http://127.0.0.1:8765>。再次执行启动脚本会复用同目录已运行的服务。端口冲突时使用 `启动短剧工厂.cmd --port 8770`，不自动打开浏览器可加 `--no-browser`。关闭网页后任务仍会继续运行。启动入口直接使用应用 Python，无需修改 PowerShell 执行策略。
 
 如果使用自行构建的 Windows 便携包，解压到可写目录后双击 `启动短剧工厂.cmd`。便携包包含应用 Python 和依赖，ComfyUI、模型和认证信息另行配置；仓库不包含这些大型运行文件。
 
