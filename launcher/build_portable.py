@@ -123,12 +123,12 @@ def build():
             copy_windows_batch(ROOT / name, package / name)
         else:
             shutil.copy2(ROOT / name, package / name)
-    write_json(package / 'package.json', {'version': '3.1.0', 'python': PYTHON_VERSION, 'python_sha256': checksum,
+    write_json(package / 'package.json', {'version': '3.1.1', 'python': PYTHON_VERSION, 'python_sha256': checksum,
         'created_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'platform': 'Windows x64', 'models_included': False,
         'credentials_included': False})
     (package / 'README.md').write_text('# 短剧工厂便携版\n\n> **AI 操作入口：[AGENTS.md](AGENTS.md) → [视频制作 Skill](agent-skills/short-drama-factory/SKILL.md)。**\n\n解压到可写目录，双击“启动短剧工厂.cmd”。首次打开“模型与环境”：复用已有 ComfyUI，或选择从零安装。目标电脑需要可用的 NVIDIA 驱动，也可以连接远程服务。模型下载清单固定版本且可恢复。API key 和 HF token 在本机重新填写，标准包不包含模型和私人配置。详细步骤见“使用说明.md”。\n', encoding='utf-8')
     subprocess.run([str(runtime / 'python.exe'), '-c', 'import fastapi,uvicorn,av,httpx,psutil,numpy,onnxruntime; import app.api; print("portable imports passed")'], cwd=package, check=True, env=build_env)
-    output = dist / ('短剧工厂-v3.1.0-Windows-x64-' + time.strftime('%Y%m%d_%H%M%S') + '.zip')
+    output = dist / ('短剧工厂-v3.1.1-Windows-x64-' + time.strftime('%Y%m%d_%H%M%S') + '.zip')
     with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=5) as archive:
         for path in package.rglob('*'):
             if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':

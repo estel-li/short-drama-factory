@@ -210,6 +210,22 @@ test("ordinary buttons cannot accidentally submit a surrounding form", () => {
   }
 });
 import { ImageWorkspace } from '../web/images.js';
+import { readSampling } from '../web/image-sampling.js';
+
+test('sampling form validates numbers and applies denoise only to source-image edits', () => {
+  const controls = Object.fromEntries(Object.entries({ steps: '', cfg: '1', sampler: 'euler', scheduler: 'auto', denoise: '0.6', negative_prompt: ' watermark ' })
+    .map(([key, value]) => [key, { value }]));
+  assert.equal(readSampling(controls, false).denoise, 1);
+  assert.equal(readSampling(controls, true).denoise, .6);
+  assert.equal(readSampling(controls, true).steps, null);
+  assert.equal(readSampling(controls, true).negative_prompt, 'watermark');
+  controls.steps.value = '12'; controls.cfg.value = '2.5';
+  assert.equal(readSampling(controls, true).steps, 12);
+  assert.equal(readSampling(controls, true).cfg, 2.5);
+  controls.steps.value = '1.5'; assert.throws(() => readSampling(controls, true), /采样步数/);
+  controls.steps.value = ''; controls.cfg.value = ''; assert.throws(() => readSampling(controls, true), /CFG/);
+  controls.cfg.value = '1'; controls.denoise.value = '0'; assert.throws(() => readSampling(controls, true), /重绘强度/);
+});
 
 test('offline engine with local models proceeds without a download dialog', async () => {
   const previousFetch = globalThis.fetch;

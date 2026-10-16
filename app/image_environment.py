@@ -83,8 +83,14 @@ class ImageEnvironment:
                 choices[category] = spec[0] if spec and isinstance(spec[0], list) else spec[1].get('options', []) if len(spec) > 1 else []
             devices = stats.get('devices') or []
             gpu = next((d for d in devices if d.get('type') != 'cpu' and d.get('vram_total')), None)
+            def options(node, name):
+                spec = nodes.get(node, {}).get('input', {}).get('required', {}).get(name, [])
+                return spec[0] if spec and isinstance(spec[0], list) else spec[1].get('options', []) if len(spec) > 1 else []
             return {'connected': True, 'missing_nodes': [n for n in REQUIRED_NODES if n not in nodes],
                     'reference_support': 'LoadImage' in nodes and 'TextEncodeQwenImage21' in nodes,
+                    'sampling_support': {'samplers': options('KSampler', 'sampler_name'),
+                                         'schedulers': options('KSampler', 'scheduler'),
+                                         'nodes': [n for n in ('BasicScheduler', 'CFGGuider', 'VAEEncode', 'ImageScale') if n in nodes]},
                     'choices': choices, 'gpu': gpu,
                     'vram_mb': round(gpu['vram_total'] / 1024**2) if gpu else None}
         except (httpx.HTTPError, ValueError, TypeError, KeyError):
@@ -180,6 +186,7 @@ class ImageEnvironment:
         return {'engine': 'managed' if managed else 'shared', 'comfy_url': url,
                 'connected': current['connected'], 'missing_nodes': current['missing_nodes'],
                 'reference_support': current.get('reference_support', False),
+                'sampling_support': current.get('sampling_support'),
                 'gpu': device, 'vram_mb': vram, 'recommendation': recommended, 'variant': selected,
                 'variants': self.manifest['variants'], 'models': rows, 'models_dir': str(model_root),
                 'download_bytes': model_bytes + runtime_bytes + source_bytes, 'models_download_bytes': model_bytes,

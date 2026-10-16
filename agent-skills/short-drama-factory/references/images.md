@@ -52,6 +52,22 @@
 
 任务保存自己的参考图快照，`GET /api/images/{id}` 的 `reference_inputs` 含编号顺序、校验值和可读取的 `url`（`/api/images/{id}/references/{index}`，index 从 1 开始）。优化完成后继续 `/{id}/generate` 时保留 `reference_images` 与 `reference_mode`；更换输入会清除旧优化结果。续跑已提交任务保持原参数，先核对原 prompt_id，不因参考图上传超时重新创建任务。`/{id}/regenerate` 沿用输入，可按用户要求覆盖为新的输入 ID。
 
+### 采样参数（3.1.1）
+
+`request.sampling` 为完整采样对象；省略时复制图片默认设置。对象内省略的字段使用模型基础默认，不逐字段合并用户默认。旧记录无此字段时沿用旧预设。示例（原图上传后）：
+
+```json
+{"request":{"prompt":"保留 <image1> 的人物，背景改为雨后街道","reference_images":["上传返回的ID"],"reference_mode":"edit","optimize":false,"sampling":{"steps":12,"cfg":2,"sampler":"euler","scheduler":"simple","denoise":0.65,"negative_prompt":"水印、模糊"}}}
+```
+
+- `steps`：null 为 Turbo 8 / 标准 40，可设 1～100；`cfg` 默认 1，范围 1～20。
+- `sampler`：euler（默认）、euler_ancestral、heun、dpmpp_2m、dpmpp_2m_sde、dpmpp_sde、uni_pc。
+- `scheduler`：auto（默认）、simple、normal、karras、exponential、sgm_uniform、beta。Turbo 的 8 步 + auto + denoise 1 使用官方 sigma；其他组合通过通用调度，auto 解析为 simple。
+- `denoise`：0.05～1，默认 1。小于 1 必须有输入图且为 edit，从第一张原图经缩放和 VAE 编码后加噪；它不是身份相似度参数。1 沿用原生参考编辑。文生图、参考创作必须为 1。
+- `negative_prompt`：最多 4000 字；CFG 大于 1 才参与引导。提高 CFG 会增加计算量，Turbo 推荐先用 8 步 / CFG 1 / Euler。
+- 采样参数修改不清空已优化提示词，优化后用原 ID 的 `/generate` 继续。已提交任务不可改参数；用 `/regenerate` 创建新版本。`effective_sampling` 返回实际使用的步数和调度等；`model_plan.sampling_support` 返回目标引擎支持的采样器、调度器和高级节点。
+- 项目 `/image-references/{target}/sources` 额外接受 `sampling`（同一对象）；省略保留原配置，null 继承工作室默认。候选返回该设置；单项、批量和自动补齐共用，随迁移包保留。
+
 这里使用 Qwen-Image 2.1 原生参考条件，没有额外“相似度／重绘强度”参数。实际身份、风格和编辑区域遵循程度需要看图验收，不能仅凭 API 完成就宣称一致。
 
 ## 项目参考图

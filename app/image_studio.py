@@ -19,12 +19,15 @@ from .comfyio import download_file
 from .content import json_text
 from .image_environment import ImageEnvironment, image_size
 from .image_inputs import ImageInputs
+from .image_sampling import resolve_sampling, validate_sampling_support
 from .image_schemas import ImageRequest, ReferenceSourceSelection
 from .providers import Cancelled, LLMClient
 from .storage import contained, digest, identifier, now, read_json, write_json
 
 
 def image_graph(request, prompt, plan, manifest, prefix, references=None):
+    sampling = resolve_sampling(request, plan['variant'])
+    validate_sampling_support(sampling, plan)
     models = {m['category']: m['comfy_name'] or m['name'] for m in plan['models']}
     resolution = plan['recommendation']['resolution'] if request.resolution == 'auto' else int(request.resolution)
     width, height = image_size(request.ratio, resolution)
@@ -33,7 +36,7 @@ def image_graph(request, prompt, plan, manifest, prefix, references=None):
     graph = {
         '1': {'class_type': 'UNETLoader', 'inputs': {'unet_name': models['diffusion_models'], 'weight_dtype': 'default'}},
         '2': {'class_type': 'CLIPLoader', 'inputs': {'clip_name': models['text_encoders'], 'type': 'qwen_image', 'device': 'default'}},
-        '3': {'class_type': 'TextEncodeQwenImage21', 'inputs': {'clip': ['2', 0], 'prompt': prompt, 'negative_prompt': '', 'resolution': resolution}},
+        '3': {'class_type': 'TextEncodeQwenImage21', 'inputs': {'clip': ['2', 0], 'prompt': prompt, 'negative_prompt': sampling['negative_prompt'], 'resolution': resolution}},
         '4': {'class_type': 'EmptyLatentImage', 'inputs': {'width': width, 'height': height, 'batch_size': 1}},
         '5': {'class_type': 'VAELoader', 'inputs': {'vae_name': models['vae']}},
         '8': {'class_type': 'VAEDecode', 'inputs': {'samples': ['7', 0], 'vae': ['5', 0]}},
@@ -52,17 +55,25 @@ def image_graph(request, prompt, plan, manifest, prefix, references=None):
             width, height = image_size(f"{first['width']}:{first['height']}", resolution)
             graph.pop('4')
     latent = ['3', 2] if request.reference_images and request.reference_mode == 'edit' else ['4', 0]
+    if sampling['denoise'] < 1:
+        graph['14'] = {'class_type': 'ImageScale', 'inputs': {'image': ['21', 0], 'upscale_method': 'lanczos', 'width': width, 'height': height, 'crop': 'disabled'}}
+        graph['15'] = {'class_type': 'VAEEncode', 'inputs': {'pixels': ['14', 0], 'vae': ['5', 0]}}
+        latent = ['15', 0]
     if plan['variant'].startswith('turbo'):
         graph.update({
             '10': {'class_type': 'ManualSigmas', 'inputs': {'sigmas': manifest['turbo_sigmas']}},
-            '11': {'class_type': 'KSamplerSelect', 'inputs': {'sampler_name': 'euler'}},
+            '11': {'class_type': 'KSamplerSelect', 'inputs': {'sampler_name': sampling['sampler']}},
             '12': {'class_type': 'RandomNoise', 'inputs': {'noise_seed': request.seed}},
             '13': {'class_type': 'BasicGuider', 'inputs': {'model': ['1', 0], 'conditioning': ['3', 0]}},
             '7': {'class_type': 'SamplerCustomAdvanced', 'inputs': {'noise': ['12', 0], 'guider': ['13', 0], 'sampler': ['11', 0], 'sigmas': ['10', 0], 'latent_image': latent}},
         })
+        if sampling['scheduler'] != 'official_turbo':
+            graph['10'] = {'class_type': 'BasicScheduler', 'inputs': {'model': ['1', 0], 'scheduler': sampling['scheduler'], 'steps': sampling['steps'], 'denoise': sampling['denoise']}}
+        if sampling['cfg'] != 1:
+            graph['13'] = {'class_type': 'CFGGuider', 'inputs': {'model': ['1', 0], 'positive': ['3', 0], 'negative': ['3', 1], 'cfg': sampling['cfg']}}
     else:
-        graph['7'] = {'class_type': 'KSampler', 'inputs': {'model': ['1', 0], 'seed': request.seed, 'steps': 40, 'cfg': 1,
-                       'sampler_name': 'euler', 'scheduler': 'simple', 'positive': ['3', 0], 'negative': ['3', 1], 'latent_image': latent, 'denoise': 1}}
+        graph['7'] = {'class_type': 'KSampler', 'inputs': {'model': ['1', 0], 'seed': request.seed, 'steps': sampling['steps'], 'cfg': sampling['cfg'],
+                       'sampler_name': sampling['sampler'], 'scheduler': sampling['scheduler'], 'positive': ['3', 0], 'negative': ['3', 1], 'latent_image': latent, 'denoise': sampling['denoise']}}
     return graph, width, height
 
 
@@ -177,7 +188,7 @@ class ImageStudio:
             return value
 
     def create(self, raw, project_id='', target='', parent_id='', confirmation=''):
-        request = ImageRequest.model_validate(raw)
+        request = self.image_request(raw)
         if project_id:
             self.projects.path(project_id)
         if parent_id:
@@ -193,6 +204,14 @@ class ImageStudio:
                  'status': 'new', 'message': '图片任务已创建。', 'created_at': now(), 'updated_at': now()}
         write_json(self.root / iid / 'image.json', value)
         return value
+
+    def image_request(self, raw):
+        if 'sampling' not in raw:
+            sampling = self.environment.settings().sampling.model_dump()
+            if raw.get('reference_mode') != 'edit':
+                sampling['denoise'] = 1
+            raw = {**raw, 'sampling': sampling}
+        return ImageRequest.model_validate(raw)
 
     @staticmethod
     def validate_edit_inputs(request, references):
@@ -329,6 +348,7 @@ class ImageStudio:
             plan = self.environment.prepare(request.variant, report, cancel, models, value.get('download_confirmation', ''))
         if request.reference_images and not plan.get('reference_support', True):
             raise RuntimeError('图片引擎缺少 Qwen-Image 2.1 图像输入节点，请升级目标 ComfyUI 或切换独立图片引擎。')
+        validate_sampling_support(resolve_sampling(request, plan['variant']), plan)
         shared = self.config.renderer_config().get('comfy_url')
         if shared and shared != plan['comfy_url']:
             self.release_idle(shared, required=True)
@@ -345,7 +365,8 @@ class ImageStudio:
             graph, width, height = image_graph(request, prompt, plan, self.environment.manifest, 'image_studio/' + iid, references)
             prompt_id = str(uuid.uuid4())
             write_json(self.path(iid) / 'workflow.json', graph)
-            self.update(iid, prompt_id=prompt_id, comfy_url=url, submission='intent', width=width, height=height, model_plan=plan)
+            self.update(iid, prompt_id=prompt_id, comfy_url=url, submission='intent', width=width, height=height, model_plan=plan,
+                        effective_sampling=resolve_sampling(request, plan['variant']))
             submitted = self.request(url, '/prompt', {'prompt': graph, 'prompt_id': prompt_id, 'client_id': 'image-studio-' + iid})
             if submitted.get('prompt_id') != prompt_id:
                 raise RuntimeError('图片服务未保留指定任务 ID，请升级兼容服务；提交结果待核对。')
@@ -417,6 +438,7 @@ class ImageStudio:
             item['selected_asset'] = entry.get('selected_asset')
             item['source_assets'] = entry.get('source_assets', [])
             item['reference_mode'] = entry.get('reference_mode', 'reference')
+            item['sampling'] = entry.get('sampling')
         return result
 
     def set_reference_sources(self, pid, target, raw):
@@ -429,6 +451,8 @@ class ImageStudio:
         if not candidate:
             raise ValueError('角色或场景已改变，请刷新后选择。')
         self.assert_reference_editable(pid, candidate)
+        if 'sampling' not in raw:
+            raw = {**raw, 'sampling': candidate.get('sampling')}
         selection = ReferenceSourceSelection.model_validate(raw)
         if len(set(selection.asset_ids)) != len(selection.asset_ids):
             raise ValueError('请勿重复选择参考素材。')
@@ -442,13 +466,15 @@ class ImageStudio:
         path = self.projects.path(pid) / 'reference-images.json'
         book = read_json(path, {'items': {}})
         entry = book['items'].setdefault(target, {'versions': []})
-        entry.update(source_assets=selection.asset_ids, reference_mode=selection.reference_mode)
+        entry.update(source_assets=selection.asset_ids, reference_mode=selection.reference_mode, sampling=selection.sampling.model_dump() if selection.sampling else None)
         write_json(path, book)
-        return {'asset_ids': selection.asset_ids, 'reference_mode': selection.reference_mode}
+        return {'asset_ids': selection.asset_ids, 'reference_mode': selection.reference_mode, 'sampling': entry['sampling']}
 
     def reference_signature(self, pid, candidate):
         options = self.projects.options(self.projects.path(pid))
         parts = [candidate['description'], options.style]
+        if candidate.get('sampling'):
+            parts.append(candidate['sampling'])
         if candidate.get('source_assets'):
             assets = self.projects.get(pid)['assets']
             parts.append([[aid, assets.get(aid, {}).get('sha256')] for aid in candidate['source_assets']])
@@ -477,6 +503,10 @@ class ImageStudio:
                 raise ValueError('项目参考素材文件缺失，请恢复或重新选择。')
             references.append(self.inputs.add(path.read_bytes(), asset['name'])['id'])
         request.update(reference_images=references, reference_mode=candidate.get('reference_mode', 'reference'))
+        sampling = copy.deepcopy(candidate.get('sampling') or self.environment.settings().sampling.model_dump())
+        if request['reference_mode'] != 'edit':
+            sampling['denoise'] = 1
+        request['sampling'] = sampling
         request.update(overrides or {})
         return request
 
@@ -581,7 +611,7 @@ class ImageStudio:
                 raise Cancelled('项目参考图生成已停止。')
             request = self.reference_request(pid, candidate['key'])
             existing = next((x for x in self.listing(pid) if targets is None and x.get('target') == candidate['key'] and x['status'] in ('new', 'queued', 'optimizing', 'preparing', 'rendering', 'paused', 'error', 'complete') and
-                             {k:v for k,v in x['request'].items() if k != 'seed'} == {k:v for k,v in ImageRequest.model_validate(request).model_dump().items() if k != 'seed'}), None)
+                             {k:v for k,v in ImageRequest.model_validate(x['request']).model_dump().items() if k != 'seed'} == {k:v for k,v in ImageRequest.model_validate(request).model_dump().items() if k != 'seed'}), None)
             image = existing or self.create(request, pid, candidate['key'], confirmation=confirmation)
             if existing and confirmation:
                 self.update(image['id'], download_confirmation=confirmation)

@@ -21,7 +21,7 @@ from .jobs import Worker
 from .projects import Projects
 from .providers import LLMClient, ProviderError
 from .schemas import Options, durations
-from .image_schemas import ImageSettings, ImageModels
+from .image_schemas import ImageSettings, ImageModels, ImageRequest
 from .skills import Skills
 from .storage import ROOT, contained, now, read_json, write_json
 from .transfer import Transfer
@@ -44,7 +44,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='3.1.0', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='3.1.1', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -573,7 +573,7 @@ def image_regenerate(iid: str, body: dict):
         projects.assert_idle(previous['project_id'])
         if previous['target']:
             worker.images.reference_request(previous['project_id'], previous['target'])
-    request = {**previous['request'], 'seed': None, 'optimized_prompt': previous.get('optimized_prompt', '')}
+    request = {**ImageRequest.model_validate(previous['request']).model_dump(), 'seed': None, 'optimized_prompt': previous.get('optimized_prompt', '')}
     changes = body.get('request', {})
     if any(key in changes and changes[key] != request.get(key) for key in ('prompt', 'purpose', 'style', 'ratio', 'transparent', 'reference_images', 'reference_mode')):
         request['optimized_prompt'] = ''

@@ -1,6 +1,7 @@
-import { api, el, field, select } from "./api.js?v=3.1.0";
-import { badge, dialog, icon } from "./ui.js?v=3.1.0";
-import { ImageInputPicker, imageFileData } from "./image-inputs.js?v=3.1.0";
+import { api, el, field, select } from "./api.js?v=3.1.1";
+import { badge, dialog, icon } from "./ui.js?v=3.1.1";
+import { ImageInputPicker, imageFileData } from "./image-inputs.js?v=3.1.1";
+import { ImageSamplingControls, samplingSummary } from "./image-sampling.js?v=3.1.1";
 
 const kinds = { general: "自由创作", character: "角色参考", scene: "场景参考", prop: "道具参考" };
 const variants = [{ value: "auto", label: "根据显存自动选择" }, { value: "turbo-int8", label: "Turbo INT8 · 快速预览" }, { value: "turbo-bf16", label: "Turbo BF16 · 大显存" }, { value: "quality-int8", label: "标准 INT8 · 细节优先" }];
@@ -44,6 +45,7 @@ export class ImageWorkspace {
       skill: select([{ value: "", label: "根据用途选择 Skill" }, ...this.services.skills().filter(s => s.stage === "image_prompt").map(s => ({ value: s.id, label: s.name }))], ""),
     };
     const c = this.controls;
+    this.sampling = new ImageSamplingControls({ value: settings.sampling, onChange: () => { this.dirty = true; this.revision++; } });
     this.modelControls = Object.fromEntries(Object.keys(modelLabels).map(key => [key,
       select([{ value: "", label: "使用推荐文件" }, ...(settings.models?.[key] ? [{ value: settings.models[key], label: settings.models[key] }] : [])], settings.models?.[key] || "")]));
     this.optimizeButton = this.button("先优化提示词", () => this.submit(true));
@@ -63,6 +65,10 @@ export class ImageWorkspace {
         el("p", { class: "field-help" }, "无参考图时按文字生成。参考图上传到所选图片引擎；提示词优化只发送文字和图片编号。")),
       el("label", { class: "image-switch" }, c.optimize, el("span", {}, "优化提示词", el("small", {}, "默认开启；保留原意，补充构图、光影和可辨识细节。"))),
       field("优化后的提示词（可编辑）", c.optimized_prompt),
+      el("details", { class: "option-section image-sampling-options" }, el("summary", {}, "高级采样参数 · 步数 / CFG / 重绘强度"),
+        this.sampling.root, this.button("恢复模型推荐参数", () => {
+          this.sampling.load(); this.dirty = true; this.revision++;
+        })),
       el("details", { class: "option-section" }, el("summary", {}, "模型、清晰度与优化设置"),
         el("div", { class: "grid three" }, field("图片模型", c.variant), field("图片大小", c.resolution), field("随机种子", c.seed),
           field("文字提供商", c.provider), field("文字模型", c.model), field("优化 Skill", c.skill)),
@@ -71,8 +77,8 @@ export class ImageWorkspace {
         el("label", { class: "image-switch" }, c.transparent, "请求透明背景 PNG"),
         this.button("保存为图片默认设置", async () => {
           this.settings = await api("/api/images/settings", { ...this.settings, variant: c.variant.value, provider: c.provider.value,
-            model: c.model.value.trim(), skill: c.skill.value || "image-qwen-general", models: this.readModels() });
-          await this.services.reloadConfig(); this.services.toast("图片模型和优化提供商默认设置已保存。");
+            model: c.model.value.trim(), skill: c.skill.value || "image-qwen-general", models: this.readModels(), sampling: this.sampling.read() });
+          await this.services.reloadConfig(); this.services.toast("图片模型、采样参数和优化提供商默认设置已保存。");
         })),
       el("div", { class: "actions" }, this.optimizeButton, this.generateButton), this.draftNote,
       el("p", { class: "field-help" }, "图片在本地 ComfyUI 生成。勾选优化时，文字会发送到所选文字提供商；也可选本地模型。"));
@@ -100,6 +106,7 @@ export class ImageWorkspace {
     this.controls.reference_mode.disabled = !this.references.length || !!this.referencesBusy;
     if (!this.references.length) this.controls.reference_mode.value = "reference";
     this.controls.ratio.disabled = this.references.length > 0 && this.controls.reference_mode.value === "edit";
+    this.sampling?.setContext(this.references.length > 0 && this.controls.reference_mode.value === "edit", this.plan?.variant);
   }
   referencesChanged() {
     this.dirty = true; this.revision++;
@@ -114,6 +121,7 @@ export class ImageWorkspace {
     if (!values.optimize) values.optimized_prompt = "";
     values.models = this.readModels();
     values.reference_images = this.references.map(item => item.id);
+    values.sampling = this.sampling.read();
     return values;
   }
   readModels() { return Object.fromEntries(Object.entries(this.modelControls).map(([key, control]) => [key, control.value])); }
@@ -166,6 +174,7 @@ export class ImageWorkspace {
       else control.value = value ?? (name === "reference_mode" ? "reference" : "");
     }
     this.controls.optimized_prompt.disabled = !this.controls.optimize.checked;
+    this.sampling.load(record.request.sampling);
     this.references = record.reference_inputs || [];
     this.referencePicker.items = this.references; this.referencePicker.render();
     this.syncReferenceMode();
@@ -179,6 +188,7 @@ export class ImageWorkspace {
     this.dirty = true; this.revision++;
     this.controls.prompt.focus();
     this.services.toast("参数已载入，可以编辑提示词后再生成。");
+    this.services.act(() => this.refreshEnvironment());
   }
   async refreshEnvironment() {
     const version = this.environmentRevision = (this.environmentRevision || 0) + 1;
@@ -186,6 +196,7 @@ export class ImageWorkspace {
     const plan = await api("/api/images/environment/plan", { variant: this.controls.variant.value, models: this.readModels() });
     if (version !== this.environmentRevision) return;
     this.plan = plan;
+    this.syncReferenceMode();
     for (const [key, control] of Object.entries(this.modelControls)) {
       const value = control.value;
       const entries = plan.available_models?.[key] || [];
@@ -341,6 +352,9 @@ export class ImageWorkspace {
     row.append(actions);
     if (record.url && record.request.transparent && !record.has_transparency) row.append(el("p", { class: "notice warning" }, "本次未生成透明区域，可调整描述后重试。"));
     if (record.optimized_prompt || record.effective_prompt) row.append(el("details", {}, el("summary", {}, "查看生成提示词"), el("p", { class: "prompt-text" }, record.optimized_prompt || record.effective_prompt)));
+    if (record.effective_sampling) row.append(el("details", {}, el("summary", {}, "实际采样参数"),
+      el("p", { class: "prompt-text" }, samplingSummary(record.effective_sampling)),
+      record.effective_sampling.negative_prompt ? el("p", { class: "prompt-text" }, "负面提示词：" + record.effective_sampling.negative_prompt) : null));
     if (record.reference_inputs?.length) {
       const previews = record.reference_inputs.map((item, index) => el("a", { href: item.url, target: "_blank", rel: "noopener" },
         el("img", { src: item.url, alt: `生成依据 ${index + 1}`, loading: "lazy" })));
@@ -372,6 +386,11 @@ export async function renderReferenceImages(workspace, box) {
   let savingSources = 0;
   const generateButtons = [batchGenerate];
   workspace.imageDrafts ||= new Map();
+  workspace.imageSamplingDrafts ||= new Map();
+  const syncGeneration = () => {
+    const dirtySampling = [...workspace.imageSamplingDrafts.entries()].some(([key, value]) => key.startsWith(pid + "/") && value.dirty);
+    for (const button of generateButtons) button.disabled = blocked || savingSources > 0 || dirtySampling;
+  };
   const grid = el("div", { class: "reference-image-grid" });
   for (const item of data.candidates) {
     const draftKey = `${pid}/${item.key}`;
@@ -390,9 +409,12 @@ export async function renderReferenceImages(workspace, box) {
     const available = select([{ value: "", label: "选择项目已有图片……" }, ...Object.values(workspace.current.assets).filter(a => a.type === "image").map(a => ({ value: a.id, label: a.name }))], "");
     available.disabled = blocked;
     const note = el("p", { class: "field-help" }, "已自动保存参考依据；移除仅取消生成引用，保留项目素材。无参考图时按文字生成。");
-    const persist = async (items, selectedMode = mode.value) => {
-      const saved = await api(`/api/projects/${pid}/image-references/${item.key}/sources`, { asset_ids: items.map(a => a.id), reference_mode: items.length ? selectedMode : "reference" });
+    const persist = async (items, selectedMode = mode.value, sampling = item.sampling) => {
+      if (sampling && (!items.length || selectedMode !== "edit")) sampling = { ...sampling, denoise: 1 };
+      const saved = await api(`/api/projects/${pid}/image-references/${item.key}/sources`, { asset_ids: items.map(a => a.id), reference_mode: items.length ? selectedMode : "reference", sampling: sampling || null });
+      item.sampling = saved.sampling; item.reference_mode = saved.reference_mode;
       mode.value = saved.reference_mode; mode.disabled = blocked || !items.length;
+      syncSampling();
       note.textContent = items.length ? `已保存 ${items.length} 张参考图；单项及批量生成都会使用。` : "无参考图，按文字生成。项目素材仍保留。";
     };
     const picker = new ImageInputPicker({
@@ -400,8 +422,9 @@ export async function renderReferenceImages(workspace, box) {
       disabled: blocked, act: work => workspace.services.act(work), onChange: items => persist(items),
       onBusy: busy => {
         savingSources += busy ? 1 : -1;
-        for (const button of generateButtons) button.disabled = blocked || savingSources > 0;
+        syncGeneration();
         available.disabled = blocked || busy; mode.disabled = blocked || busy || !picker.items.length;
+        syncSampling();
       },
       upload: async file => {
         const asset = await api(`/api/projects/${pid}/assets`, { data: await imageFileData(file), name: file.name, type: "image", character: "" });
@@ -422,9 +445,40 @@ export async function renderReferenceImages(workspace, box) {
         catch (error) { mode.value = item.reference_mode || "reference"; throw error; }
       });
     });
+    const storedSampling = workspace.imageSamplingDrafts.get(draftKey);
+    const inheritSampling = el("input", { type: "checkbox", checked: storedSampling ? storedSampling.inherit : !item.sampling, disabled: blocked });
+    let samplingControls;
+    const samplingChanged = () => {
+      workspace.imageSamplingDrafts.set(draftKey, { inherit: inheritSampling.checked, value: samplingControls.draft(), dirty: true });
+      samplingStatus.textContent = "采样参数有修改，请保存后生成。";
+      syncSampling(); syncGeneration();
+    };
+    samplingControls = new ImageSamplingControls({ value: storedSampling?.value || item.sampling || workspace.services.config().image_generation?.sampling,
+      onChange: samplingChanged });
+    const samplingStatus = el("p", { class: "field-help", role: "status" }, storedSampling?.dirty ? "采样参数有修改，请保存后生成。" : "单项、批量和自动补齐均使用这里保存的参数。");
+    function syncSampling() {
+      samplingControls?.setContext(!!picker.items.length && mode.value === "edit", modelRequest.variant === "auto" ? undefined : modelRequest.variant,
+        blocked || picker.busy || inheritSampling.checked);
+      inheritSampling.disabled = blocked || picker.busy;
+    }
+    inheritSampling.addEventListener("change", samplingChanged);
+    const saveSampling = workspace.button("保存本项采样参数", () => picker.run(async () => {
+      const sampling = inheritSampling.checked ? null : samplingControls.read();
+      await persist(picker.items, mode.value, sampling);
+      workspace.imageSamplingDrafts.delete(draftKey); samplingStatus.textContent = "本项采样参数已保存。"; syncGeneration();
+    }), false, { disabled: blocked });
+    const resetSampling = workspace.button("恢复继承默认", () => {
+      inheritSampling.checked = true;
+      samplingControls.load(workspace.services.config().image_generation?.sampling);
+      samplingChanged();
+    }, false, { disabled: blocked });
+    syncSampling();
     const card = el("article", { class: "card reference-image-card" }, el("h3", {}, item.name), el("small", {}, kinds[item.kind]), field("画面描述", prompt),
       el("details", { class: "option-section", open: !!item.source_assets?.length }, el("summary", {}, "自定义图片参考"),
-        picker.root, field("已有项目图片", available), field("参考方式", mode), note), generate);
+        picker.root, field("已有项目图片", available), field("参考方式", mode), note),
+      el("details", { class: "option-section reference-sampling-options", open: !!storedSampling?.dirty }, el("summary", {}, "本项高级采样参数"),
+        el("label", { class: "image-switch" }, inheritSampling, "继承图片工作室默认参数"), samplingControls.root,
+        el("div", { class: "actions" }, saveSampling, resetSampling), samplingStatus), generate);
     for (const version of item.history) card.append(el("div", { class: "reference-version" },
       el("img", { src: workspace.current.assets[version.asset_id]?.file ? `/media/${pid}/` + workspace.current.assets[version.asset_id].file.split("/").map(encodeURIComponent).join("/") : `/api/images/${version.image_id}/file`, alt: `${item.name}历史图片`, loading: "lazy" }),
       workspace.button(version.asset_id === item.selected_asset ? "正在使用" : "采用此版本", async () => {
@@ -436,5 +490,6 @@ export async function renderReferenceImages(workspace, box) {
     grid.append(card);
   }
   block.append(grid);
+  syncGeneration();
   if (!data.candidates.length) block.append(el("p", {}, "分镜生成后，这里会列出角色、场景和道具。"));
 }

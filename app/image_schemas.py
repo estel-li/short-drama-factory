@@ -22,6 +22,17 @@ class ImageModels(BaseModel):
         return value
 
 
+class ImageSampling(BaseModel):
+    """Portable subset of ComfyUI sampling options; null follows the model preset."""
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+    steps: int | None = Field(default=None, ge=1, le=100)
+    cfg: float = Field(default=1, ge=1, le=20)
+    sampler: Literal['euler', 'euler_ancestral', 'heun', 'dpmpp_2m', 'dpmpp_2m_sde', 'dpmpp_sde', 'uni_pc'] = 'euler'
+    scheduler: Literal['auto', 'simple', 'normal', 'karras', 'exponential', 'sgm_uniform', 'beta'] = 'auto'
+    denoise: float = Field(default=1, ge=0.05, le=1)
+    negative_prompt: str = Field(default='', max_length=4000)
+
+
 class ImageSettings(BaseModel):
     model_config = ConfigDict(extra='forbid')
     engine: Literal['auto', 'shared', 'managed'] = 'auto'
@@ -34,6 +45,7 @@ class ImageSettings(BaseModel):
     skill: str = 'image-qwen-general'
     auto_download: bool = False  # Legacy setting; downloads still require per-plan confirmation.
     models: ImageModels = Field(default_factory=ImageModels)
+    sampling: ImageSampling = Field(default_factory=ImageSampling)
     timeout: int = Field(default=1800, ge=60, le=7200)
 
     @field_validator('comfy_url')
@@ -64,6 +76,13 @@ class ReferenceSourceSelection(BaseModel):
     model_config = ConfigDict(extra='forbid')
     asset_ids: list[Annotated[str, Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')]] = Field(default_factory=list, max_length=10)
     reference_mode: Literal['reference', 'edit'] = 'reference'
+    sampling: ImageSampling | None = None  # None inherits the workbench defaults.
+
+    @model_validator(mode='after')
+    def sampling_valid(self):
+        if self.sampling and self.sampling.denoise < 1 and (self.reference_mode != 'edit' or not self.asset_ids):
+            raise ValueError('重绘强度小于 1 时，请添加原图并选择编辑原图。')
+        return self
 
 
 class ImageRequest(BaseModel):
@@ -84,6 +103,7 @@ class ImageRequest(BaseModel):
     transparent: bool = False
     reference_images: list[Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]] = Field(default_factory=list, max_length=10)
     reference_mode: Literal['reference', 'edit'] = 'reference'
+    sampling: ImageSampling = Field(default_factory=ImageSampling)
 
     @model_validator(mode='after')
     def references_valid(self):
@@ -91,6 +111,8 @@ class ImageRequest(BaseModel):
             raise ValueError('编辑原图需要至少一张参考图，第一张作为原图。')
         if len(set(self.reference_images)) != len(self.reference_images):
             raise ValueError('请勿重复添加同一张参考图。')
+        if self.sampling.denoise < 1 and (self.reference_mode != 'edit' or not self.reference_images):
+            raise ValueError('重绘强度小于 1 时，请添加原图并选择编辑原图。')
         return self
 
     @field_validator('ratio')
