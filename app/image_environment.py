@@ -24,7 +24,7 @@ from .storage import ROOT, contained, digest, read_json, write_json
 
 class DownloadConfirmationRequired(Cancelled):
     def __init__(self, plan):
-        super().__init__('图片环境需要下载或校验模型，请在图片生成页面确认下载后继续。')
+        super().__init__('图片环境缺少文件或模型校验失败，请在图片生成页面确认下载后继续。')
         self.plan = plan
 
 
@@ -148,11 +148,18 @@ class ImageEnvironment:
                 size = target.stat().st_size if local_files and target.is_file() else 0
                 model = {**(known or {}), 'name': chosen, 'category': category,
                          'size': known['size'] if known else size, 'custom': not bool(known)}
+            elif local_files:
+                # Recommended models may already live in a user-created subfolder.
+                existing = next((item['name'] for item in available[category]
+                                 if item['name'].rsplit('/', 1)[-1] == model['name']), None)
+                if existing:
+                    model = {**model, 'name': existing}
             available_name = next((name for name in current['choices'].get(model['category'], [])
-                                   if (name.replace('\\', '/') == chosen if chosen else name.replace('\\', '/').split('/')[-1] == model['name'])), None)
+                                   if (name.replace('\\', '/') == chosen if chosen else name.replace('\\', '/').split('/')[-1] == model['name'].rsplit('/', 1)[-1])), None)
             target = contained(model_root, model['category'] + '/' + model['name'])
+            state = Downloader.verification_status(target, model['size'], model.get('sha256')) if local_files and not model.get('custom') else 'invalid'
             rows.append({**model, 'role': role, 'target': str(target), 'comfy_name': available_name,
-                         'action': 'missing' if missing else 'available' if available_name else 'local' if model.get('custom') else 'verify' if target.is_file() and target.stat().st_size == model['size'] else 'download'})
+                         'action': 'missing' if missing else 'available' if available_name else 'local' if model.get('custom') else 'verified' if state == 'verified' else 'verify' if state == 'unknown' else 'download'})
         disk = model_root
         while not disk.exists():
             disk = disk.parent
@@ -164,9 +171,11 @@ class ImageEnvironment:
         source_needed = managed and not current['connected'] and (not (source / 'main.py').is_file() or read_json(engine_root / 'source-ready.json', {}).get('revision') != self.manifest['comfyui']['revision'])
         source_bytes = self.manifest['comfyui']['size'] if source_needed else 0
         ready = current['connected'] and not current['missing_nodes'] and all(m['comfy_name'] for m in rows)
-        requires_confirmation = not ready and (any(m['action'] in ('download', 'verify') for m in rows) or bootstrap_needed or source_needed)
+        requires_confirmation = not ready and (model_bytes > 0 or bootstrap_needed or source_needed)
         token = digest({'url': url, 'variant': selected, 'directory': str(model_root), 'revision': self.manifest['comfyui']['revision'],
-                        'models': [{k: m.get(k) for k in ('name', 'category', 'sha256', 'size')} for m in rows]})
+                        'models': [{k: m.get(k) for k in ('name', 'category', 'sha256', 'size')} for m in rows],
+                        'downloads': [m['target'] for m in rows if m['action'] == 'download'],
+                        'bootstrap_needed': bootstrap_needed, 'source_needed': source_needed})
         return {'engine': 'managed' if managed else 'shared', 'comfy_url': url,
                 'connected': current['connected'], 'missing_nodes': current['missing_nodes'],
                 'gpu': device, 'vram_mb': vram, 'recommendation': recommended, 'variant': selected,
@@ -202,10 +211,20 @@ class ImageEnvironment:
         if plan['engine'] == 'managed' and plan['engine_free_disk_bytes'] < plan['runtime_download_bytes'] + (10 if plan['bootstrap_needed'] else 2) * 1024**3:
             raise RuntimeError('应用所在磁盘不足以准备图片引擎，请先腾出运行环境与解压空间。')
         downloader = Downloader(self.config.get().get('proxy', ''))
+        # Local verification never implies permission to download replacement files.
+        for model in plan['models']:
+            if model['action'] != 'verify':
+                continue
+            report('正在校验本地模型：' + model['name'],
+                   progress={'status': 'verifying', 'file': model['name']})
+            if not downloader.verified(model['target'], model['size'], model['sha256'], cancel):
+                revised = self.plan(variant, models)
+                report('本地模型校验失败，请确认修复下载后继续。', download_required=True, download_plan=revised, progress={})
+                raise DownloadConfirmationRequired(revised)
         for model in plan['models']:
             if cancel():
                 raise Cancelled('图片环境准备已停止，下载可以恢复。')
-            if model['action'] in ('available', 'local'):
+            if model['action'] in ('available', 'local', 'verified', 'verify'):
                 continue
             report('正在准备图片模型：' + model['name'], file=model['name'])
             downloader.fetch(model['url'], model['target'], model['size'], model['sha256'],
@@ -307,12 +326,14 @@ class ImageEnvironment:
         for name in ('input', 'output', 'temp', 'user'):
             args += ['--' + name + '-directory', str(runtime / name)]
         args += ['--database-url', 'sqlite:///' + (runtime / 'user/comfyui.db').as_posix()]
-        report('正在启动独立图片引擎。')
+        report('模型已就绪，正在启动独立图片引擎，首次启动可能需要一两分钟。', progress={})
         with (self.root / 'logs/image-engine.log').open('ab') as log:
             process = subprocess.Popen(args, cwd=source, stdout=log, stderr=subprocess.STDOUT,
                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
         write_json(engine_root / 'process.json', {'pid': process.pid, 'port': port, 'python': str(python)})
-        until = time.monotonic() + 120
+        started = time.monotonic()
+        until = started + 120
+        last_report = started
         while time.monotonic() < until:
             if cancel():
                 process.terminate()
@@ -322,5 +343,8 @@ class ImageEnvironment:
                 raise RuntimeError('图片引擎启动失败，请查看 logs/image-engine.log。')
             if self.probe(plan['comfy_url'])['connected']:
                 return
+            if time.monotonic() - last_report >= 5:
+                report(f'模型已就绪，图片引擎启动中（已等待 {int(time.monotonic() - started)} 秒），无需下载。', progress={})
+                last_report = time.monotonic()
             time.sleep(1)
         raise RuntimeError('图片引擎仍未就绪，请检查日志后继续；不会重复启动占用端口的进程。')

@@ -211,6 +211,30 @@ test("ordinary buttons cannot accidentally submit a surrounding form", () => {
 });
 import { ImageWorkspace } from '../web/images.js';
 
+test('offline engine with local models proceeds without a download dialog', async () => {
+  const previousFetch = globalThis.fetch;
+  const calls = [], sessions = [];
+  const workspace = new ImageWorkspace({}, { toast() {} });
+  workspace.optimizeButton = {}; workspace.generateButton = {};
+  workspace.read = () => ({ prompt: 'local models', optimize: false, variant: 'auto', models: {} });
+  workspace.refresh = async () => {};
+  workspace.showProgress = session => sessions.push(session);
+  globalThis.fetch = async (path, options) => {
+    calls.push({ path, body: JSON.parse(options.body) });
+    return { ok: true, status: 200, json: async () => path.endsWith('/plan')
+      ? { ready: false, local_download: true, requires_confirmation: false, download_bytes: 0, confirmation_token: 'local' }
+      : { id: 'one', job_id: 'one-job' } };
+  };
+  try {
+    // No document/DOM exists here: a download dialog would fail the test.
+    await workspace.submit(false);
+    assert.deepEqual(calls.map(c => c.path), ['/api/images/environment/plan', '/api/images']);
+    assert.equal(calls[1].body.download_confirmation, 'local');
+    assert.deepEqual(sessions, [{ imageId: 'one' }]);
+    assert.equal(workspace.draftId, 'one');
+  } finally { globalThis.fetch = previousFetch; }
+});
+
 test('optimized image continues the original record and retains edited prompt', async () => {
   const previousFetch = globalThis.fetch;
   const calls = [];

@@ -366,6 +366,84 @@ class ImageTests(unittest.TestCase):
                 self.studio.environment.prepare('quality-int8', lambda *a, **k: None, lambda: False, confirmation=plan['confirmation_token'])
             downloader.assert_not_called()
 
+    def local_image_environment(self, receipts=True, nested=False):
+        import hashlib
+        from app.downloads import Downloader
+        env = self.studio.environment
+        env.manifest = copy.deepcopy(env.manifest)
+        config = self.config.get(); config['image_generation'] = {'engine': 'managed'}; self.config.save(config)
+        engine, source, python = env.paths()
+        source.mkdir(parents=True); (source / 'main.py').touch()
+        python.parent.mkdir(parents=True); python.touch()
+        write_json(engine / 'source-ready.json', {'revision': env.manifest['comfyui']['revision']})
+        choices, targets = {}, []
+        for role in env.manifest['variants']['turbo-int8']['files']:
+            model = env.manifest['models'][role]
+            content = ('test model ' + role).encode()
+            model.update(size=len(content), sha256=hashlib.sha256(content).hexdigest())
+            name = ('qwen/' if nested else '') + model['name']
+            target = self.root / 'models/qwen-image-2.1' / model['category'] / name
+            target.parent.mkdir(parents=True); target.write_bytes(content)
+            if receipts:
+                self.assertTrue(Downloader().verified(target, model['size'], model['sha256']))
+            choices[model['category']] = [name]; targets.append(target)
+        offline = {'connected': False, 'missing_nodes': ['TextEncodeQwenImage21'], 'choices': {}, 'gpu': None, 'vram_mb': None}
+        online = {'connected': True, 'missing_nodes': [], 'choices': choices, 'gpu': {'name': 'test'}, 'vram_mb': 16311}
+        return env, offline, online, targets
+
+    def test_restart_reuses_verified_models_without_confirmation_hashing_or_download(self):
+        env, offline, online, targets = self.local_image_environment(nested=True)
+        with patch.object(env, 'probe', return_value=offline) as probe, \
+             patch('app.image_environment.hardware', return_value={'gpu': [{'vram_mb': 16311}]}), \
+             patch('app.downloads.Downloader.checksum', side_effect=AssertionError('must reuse receipts')), \
+             patch('app.downloads.Downloader.fetch', side_effect=AssertionError('no download')), \
+             patch.object(env, 'prepare_engine'), \
+             patch.object(env, 'start_engine', side_effect=lambda *args: setattr(probe, 'return_value', online)) as start:
+            plan = env.plan()
+            self.assertEqual(plan['download_bytes'], 0)
+            self.assertEqual(plan['verify_bytes'], 0)
+            self.assertFalse(plan['requires_confirmation'])
+            self.assertEqual([row['action'] for row in plan['models']], ['verified'] * 3)
+            self.assertEqual([row['target'] for row in plan['models']], list(map(str, targets)))
+            self.assertTrue(env.prepare('auto', lambda *a, **k: None, lambda: False)['ready'])
+            start.assert_called_once()
+
+    def test_existing_models_without_receipts_are_verified_locally_without_download_consent(self):
+        env, offline, online, targets = self.local_image_environment(receipts=False)
+        with patch.object(env, 'probe', return_value=offline) as probe, \
+             patch('app.image_environment.hardware', return_value={'gpu': [{'vram_mb': 16311}]}), \
+             patch('app.downloads.Downloader.fetch', side_effect=AssertionError('no network')), \
+             patch.object(env, 'prepare_engine'), \
+             patch.object(env, 'start_engine', side_effect=lambda *args: setattr(probe, 'return_value', online)):
+            plan = env.plan()
+            self.assertFalse(plan['requires_confirmation'])
+            self.assertGreater(plan['verify_bytes'], 0)
+            self.assertEqual(plan['download_bytes'], 0)
+            events = []
+            self.assertTrue(env.prepare('auto', lambda m, **e: events.append(e), lambda: False)['ready'])
+            self.assertEqual(sum(e.get('progress', {}).get('status') == 'verifying' for e in events), 3)
+            self.assertTrue(all(p.with_name(p.name + '.verified.json').is_file() for p in targets))
+
+    def test_invalid_local_model_requires_new_download_confirmation_and_reports_real_size(self):
+        from app.image_environment import DownloadConfirmationRequired
+        env, offline, _, targets = self.local_image_environment(receipts=False)
+        targets[0].write_bytes(b'x' * targets[0].stat().st_size)
+        with patch.object(env, 'probe', return_value=offline), \
+             patch('app.image_environment.hardware', return_value={'gpu': [{'vram_mb': 16311}]}), \
+             patch('app.downloads.Downloader.fetch', side_effect=AssertionError('must obtain permission')), \
+             patch.object(env, 'start_engine') as start:
+            initial = env.plan()
+            self.assertFalse(initial['requires_confirmation'])
+            with self.assertRaises(DownloadConfirmationRequired) as error:
+                env.prepare('auto', lambda *a, **k: None, lambda: False, confirmation=initial['confirmation_token'])
+            repair = error.exception.plan
+            self.assertTrue(repair['requires_confirmation'])
+            self.assertEqual(repair['models_download_bytes'], targets[0].stat().st_size)
+            self.assertNotEqual(repair['confirmation_token'], initial['confirmation_token'])
+            with self.assertRaises(DownloadConfirmationRequired):
+                env.prepare('auto', lambda *a, **k: None, lambda: False, confirmation=initial['confirmation_token'])
+            start.assert_not_called()
+
     def test_custom_model_catalog_round_trip_and_request_graph(self):
         config = self.config.get();config['image_generation'] = {'engine': 'shared', 'comfy_url': 'http://localhost:8190', 'models_dir': str(self.root/'models')};self.config.save(config)
         choices = {c: ['custom/' + c + '.safetensors'] for c in ('diffusion_models', 'text_encoders', 'vae')}

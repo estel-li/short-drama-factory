@@ -54,6 +54,12 @@ def copy_agent_entrypoints(package):
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.tmp'))
 
 
+def copy_windows_batch(source, target):
+    """CMD can misparse UTF-8/LF batch files; never depend on checkout settings."""
+    content = Path(source).read_bytes().replace(b'\r\n', b'\n').replace(b'\r', b'\n')
+    Path(target).write_bytes(content.replace(b'\n', b'\r\n'))
+
+
 def build():
     dist = ROOT / 'dist'
     build = dist / ('build-' + time.strftime('%Y%m%d_%H%M%S') + '-' + uuid.uuid4().hex[:6])
@@ -113,7 +119,10 @@ def build():
     # 用户预设可通过迁移导出；标准安装包只含内置预设。
     (package / 'presets/personal.json').unlink(missing_ok=True)
     for name in ('pipeline.py', 'server.py', 'config.default.json', 'requirements.lock.txt', '启动短剧工厂.cmd', '使用说明.md', '更新说明-2.1.md', '更新说明-2.2.md', '更新说明-2.3.md', '更新说明-2.4.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
-        shutil.copy2(ROOT / name, package / name)
+        if Path(name).suffix == '.cmd':
+            copy_windows_batch(ROOT / name, package / name)
+        else:
+            shutil.copy2(ROOT / name, package / name)
     write_json(package / 'package.json', {'version': '3.0.1', 'python': PYTHON_VERSION, 'python_sha256': checksum,
         'created_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'platform': 'Windows x64', 'models_included': False,
         'credentials_included': False})

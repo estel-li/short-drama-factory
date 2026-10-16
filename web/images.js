@@ -100,7 +100,7 @@ export class ImageWorkspace {
     if (plan.selection_errors?.length) throw Error(plan.selection_errors.join("；"));
     if (!plan.ready && !plan.local_download) throw Error("请在目标图片服务安装所选模型；本机下载无法修复远程模型目录。");
     if (plan.requires_confirmation) {
-      const files = plan.models.filter(m => ["download", "verify"].includes(m.action)).map(m => m.name).join("、");
+      const files = plan.models.filter(m => m.action === "download").map(m => m.name).join("、");
       const choice = await dialog("需要下载模型", `${files || "需要准备图片引擎运行时"}。预计下载 ${bytes(plan.download_bytes)}${plan.verify_bytes ? `，另有 ${bytes(plan.verify_bytes)} 待校验，失败时需要补下载` : ""}，目标目录：${plan.models_dir}。已有文件先校验并复用，确认后会显示进度，可随时暂停。`,
         [{ label: "暂不下载", value: "cancel" }, { label: "确认下载并继续", value: "download", primary: true }]);
       if (choice !== "download") return null;
@@ -174,14 +174,14 @@ export class ImageWorkspace {
       el("p", { class: "muted" }, plan.recommendation.message),
       el("p", {}, `本次方案：${plan.variants[plan.variant].name}`),
       el("p", {}, plan.engine === "managed" ? "使用独立图片引擎" : "复用已有 ComfyUI"),
-      el("p", {}, `待下载 ${bytes(plan.download_bytes)} · 磁盘剩余 ${bytes(plan.free_disk_bytes)}`),
+      el("p", {}, plan.download_bytes ? `待下载 ${bytes(plan.download_bytes)} · 磁盘剩余 ${bytes(plan.free_disk_bytes)}` : plan.verify_bytes ? "本地模型需要校验，校验通过后直接启动引擎。" : plan.ready ? "所选模型已就绪，无需下载。" : "所选模型已在本地，启动引擎即可使用，无需下载。"),
       ...(plan.selection_errors?.length ? [el("p", { class: "notice warning" }, plan.selection_errors.join("；"))] : []),
       ...(plan.bootstrap_needed ? [el("p", { class: "muted" }, `首次还会准备独立 GPU 运行时（下载 ${bytes(plan.runtime_download_bytes)}，另需解压空间）。`)] : []),
-      el("ul", { class: "model-download-list" }, plan.models.map(m => el("li", {}, `${({ available: "已识别", verify: "待校验", local: "目录已有", missing: "文件缺失" })[m.action] || "需下载"} · ${m.name} · ${m.size ? bytes(m.size) : "大小由目标服务管理"}`))),
+      el("ul", { class: "model-download-list" }, plan.models.map(m => el("li", {}, `${({ available: "已识别", verified: "已校验，可复用", verify: "本地已有，待校验", local: "目录已有", missing: "文件缺失" })[m.action] || "需下载"} · ${m.name} · ${m.size ? bytes(m.size) : "大小由目标服务管理"}`))),
       el("p", { class: "notice warning" }, plan.license.notice, " ", el("a", { href: plan.license.url, target: "_blank", rel: "noopener noreferrer" }, "模型许可")),
       el("div", { class: "actions" }, this.button("检查环境", () => this.refreshEnvironment()),
-        this.button("准备 / 继续下载", () => this.prepareEnvironment()),
-        this.button("查看下载进度", () => this.showProgress(this.downloadSession || { environment: true }))),
+        this.button(plan.download_bytes ? "下载缺少的文件" : plan.ready ? "检查就绪状态" : "启动 / 准备图片引擎", () => this.prepareEnvironment()),
+        this.button("查看准备进度", () => this.showProgress(this.downloadSession || { environment: true }))),
       el("details", { class: "option-section" }, el("summary", {}, "图片引擎设置"), field("引擎方式", engine), field("已有服务地址", url), field("模型存放目录", directory), field("独立引擎端口", port),
         el("p", { class: "field-help" }, "缺少模型时先确认下载。窗口可关闭，后台继续准备；暂停后可继续下载。"),
         this.button("保存引擎设置", async () => {
@@ -203,13 +203,13 @@ export class ImageWorkspace {
     this.downloadSession = session;
     this.progressModal?.close();
     const content = el("div", { class: "image-download-progress", role: "status" }, "正在读取进度……");
-    const modal = el("dialog", { class: "dialog image-download-dialog", "aria-label": "模型准备进度" }, el("h2", {}, "模型准备进度"), content);
+    const modal = el("dialog", { class: "dialog image-download-dialog", "aria-label": "图片任务进度" }, el("h2", {}, "图片任务进度"), content);
     this.progressModal = modal;
-    const stop = this.button("暂停下载", async () => {
+    const stop = this.button("暂停任务", async () => {
       await api(session.imageId ? `/api/images/${session.imageId}/stop` : session.projectId ? "/api/stop" : "/api/images/environment/stop", session.projectId ? { id: session.projectId } : {});
       stop.disabled = true;
     });
-    modal.append(el("p", { class: "field-help" }, "关闭窗口不会取消任务。已下载的临时文件会用于断点续传。"),
+    modal.append(el("p", { class: "field-help" }, "关闭窗口后任务继续。已有模型会直接复用；只有缺少文件时才需要确认下载。"),
       el("div", { class: "actions" }, stop, this.button("关闭窗口", () => modal.close())));
     let timer;
     modal.addEventListener("close", () => { clearTimeout(timer); modal.remove(); if (this.progressModal === modal) this.progressModal = null; });

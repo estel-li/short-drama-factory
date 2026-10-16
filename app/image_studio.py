@@ -283,7 +283,7 @@ class ImageStudio:
                 raise RuntimeError('图片服务未保留指定任务 ID，请升级兼容服务；提交结果待核对。')
             self.update(iid, submission='submitted')
         self.update(iid, status='rendering', message='Qwen 正在生成图片。')
-        report('Qwen 正在生成图片。')
+        report('Qwen 正在生成图片。', progress={})
         deadline = time.monotonic() + self.environment.settings().timeout
         while time.monotonic() < deadline:
             if cancel():

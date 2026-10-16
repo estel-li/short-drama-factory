@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def health(url):
     try:
-        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url + '/api/health', timeout=2) as response:
+        # /api/health also probes ComfyUI (up to 2 seconds); allow response overhead.
+        with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(url + '/api/health', timeout=5) as response:
             value = json.loads(response.read(65536).decode('utf-8'))
             return value if isinstance(value, dict) else None
     except (OSError, ValueError, urllib.error.URLError):

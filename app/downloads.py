@@ -27,20 +27,39 @@ class Downloader:
                 value.update(block)
         return value.hexdigest()
 
+    @staticmethod
+    def verification_status(target, size, checksum):
+        """Read a file's unchanged checksum receipt without hashing large models."""
+        target = Path(target)
+        if not target.is_file() or target.stat().st_size != size:
+            return 'invalid'
+        stat = target.stat()
+        try:
+            receipt = read_json(target.with_name(target.name + '.verified.json'), {})
+        except (OSError, ValueError):
+            return 'unknown'
+        if not isinstance(receipt, dict) or receipt.get('size') != size or receipt.get('mtime_ns') != stat.st_mtime_ns:
+            return 'unknown'
+        actual = receipt.get('sha256')
+        if not isinstance(actual, str) or not re.fullmatch(r'[0-9a-f]{64}', actual):
+            return 'unknown'
+        return 'verified' if checksum and actual == checksum else 'invalid'
+
     def verified(self, target, size, checksum, cancel=None):
         target = Path(target)
         if not target.is_file() or target.stat().st_size != size:
             return False
         receipt_path = target.with_name(target.name + '.verified.json')
         stat = target.stat()
-        receipt = read_json(receipt_path, {})
-        if checksum and receipt == {'sha256': checksum, 'size': size, 'mtime_ns': stat.st_mtime_ns}:
+        if self.verification_status(target, size, checksum) == 'verified':
             return True
         actual = self.checksum(target, cancel)
-        if not checksum or actual != checksum:
+        # Do not persist a receipt if the file changed while it was being read.
+        after = target.stat()
+        if (after.st_size, after.st_mtime_ns) != (stat.st_size, stat.st_mtime_ns):
             return False
-        write_json(receipt_path, {'sha256': checksum, 'size': size, 'mtime_ns': stat.st_mtime_ns})
-        return True
+        write_json(receipt_path, {'sha256': actual, 'size': size, 'mtime_ns': stat.st_mtime_ns})
+        return bool(checksum and actual == checksum)
 
     def fetch(self, url, target, size, checksum, progress=lambda value: None, cancel=None, token=''):
         target = Path(target).resolve()
