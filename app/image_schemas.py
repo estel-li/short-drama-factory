@@ -1,10 +1,10 @@
 """Image generation contracts; no model runtime dependencies in the workbench."""
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ImageModels(BaseModel):
@@ -60,6 +60,12 @@ class ReferenceImageOptions(BaseModel):
     model: str = ''
 
 
+class ReferenceSourceSelection(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    asset_ids: list[Annotated[str, Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')]] = Field(default_factory=list, max_length=10)
+    reference_mode: Literal['reference', 'edit'] = 'reference'
+
+
 class ImageRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     prompt: str = Field(min_length=1, max_length=12000)
@@ -76,6 +82,16 @@ class ImageRequest(BaseModel):
     models: ImageModels | None = None
     seed: int | None = Field(default=None, ge=0, le=2**53 - 1)
     transparent: bool = False
+    reference_images: list[Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]] = Field(default_factory=list, max_length=10)
+    reference_mode: Literal['reference', 'edit'] = 'reference'
+
+    @model_validator(mode='after')
+    def references_valid(self):
+        if self.reference_mode == 'edit' and not self.reference_images:
+            raise ValueError('编辑原图需要至少一张参考图，第一张作为原图。')
+        if len(set(self.reference_images)) != len(self.reference_images):
+            raise ValueError('请勿重复添加同一张参考图。')
+        return self
 
     @field_validator('ratio')
     @classmethod

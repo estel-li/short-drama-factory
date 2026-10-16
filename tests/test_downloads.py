@@ -1,4 +1,5 @@
 import hashlib
+import os
 import threading
 import tempfile
 import unittest
@@ -19,7 +20,10 @@ class DownloadTests(unittest.TestCase):
             with patch.object(Downloader, 'checksum', side_effect=AssertionError('unexpected hash')):
                 self.assertEqual(Downloader.verification_status(path, 8, sha), 'verified')
                 self.assertTrue(Downloader().verified(path, 8, sha))
+            timestamp = path.stat().st_mtime_ns
             path.write_bytes(b'modified')
+            # Tiny writes can share the same Windows clock tick; explicitly change metadata.
+            os.utime(path, ns=(timestamp + 1_000_000_000, timestamp + 1_000_000_000))
             self.assertEqual(Downloader.verification_status(path, 8, sha), 'unknown')
             self.assertFalse(Downloader().verified(path, 8, sha))
             self.assertEqual(Downloader.verification_status(path, 8, sha), 'invalid')

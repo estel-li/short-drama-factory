@@ -18,12 +18,13 @@ from PIL import Image
 from .comfyio import download_file
 from .content import json_text
 from .image_environment import ImageEnvironment, image_size
-from .image_schemas import ImageRequest
+from .image_inputs import ImageInputs
+from .image_schemas import ImageRequest, ReferenceSourceSelection
 from .providers import Cancelled, LLMClient
 from .storage import contained, digest, identifier, now, read_json, write_json
 
 
-def image_graph(request, prompt, plan, manifest, prefix):
+def image_graph(request, prompt, plan, manifest, prefix, references=None):
     models = {m['category']: m['comfy_name'] or m['name'] for m in plan['models']}
     resolution = plan['recommendation']['resolution'] if request.resolution == 'auto' else int(request.resolution)
     width, height = image_size(request.ratio, resolution)
@@ -38,17 +39,30 @@ def image_graph(request, prompt, plan, manifest, prefix):
         '8': {'class_type': 'VAEDecode', 'inputs': {'samples': ['7', 0], 'vae': ['5', 0]}},
         '9': {'class_type': 'SaveImage', 'inputs': {'images': ['8', 0], 'filename_prefix': prefix}},
     }
+    if request.reference_images:
+        if not references or len(references) != len(request.reference_images):
+            raise ValueError('参考图尚未上传到当前图片引擎。')
+        graph['3']['inputs']['vae'] = ['5', 0]
+        for index, reference in enumerate(references, 1):
+            node = str(20 + index)
+            graph[node] = {'class_type': 'LoadImage', 'inputs': {'image': reference['comfy_name']}}
+            graph['3']['inputs'][f'images.image_{index}'] = [node, 0]
+        if request.reference_mode == 'edit':
+            first = references[0]
+            width, height = image_size(f"{first['width']}:{first['height']}", resolution)
+            graph.pop('4')
+    latent = ['3', 2] if request.reference_images and request.reference_mode == 'edit' else ['4', 0]
     if plan['variant'].startswith('turbo'):
         graph.update({
             '10': {'class_type': 'ManualSigmas', 'inputs': {'sigmas': manifest['turbo_sigmas']}},
             '11': {'class_type': 'KSamplerSelect', 'inputs': {'sampler_name': 'euler'}},
             '12': {'class_type': 'RandomNoise', 'inputs': {'noise_seed': request.seed}},
             '13': {'class_type': 'BasicGuider', 'inputs': {'model': ['1', 0], 'conditioning': ['3', 0]}},
-            '7': {'class_type': 'SamplerCustomAdvanced', 'inputs': {'noise': ['12', 0], 'guider': ['13', 0], 'sampler': ['11', 0], 'sigmas': ['10', 0], 'latent_image': ['4', 0]}},
+            '7': {'class_type': 'SamplerCustomAdvanced', 'inputs': {'noise': ['12', 0], 'guider': ['13', 0], 'sampler': ['11', 0], 'sigmas': ['10', 0], 'latent_image': latent}},
         })
     else:
         graph['7'] = {'class_type': 'KSampler', 'inputs': {'model': ['1', 0], 'seed': request.seed, 'steps': 40, 'cfg': 1,
-                       'sampler_name': 'euler', 'scheduler': 'simple', 'positive': ['3', 0], 'negative': ['3', 1], 'latent_image': ['4', 0], 'denoise': 1}}
+                       'sampler_name': 'euler', 'scheduler': 'simple', 'positive': ['3', 0], 'negative': ['3', 1], 'latent_image': latent, 'denoise': 1}}
     return graph, width, height
 
 
@@ -58,6 +72,7 @@ class ImageStudio:
         self.root = config.root / 'data/image-studio'
         self.lock = threading.RLock()
         self.environment = ImageEnvironment(config)
+        self.inputs = ImageInputs(config.root)
 
     def path(self, iid):
         path = self.root / identifier(iid)
@@ -75,6 +90,8 @@ class ImageStudio:
             state = read_json(self.projects.path(value['project_id']) / 'state.json', {})
             value['busy'] |= state.get('current_stage') == 'reference_images' and state.get('image_id') == iid
         value['file_available'] = bool(value.get('file') and contained(self.path(iid), value['file']).is_file())
+        for index, reference in enumerate(value.get('reference_inputs', []), 1):
+            reference['url'] = f'/api/images/{iid}/references/{index}'
         if value['file_available']:
             value['url'] = '/api/images/' + iid + '/file'
         elif value.get('file'):
@@ -123,12 +140,15 @@ class ImageStudio:
                 if raw.get('seed') is None:
                     raw['seed'] = value['request']['seed']
                 invalidate = optimize_only or not raw.get('optimize', True) or any(
-                    raw.get(key) != value['request'].get(key) for key in ('prompt', 'purpose', 'style', 'ratio', 'transparent'))
+                    raw.get(key) != value['request'].get(key) for key in ('prompt', 'purpose', 'style', 'ratio', 'transparent', 'reference_images', 'reference_mode'))
                 if optimize_only:
                     raw.update(optimize=True, optimized_prompt='')
                 elif invalidate and not (request or {}).get('optimized_prompt'):
                     raw['optimized_prompt'] = ''
                 changes['request'] = ImageRequest.model_validate(raw).model_dump()
+                if changes['request']['reference_images'] != value['request'].get('reference_images', []):
+                    changes['reference_inputs'] = self.inputs.snapshot(changes['request']['reference_images'], self.path(iid))
+                self.validate_edit_inputs(changes['request'], changes.get('reference_inputs', value.get('reference_inputs', [])))
                 if invalidate or raw.get('optimized_prompt'):
                     changes['optimized_prompt'] = raw.get('optimized_prompt', '')
                     if invalidate or raw.get('optimized_prompt') != value.get('optimized_prompt'):
@@ -165,11 +185,49 @@ class ImageStudio:
         iid = uuid.uuid4().hex[:24]
         if request.seed is None:
             request.seed = secrets.randbelow(2**53)
+        reference_inputs = self.inputs.snapshot(request.reference_images, self.root / iid)
+        self.validate_edit_inputs(request.model_dump(), reference_inputs)
         value = {'id': iid, 'owner': project_id or '__image_' + iid, 'project_id': project_id,
                  'target': target, 'parent_id': parent_id, 'request': request.model_dump(), 'download_confirmation': confirmation,
+                 'reference_inputs': reference_inputs,
                  'status': 'new', 'message': '图片任务已创建。', 'created_at': now(), 'updated_at': now()}
         write_json(self.root / iid / 'image.json', value)
         return value
+
+    @staticmethod
+    def validate_edit_inputs(request, references):
+        if request.get('reference_mode') == 'edit' and references:
+            ratio = references[0]['width'] / references[0]['height']
+            if not .25 <= ratio <= 4:
+                raise ValueError('编辑原图的比例需在 1:4 至 4:1 之间，请先裁剪第一张参考图。')
+
+    def upload_references(self, value, url, report, cancel):
+        result = []
+        for index, reference in enumerate(value.get('reference_inputs', []), 1):
+            if cancel():
+                raise Cancelled('参考图上传已停止。')
+            path = contained(self.path(value['id']), reference['file'])
+            if not path.is_file() or __import__('hashlib').sha256(path.read_bytes()).hexdigest() != reference['sha256']:
+                raise ValueError('任务参考图快照缺失或已改变，请重新上传后生成。')
+            report(f'正在向图片引擎上传参考图 {index}/{len(value["reference_inputs"])}。', progress={})
+            try:
+                with httpx.Client(timeout=60, trust_env=False) as client, path.open('rb') as image:
+                    response = client.post(url + '/upload/image', headers=self.environment.headers(),
+                                           files={'image': (reference['id'] + '.png', image, 'image/png')},
+                                           data={'type': 'input', 'subfolder': 'image_studio/' + value['id'], 'overwrite': 'true'})
+                    response.raise_for_status()
+                    uploaded = response.json()
+                if not isinstance(uploaded, dict) or not isinstance(uploaded.get('name'), str) or not isinstance(uploaded.get('subfolder', ''), str):
+                    raise ValueError('图片引擎返回了无效参考图位置。')
+                name = uploaded['name'].replace('\\', '/')
+                subfolder = str(uploaded.get('subfolder') or '').replace('\\', '/')
+                comfy_name = (subfolder + '/' if subfolder else '') + name
+                if not name or any(p in ('', '.', '..') for p in comfy_name.split('/')) or ':' in comfy_name or uploaded.get('type', 'input') != 'input':
+                    raise ValueError('图片引擎返回了无效参考图位置。')
+            except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                raise RuntimeError('参考图上传失败，请检查图片引擎后继续原任务。') from exc
+            result.append({**reference, 'comfy_name': comfy_name})
+        return result
 
     def request(self, url, path, body=None):
         try:
@@ -209,6 +267,13 @@ class ImageStudio:
         messages = [{'role': 'system', 'content': skill + '\n输出 JSON，字段为 prompt（生图提示词）和 summary（中文优化说明）。'},
                     {'role': 'user', 'content': json.dumps({'prompt': request.prompt, 'style': request.style,
                      'purpose': request.purpose, 'ratio': request.ratio, 'transparent': request.transparent}, ensure_ascii=False)}]
+        if request.reference_images:
+            messages[0]['content'] += ('\n用户提供了参考图，使用 <image1>、<image2> 等编号引用。保留用户指定的身份、服装、风格或编辑范围；'
+                                       '你没有看到图片，不要臆造图片细节。编辑模式仅描述要修改的部分，其余保持。')
+            messages[1]['content'] = json.dumps({'prompt': request.prompt, 'style': request.style, 'purpose': request.purpose,
+                'reference_mode': request.reference_mode, 'reference_count': len(request.reference_images),
+                'ratio': '保持第一张参考图比例' if request.reference_mode == 'edit' else request.ratio,
+                'transparent': request.transparent}, ensure_ascii=False)
         if provider.local:
             for url in {self.config.renderer_config().get('comfy_url'), f'http://127.0.0.1:{settings.managed_port}', settings.comfy_url} - {None, ''}:
                 self.release_idle(url, required=True)
@@ -262,6 +327,8 @@ class ImageStudio:
             raise RuntimeError('原图片任务缺少环境快照，请核对历史后重新生成。')
         if not value.get('prompt_id') and not plan['ready']:
             plan = self.environment.prepare(request.variant, report, cancel, models, value.get('download_confirmation', ''))
+        if request.reference_images and not plan.get('reference_support', True):
+            raise RuntimeError('图片引擎缺少 Qwen-Image 2.1 图像输入节点，请升级目标 ComfyUI 或切换独立图片引擎。')
         shared = self.config.renderer_config().get('comfy_url')
         if shared and shared != plan['comfy_url']:
             self.release_idle(shared, required=True)
@@ -274,7 +341,8 @@ class ImageStudio:
         if not history and prompt_id not in queued:
             if prompt_id:
                 raise RuntimeError('上次提交结果未知，服务队列与历史中未找到原任务。请核对引擎记录后选择重新生成，避免重复提交。')
-            graph, width, height = image_graph(request, prompt, plan, self.environment.manifest, 'image_studio/' + iid)
+            references = self.upload_references(value, url, report, cancel)
+            graph, width, height = image_graph(request, prompt, plan, self.environment.manifest, 'image_studio/' + iid, references)
             prompt_id = str(uuid.uuid4())
             write_json(self.path(iid) / 'workflow.json', graph)
             self.update(iid, prompt_id=prompt_id, comfy_url=url, submission='intent', width=width, height=height, model_plan=plan)
@@ -344,9 +412,48 @@ class ImageStudio:
                                'name': str(name), 'description': str(prop.get('visual_description') or prop.get('description') or name)})
         book = read_json(self.projects.path(pid) / 'reference-images.json', {'items': {}})
         for item in result:
-            item['history'] = book['items'].get(item['key'], {}).get('versions', [])
-            item['selected_asset'] = book['items'].get(item['key'], {}).get('selected_asset')
+            entry = book['items'].get(item['key'], {})
+            item['history'] = entry.get('versions', [])
+            item['selected_asset'] = entry.get('selected_asset')
+            item['source_assets'] = entry.get('source_assets', [])
+            item['reference_mode'] = entry.get('reference_mode', 'reference')
         return result
+
+    def set_reference_sources(self, pid, target, raw):
+        with self.lock:
+            return self._set_reference_sources(pid, target, raw)
+
+    def _set_reference_sources(self, pid, target, raw):
+        self.projects.assert_idle(pid)
+        candidate = next((c for c in self.candidates(pid) if c['key'] == target), None)
+        if not candidate:
+            raise ValueError('角色或场景已改变，请刷新后选择。')
+        self.assert_reference_editable(pid, candidate)
+        selection = ReferenceSourceSelection.model_validate(raw)
+        if len(set(selection.asset_ids)) != len(selection.asset_ids):
+            raise ValueError('请勿重复选择参考素材。')
+        if selection.reference_mode == 'edit' and not selection.asset_ids:
+            raise ValueError('编辑原图需要至少一张参考素材。')
+        assets = self.projects.get(pid)['assets']
+        for aid in selection.asset_ids:
+            asset = assets.get(aid, {})
+            if asset.get('type') != 'image' or not asset.get('file') or not contained(self.projects.path(pid), asset['file']).is_file():
+                raise ValueError('所选参考素材不存在，请刷新后重选。')
+        path = self.projects.path(pid) / 'reference-images.json'
+        book = read_json(path, {'items': {}})
+        entry = book['items'].setdefault(target, {'versions': []})
+        entry.update(source_assets=selection.asset_ids, reference_mode=selection.reference_mode)
+        write_json(path, book)
+        return {'asset_ids': selection.asset_ids, 'reference_mode': selection.reference_mode}
+
+    def reference_signature(self, pid, candidate):
+        options = self.projects.options(self.projects.path(pid))
+        parts = [candidate['description'], options.style]
+        if candidate.get('source_assets'):
+            assets = self.projects.get(pid)['assets']
+            parts.append([[aid, assets.get(aid, {}).get('sha256')] for aid in candidate['source_assets']])
+            parts.append(candidate.get('reference_mode', 'reference'))
+        return digest(parts)
 
     def reference_request(self, pid, target, overrides=None):
         candidate = next((c for c in self.candidates(pid) if c['key'] == target), None)
@@ -359,6 +466,17 @@ class ImageStudio:
                    'style': options.style, 'ratio': '3:4' if candidate['kind'] == 'character' else options.ratio,
                    'optimize': preferences.optimize, 'variant': preferences.variant, 'resolution': preferences.resolution,
                    'provider': preferences.provider, 'model': preferences.model}
+        references = []
+        assets = self.projects.get(pid)['assets']
+        for aid in candidate.get('source_assets', []):
+            asset = assets.get(aid, {})
+            if asset.get('type') != 'image' or not asset.get('file'):
+                raise ValueError('角色或场景的参考素材已被删除，请重新选择。')
+            path = contained(self.projects.path(pid), asset['file'])
+            if not path.is_file():
+                raise ValueError('项目参考素材文件缺失，请恢复或重新选择。')
+            references.append(self.inputs.add(path.read_bytes(), asset['name'])['id'])
+        request.update(reference_images=references, reference_mode=candidate.get('reference_mode', 'reference'))
         request.update(overrides or {})
         return request
 
@@ -414,7 +532,7 @@ class ImageStudio:
             version = {'image_id': iid, 'asset_id': asset['id'], 'created_at': now(), 'reference_resized': resized}
             entry['versions'].append(version)
         entry.update(selected_asset=version['asset_id'], kind=candidate['kind'], target_id=candidate['id'], target_name=candidate['name'],
-                     source_hash=digest([candidate['description'], self.projects.options(folder).style]))
+                     source_hash=self.reference_signature(pid, candidate))
         project = self.projects.get(pid)
         selected_file = project['assets'].get(version['asset_id'], {}).get('file')
         if not selected_file or not contained(folder, selected_file).is_file():
@@ -453,11 +571,11 @@ class ImageStudio:
             if targets is None:
                 entry = read_json(self.projects.path(pid) / 'reference-images.json', {'items': {}})['items'].get(candidate['key'], {})
                 selected = self.projects.get(pid)['assets'].get(candidate.get('selected_asset'), {})
-                if selected.get('file') and contained(self.projects.path(pid), selected['file']).is_file() and entry.get('source_hash') == digest([candidate['description'], options.style]):
+                if selected.get('file') and contained(self.projects.path(pid), selected['file']).is_file() and entry.get('source_hash') == self.reference_signature(pid, candidate):
                     continue
                 # Existing uploaded identity references stay the default unless explicitly regenerated.
                 managed = {v['asset_id'] for v in entry.get('versions', [])}
-                if candidate['kind'] == 'character' and any(a.get('character') == candidate['id'] and a['id'] not in managed for a in self.projects.get(pid)['assets'].values()):
+                if candidate['kind'] == 'character' and not candidate.get('source_assets') and any(a.get('character') == candidate['id'] and a['id'] not in managed for a in self.projects.get(pid)['assets'].values()):
                     continue
             if cancel():
                 raise Cancelled('项目参考图生成已停止。')

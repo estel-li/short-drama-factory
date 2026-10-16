@@ -34,6 +34,26 @@
 
 `GET /api/images` 返回最近 200 条记录，不代表全部历史。任务 `error/paused` 要先看 `message`；`complete` 记录缺失文件时应恢复文件或明确重新生成。
 
+## 图生图与多图参考（3.1.0）
+
+按用户指定的图片服务处理参考图：本地服务在本机处理，远程 ComfyUI 会收到图片。文字优化服务只收到文字、参考张数和模式，不会收到参考图片像素。
+
+1. `POST /api/image-inputs`，JSON 为 `{"name":"角色.png","data":"图片文件的纯 base64"}`。支持 PNG/JPEG/WebP，每张最多 8MB。返回 `id`、`url`、`width`、`height`；不接受本地绝对路径或任意 URL。程序纠正方向并规范化为 PNG，可能缩小过大图片。
+2. 把返回的真实 ID 按顺序写入 `request.reference_images`，最多 10 张、不重复。不要将文件名当 ID。16GB 显存先用 1～3 张、512 或 768 档。
+3. `request.reference_mode:"reference"` 按所选 `ratio` 创作新图；`"edit"` 沿用第一张原图比例，第一张比例需在 1:4 至 4:1 之间。编辑必须有参考图。没有参考图时用 `reference`，即普通文生图。描述中用 `<image1>`、`<image2>` 指定人物、服装、场景或风格；保留用户指定的编辑范围。
+
+示例（替换为上传返回的真实 ID）：
+
+```json
+{"request":{"prompt":"保留 <image1> 的角色身份，将衣服改为红色，其余保持","reference_images":["上传返回的ID"],"reference_mode":"edit","optimize":false,"resolution":"512"}}
+```
+
+`GET /api/image-inputs/{id}` 读取输入信息；`/{id}/file` 读取规范化图片。`POST /api/images/{image_id}/use-as-reference`，请求 `{}`，将已完成成图复制为可复用输入，返回同样的输入结构。图片库原图后来删除时，该输入仍保留。
+
+任务保存自己的参考图快照，`GET /api/images/{id}` 的 `reference_inputs` 含编号顺序、校验值和可读取的 `url`（`/api/images/{id}/references/{index}`，index 从 1 开始）。优化完成后继续 `/{id}/generate` 时保留 `reference_images` 与 `reference_mode`；更换输入会清除旧优化结果。续跑已提交任务保持原参数，先核对原 prompt_id，不因参考图上传超时重新创建任务。`/{id}/regenerate` 沿用输入，可按用户要求覆盖为新的输入 ID。
+
+这里使用 Qwen-Image 2.1 原生参考条件，没有额外“相似度／重绘强度”参数。实际身份、风格和编辑区域遵循程度需要看图验收，不能仅凭 API 完成就宣称一致。
+
 ## 项目参考图
 
 创建项目的 `options` 或保存项目完整 `settings` 时，可配置：
@@ -55,6 +75,10 @@
 先完成分镜，再读 `GET /api/projects/{pid}/image-references`，使用返回的 `candidates[].key`，不要猜测 target。`POST /api/projects/{pid}/image-references/generate` 可传 `{}` 自动补齐，或 `{"targets":["实际 key"]}` 明确重新生成指定项。
 
 单项生成：`POST /api/projects/{pid}/image-references/{target}/generate`，请求体 `{}` 或 `{"request":{"prompt":"修改后的描述"}}`。完成后自动采用；仍须读取候选的 `selected_asset`、`history` 和项目分镜，确认引用成功，不能只看到 PNG 就声称已绑定。
+
+自定义角色／场景生成依据（3.1.0）：先用 `/api/projects/{pid}/assets` 上传图片，JSON 为 `{"type":"image","name":"角色原照","data":"纯base64","character":""}`，或选该项目已有图片素材。然后 `POST /api/projects/{pid}/image-references/{target}/sources`，传 `{"asset_ids":["项目素材ID"],"reference_mode":"reference"}`；最多 10 张，顺序决定图片编号。接口只接受本项目存在的图片素材，项目需空闲、相关镜头需解锁。`asset_ids:[]` 且模式 `reference` 可清除依据，不删除素材。候选的 `source_assets` 与 `reference_mode` 用于核对保存结果。
+
+该配置供单项、批量及自动补齐使用，并随项目迁移保留。参考源是输入依据；生成并采用的新版本才进入分镜绑定。已有手动角色素材在未配置自定义生成依据时仍优先保留。修改参考源后，自动补齐会更新对应输出版本。
 
 采用历史：`POST /api/projects/{pid}/image-references/{target}/adopt`，请求体 `{"image_id":"该目标已有历史 ID"}`。项目必须空闲，受影响的锁定镜头需先按用户意图解锁。换图会清理受影响的旧提示词；手写 H3 提示词需按实际新绑定补齐。
 

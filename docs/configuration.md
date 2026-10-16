@@ -37,4 +37,6 @@
 
 全局 `image_generation` 包含引擎模式 `auto/shared/managed`、图片服务地址、模型目录、独立端口（默认 8190）、模型方案、默认文字提供商／模型／Skill、已有模型文件选择与超时。`models` 可分别指定 `diffusion_models`、`text_encoders`、`vae` 的相对文件名，留空使用推荐文件。图片页面可保存这些设置，旧客户端保存不含该字段的配置时会保留原图片配置。旧字段 `auto_download` 仅保留兼容，3.0.1 起实际下载必须确认当前清单。
 
+3.1.0 的单次图片请求支持 `reference_images`（上传接口返回的输入 ID 数组，最多 10 张）和 `reference_mode`（`reference` 按所选画幅创作，`edit` 保持第一张原图比例）。它们属于任务参数，不写入全局默认配置。项目角色／场景的 `source_assets` 和参考方式保存在项目 `reference-images.json`，对应源图保存在 `assets/`，随迁移导出保留。完整用法见 [图片工作室](image-studio.md)。
+
 项目 `reference_images` 包含是否自动生成、角色／场景／道具开关、优化开关、方案、尺寸及文字模型覆盖。自动生成默认关闭；图片提示词优化默认开启。完整参数与许可见 [图片生成指南](image-studio.md)。

@@ -44,7 +44,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='3.0.1', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='3.1.0', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -476,6 +476,37 @@ def image_prepare_stop():
     return {'message': '已请求停止图片环境准备，已下载的数据可继续使用。'}
 
 
+@app.post('/api/image-inputs', status_code=201)
+def image_input_upload(body: dict):
+    return worker.images.inputs.upload(body.get('data'), body.get('name', ''))
+
+
+@app.get('/api/image-inputs/{rid}')
+def image_input_get(rid: str):
+    return worker.images.inputs.get(rid)
+
+
+@app.get('/api/image-inputs/{rid}/file')
+def image_input_file(rid: str):
+    return FileResponse(worker.images.inputs.file(rid), media_type='image/png')
+
+
+@app.post('/api/images/{iid}/use-as-reference', status_code=201)
+def image_use_as_reference(iid: str):
+    value = worker.images.get(iid)
+    if not value['file_available']:
+        raise ValueError('请先生成图片，再用作参考图。')
+    return worker.images.inputs.add(contained(worker.images.path(iid), value['file']).read_bytes(), value['request']['prompt'][:100])
+
+
+@app.get('/api/images/{iid}/references/{index}')
+def image_reference_snapshot(iid: str, index: int):
+    references = worker.images.get(iid).get('reference_inputs', [])
+    if not 1 <= index <= len(references):
+        raise ValueError('任务参考图不存在。')
+    return FileResponse(contained(worker.images.path(iid), references[index - 1]['file']), media_type='image/png')
+
+
 @app.get('/api/images')
 def images_list():
     return worker.images.listing()
@@ -544,7 +575,7 @@ def image_regenerate(iid: str, body: dict):
             worker.images.reference_request(previous['project_id'], previous['target'])
     request = {**previous['request'], 'seed': None, 'optimized_prompt': previous.get('optimized_prompt', '')}
     changes = body.get('request', {})
-    if 'prompt' in changes and changes['prompt'] != request['prompt']:
+    if any(key in changes and changes[key] != request.get(key) for key in ('prompt', 'purpose', 'style', 'ratio', 'transparent', 'reference_images', 'reference_mode')):
         request['optimized_prompt'] = ''
     request.update(changes)
     image = worker.images.create(request, previous['project_id'], previous['target'], parent_id=iid,
@@ -591,6 +622,11 @@ def image_reference_one(pid: str, target: str, body: dict):
     jid = worker.enqueue(pid, 'image-generate', {'image_id': image['id']})
     worker.images.update(image['id'], job_id=jid)
     return {'id': image['id'], 'job_id': jid}
+
+
+@app.post('/api/projects/{pid}/image-references/{target}/sources')
+def image_reference_sources(pid: str, target: str, body: dict):
+    return worker.images.set_reference_sources(pid, target, body)
 
 
 @app.post('/api/projects/{pid}/image-references/{target}/adopt')

@@ -84,6 +84,7 @@ class ImageEnvironment:
             devices = stats.get('devices') or []
             gpu = next((d for d in devices if d.get('type') != 'cpu' and d.get('vram_total')), None)
             return {'connected': True, 'missing_nodes': [n for n in REQUIRED_NODES if n not in nodes],
+                    'reference_support': 'LoadImage' in nodes and 'TextEncodeQwenImage21' in nodes,
                     'choices': choices, 'gpu': gpu,
                     'vram_mb': round(gpu['vram_total'] / 1024**2) if gpu else None}
         except (httpx.HTTPError, ValueError, TypeError, KeyError):
@@ -178,6 +179,7 @@ class ImageEnvironment:
                         'bootstrap_needed': bootstrap_needed, 'source_needed': source_needed})
         return {'engine': 'managed' if managed else 'shared', 'comfy_url': url,
                 'connected': current['connected'], 'missing_nodes': current['missing_nodes'],
+                'reference_support': current.get('reference_support', False),
                 'gpu': device, 'vram_mb': vram, 'recommendation': recommended, 'variant': selected,
                 'variants': self.manifest['variants'], 'models': rows, 'models_dir': str(model_root),
                 'download_bytes': model_bytes + runtime_bytes + source_bytes, 'models_download_bytes': model_bytes,
