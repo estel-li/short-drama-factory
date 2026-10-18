@@ -404,7 +404,7 @@ class ImageTests(unittest.TestCase):
             self.assertEqual(plan['verify_bytes'], 0)
             self.assertFalse(plan['requires_confirmation'])
             self.assertEqual([row['action'] for row in plan['models']], ['verified'] * 3)
-            self.assertEqual([row['target'] for row in plan['models']], list(map(str, targets)))
+            self.assertEqual([Path(row['target']).resolve() for row in plan['models']], [target.resolve() for target in targets])
             self.assertTrue(env.prepare('auto', lambda *a, **k: None, lambda: False)['ready'])
             start.assert_called_once()
 
