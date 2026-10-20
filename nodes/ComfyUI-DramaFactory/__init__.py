@@ -53,7 +53,7 @@ MODEL_INDEX_LOCK = threading.Lock()
 
 
 def model_file_info(category, filename):
-    if category not in ('diffusion_models', 'text_encoders', 'vae', 'loras') or filename not in folder_paths.get_filename_list(category):
+    if category not in ('diffusion_models', 'text_encoders', 'vae', 'loras', 'pdd_acc', 'latent_upscale_models') or filename not in folder_paths.get_filename_list(category):
         raise ValueError('Unknown model file.')
     path = Path(folder_paths.get_full_path(category, filename))
     stat = path.stat()
@@ -227,7 +227,31 @@ class DramaLoadLatent:
         return latent_path(filename).stat().st_mtime_ns
 
 
+class DramaPreserveLatentAudio:
+    """Keep pass-one audio while refining only the video stream of an H3 latent."""
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {'required': {'video': ('LATENT',), 'original': ('LATENT',)}}
+
+    RETURN_TYPES = ('LATENT',)
+    FUNCTION = 'combine'
+    CATEGORY = '短剧工厂/内存优化'
+
+    def combine(self, video, original):
+        refined, source = video['samples'], original['samples']
+        if not all(getattr(value, 'is_nested', False) and len(value.tensors) == 2 for value in (refined, source)):
+            raise ValueError('需要 H3 的视频与音频联合潜空间。')
+        if refined.tensors[0].ndim != 5 or refined.tensors[0].shape[:3] != source.tensors[0].shape[:3]:
+            raise ValueError('精修前后的视频批次、通道和帧数必须一致，不能拼入其他镜头的音频。')
+        value = video.copy()
+        value.pop('noise_mask', None)
+        value['samples'] = comfy.nested_tensor.NestedTensor((refined.tensors[0], source.tensors[1]))
+        return (value,)
+
+
 NODE_CLASS_MAPPINGS = {'DramaSaveConditioning': DramaSaveConditioning, 'DramaLoadConditioning': DramaLoadConditioning,
-                       'DramaSaveLatent': DramaSaveLatent, 'DramaLoadLatent': DramaLoadLatent}
+                       'DramaSaveLatent': DramaSaveLatent, 'DramaLoadLatent': DramaLoadLatent,
+                       'DramaPreserveLatentAudio': DramaPreserveLatentAudio}
 NODE_DISPLAY_NAME_MAPPINGS = {'DramaSaveConditioning': '短剧 · 保存H3条件（释放编码器）', 'DramaLoadConditioning': '短剧 · 加载H3条件',
-                              'DramaSaveLatent': '短剧 · 保存音画潜空间', 'DramaLoadLatent': '短剧 · 加载音画潜空间'}
+                              'DramaSaveLatent': '短剧 · 保存音画潜空间', 'DramaLoadLatent': '短剧 · 加载音画潜空间',
+                              'DramaPreserveLatentAudio': '短剧 · 精修画面并保留原始音频'}

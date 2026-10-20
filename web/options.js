@@ -1,4 +1,5 @@
-import { el, field, select } from "./api.js?v=3.1.1";
+import { el, field, select } from "./api.js?v=3.2.0";
+import {videoWorkflowControls} from "./video-workflows.js?v=3.2.0";
 
 const DEFAULTS = {
   duration_rule: "total",
@@ -139,7 +140,7 @@ export function optionsEditor(
   durationGrid.append(wrappers.manual_durations);
   durationGrid.append(
     field(
-      "视频质量",
+      "视频工作流 / 质量",
       dropdown(
         "profile",
         Object.entries(config.profiles).map(([value, p]) => ({
@@ -150,6 +151,7 @@ export function optionsEditor(
       "建议先用快速预览确认分镜，再提高质量。",
     ),
   );
+  durationGrid.append(videoWorkflowControls(config,controls.profile,()=>controls.profile.dispatchEvent(new Event("input",{bubbles:true}))));
   function durationVisibility() {
     wrappers.total_seconds.hidden = rule.value === "manual";
     wrappers.shot_count.hidden = rule.value !== "count";
@@ -342,7 +344,8 @@ export function optionsEditor(
   const referenceValues = { enabled: false, characters: true, scenes: true, props: false, optimize: true,
     variant: "auto", resolution: "auto", provider: "", model: "", ...(values.reference_images || {}) };
   const referenceControls = {};
-  const referenceBox = section("用本地模型生成参考图", "启用后，分镜流程会先用 Qwen 生成角色与场景图片，再编写视频提示词；文字规划也会包含这一步。已有手动人物图优先保留。");
+  const referenceBox = section("用本地模型生成参考图", "启用后，分镜流程会先用所选模型生成角色与场景图片，再编写视频提示词；文字规划也会包含这一步。已有手动人物图优先保留。");
+  referenceControls.image_model = select(Object.entries(config.image_models || { "qwen-image-2.1": { name: "Qwen-Image 2.1" } }).map(([value, spec]) => ({ value, label: spec.name })), referenceValues.image_model || "qwen-image-2.1");
   for (const [key, label] of [["enabled", "自动生成项目参考图"], ["characters", "角色身份图"], ["scenes", "场景图"], ["props", "道具图"], ["optimize", "优化图片提示词"]]) {
     const input = referenceControls[key] = el("input", { type: "checkbox", checked: referenceValues[key] });
     referenceBox.append(el("label", { class: "image-switch" }, input, label));
@@ -351,7 +354,7 @@ export function optionsEditor(
   referenceControls.resolution = select(["auto", "512", "768", "1024", "1536", "2048"].map(value => ({ value, label: value === "auto" ? "按显存自动选择" : value + " 档" })), referenceValues.resolution);
   referenceControls.provider = select([{ value: "", label: "使用图片工作室默认提供商" }, ...config.providers.map(p => ({ value: p.id, label: p.name }))], referenceValues.provider);
   referenceControls.model = el("input", { value: referenceValues.model, placeholder: "留空继承提供商模型" });
-  referenceBox.append(el("div", { class: "grid" }, field("图片模型方案", referenceControls.variant), field("图片大小", referenceControls.resolution), field("提示词优化提供商", referenceControls.provider), field("优化文字模型", referenceControls.model)),
+  referenceBox.append(el("div", { class: "grid" }, field("生图模型", referenceControls.image_model), field("Qwen 精度方案", referenceControls.variant), field("图片大小", referenceControls.resolution), field("提示词优化提供商", referenceControls.provider), field("优化文字模型", referenceControls.model)),
     el("p", { class: "field-help" }, "生图在本地运行；Qwen-Image 2.1 使用非商用研究许可，商业用途需要模型方授权。"));
   container.append(stageBox, referenceBox, advanced);
   function read() {

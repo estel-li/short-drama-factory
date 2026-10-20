@@ -1,4 +1,4 @@
-import { el, field, select } from "./api.js?v=3.1.1";
+import { el, field, select } from "./api.js?v=3.2.0";
 
 export const samplingDefaults = { steps: null, cfg: 1, sampler: "euler", scheduler: "auto", denoise: 1, negative_prompt: "" };
 const samplers = ["euler", "euler_ancestral", "heun", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_sde", "uni_pc"];
@@ -42,15 +42,21 @@ export class ImageSamplingControls {
   }
   draft() { return Object.fromEntries(Object.entries(this.controls).map(([key, control]) => [key, control.value])); }
   read() { return readSampling(this.controls, this.edit); }
+  setModel(spec) {
+    this.model = spec;
+    this.controls.steps.placeholder = spec?.sampling?.steps ? `留空：模型推荐 ${spec.sampling.steps} 步` : "留空：Qwen Turbo 8 / 标准 40";
+    this.sync();
+  }
   setContext(edit, variant = this.variant, disabled = this.disabled) {
     this.edit = edit; this.variant = variant; this.disabled = disabled; this.sync();
   }
   sync() {
     for (const control of Object.values(this.controls)) control.disabled = !!this.disabled;
     this.controls.denoise.disabled = !!this.disabled || !this.edit;
-    const c = this.controls, turbo = this.variant?.startsWith("turbo"), steps = Number(c.steps.value || (turbo ? 8 : 40));
+    const c = this.controls, turbo = !this.model && this.variant?.startsWith("turbo"), steps = Number(c.steps.value || this.model?.sampling?.steps || (turbo ? 8 : 40));
     const official = turbo && steps === 8 && c.scheduler.value === "auto" && (!this.edit || Number(c.denoise.value) === 1);
-    this.note.textContent = `${this.variant ? `${steps} 步 · ${official ? "官方 Turbo sigma 序列" : c.scheduler.value === "auto" ? "simple 调度" : c.scheduler.value + " 调度"}` : "留空步数随实际模型选择：Turbo 8 步，标准 40 步"}。${Number(c.cfg.value) === 1 ? "CFG 为 1，负面提示词不参与引导。" : "负面提示词参与 CFG 引导。"}${turbo && !official ? " 当前已覆盖 Turbo 官方采样预设，建议先少量试图。" : ""}`;
+    const scheduler = c.scheduler.value === "auto" ? this.model?.sampling?.scheduler || "simple" : c.scheduler.value;
+    this.note.textContent = `${this.model || this.variant ? `${steps} 步 · ${official ? "官方 Turbo sigma 序列" : scheduler + " 调度"}` : "留空步数随实际模型选择：Qwen Turbo 8 步，标准 40 步"}。${Number(c.cfg.value) === 1 ? "CFG 为 1，负面提示词不参与引导。" : "负面提示词参与 CFG 引导。"}${turbo && !official ? " 当前已覆盖 Qwen Turbo 官方采样预设，建议先少量试图。" : ""}`;
   }
 }
 

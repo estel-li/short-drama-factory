@@ -1,4 +1,11 @@
 """Resolve model defaults and validate against the selected ComfyUI, without loading weights."""
+def sampling_for_plan(request, plan):
+    if plan.get('image_model', 'qwen-image-2.1') != 'qwen-image-2.1':
+        from .image_models import model_spec, model_sampling
+        return model_sampling(request, model_spec(plan['image_model']))
+    return resolve_sampling(request, plan['variant'])
+
+
 def resolve_sampling(request, variant):
     sampling = request.sampling.model_dump()
     turbo = variant.startswith('turbo')

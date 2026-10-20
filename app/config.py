@@ -110,4 +110,7 @@ class ConfigStore:
         legacy = read_json(self.root / 'config.json', {})
         legacy.update(self.get()['environment'])
         legacy['proxy'] = self.get().get('proxy', '')
+        legacy['runtime_root'] = str(self.root)
+        from .video_workflows import BUILTIN_PROFILES
+        legacy['profiles'] = {**copy.deepcopy(BUILTIN_PROFILES), **legacy.get('profiles', {})}
         return legacy

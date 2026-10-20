@@ -1,4 +1,4 @@
-import { el, field } from "./api.js?v=3.1.1";
+import { el, field } from "./api.js?v=3.2.0";
 
 export async function imageFileData(file) {
   if (file.size > 8_000_000) throw Error("单张参考图最多 8MB，请缩小后上传。");
@@ -11,13 +11,13 @@ export async function imageFileData(file) {
 }
 
 export class ImageInputPicker {
-  constructor({ items = [], upload, onChange, act, disabled = false, onBusy = () => {} }) {
-    Object.assign(this, { items, upload, onChange, act, disabled, onBusy, busy: false });
+  constructor({ items = [], upload, onChange, act, disabled = false, onBusy = () => {}, maxItems = 10 }) {
+    Object.assign(this, { items, upload, onChange, act, disabled, onBusy, maxItems, busy: false });
     this.root = el("section", { class: "image-input-picker", "aria-label": "生成参考图" });
     this.render();
   }
   async change(items) {
-    if (items.length > 10) throw Error("最多添加 10 张参考图；16GB 显存建议先用 1～3 张、512 或 768 档。");
+    if (items.length > this.maxItems) throw Error(`当前模型最多添加 ${this.maxItems} 张参考图。`);
     await this.onChange(items);
     this.items = items;
     this.render();
@@ -37,17 +37,17 @@ export class ImageInputPicker {
   }
   render() {
     const blocked = this.disabled || this.busy;
-    const input = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", multiple: true, disabled: blocked,
+    const input = el("input", { type: "file", accept: "image/png,image/jpeg,image/webp", multiple: this.maxItems > 1, disabled: blocked,
       onchange: event => {
         const files = [...event.target.files];
         this.run(async () => {
-          if (files.length + this.items.length > 10) throw Error("最多添加 10 张参考图。");
+          if (files.length + this.items.length > this.maxItems) throw Error(`当前模型最多添加 ${this.maxItems} 张参考图。`);
           if (files.some(file => file.size > 8_000_000)) throw Error("单张参考图最多 8MB。");
           for (const file of files) await this.addItems([await this.upload(file)]);
         });
       } });
-    this.root.replaceChildren(field("上传参考图（可多选）", input),
-      el("p", { class: "field-help" }, this.busy ? "正在保存参考图……" : "支持 PNG / JPEG / WebP，每张最多 8MB。按顺序用 <image1>、<image2> 引用；编辑原图时第一张是要修改的图片。"));
+    this.root.replaceChildren(field(this.maxItems > 1 ? "上传参考图（可多选）" : "上传重绘原图（单张）", input),
+      el("p", { class: "field-help" }, this.busy ? "正在保存参考图……" : this.maxItems === 1 ? "支持 PNG / JPEG / WebP，每张最多 8MB。原图会作为初始潜空间，重绘强度越低通常保留越多。" : "支持 PNG / JPEG / WebP，每张最多 8MB。按顺序用 <image1>、<image2> 引用；编辑原图时第一张是要修改的图片。"));
     const grid = el("div", { class: "image-input-grid" });
     for (const [index, item] of this.items.entries()) {
       const action = (label, work, unavailable = false) => el("button", { disabled: blocked || unavailable, onclick: () => this.run(work) }, label);

@@ -1,13 +1,13 @@
-import { api, el, field, select } from "./api.js?v=3.1.1";
-import { badge, dialog, icon } from "./ui.js?v=3.1.1";
-import { ImageInputPicker, imageFileData } from "./image-inputs.js?v=3.1.1";
-import { ImageSamplingControls, samplingSummary } from "./image-sampling.js?v=3.1.1";
+import { api, el, field, select } from "./api.js?v=3.2.0";
+import { badge, dialog, icon } from "./ui.js?v=3.2.0";
+import { ImageInputPicker, imageFileData } from "./image-inputs.js?v=3.2.0";
+import { ImageSamplingControls, samplingSummary } from "./image-sampling.js?v=3.2.0";
 
 const kinds = { general: "自由创作", character: "角色参考", scene: "场景参考", prop: "道具参考" };
 const variants = [{ value: "auto", label: "根据显存自动选择" }, { value: "turbo-int8", label: "Turbo INT8 · 快速预览" }, { value: "turbo-bf16", label: "Turbo BF16 · 大显存" }, { value: "quality-int8", label: "标准 INT8 · 细节优先" }];
 const resolutions = ["auto", "512", "768", "1024", "1536", "2048"].map(value => ({ value, label: value === "auto" ? "根据显存自动选择" : `${value} 档（按比例换算）` }));
 const bytes = value => `${(value / 1024 ** 3).toFixed(1)} GB`;
-const modelLabels = { diffusion_models: "主模型文件", text_encoders: "文本编码器文件", vae: "VAE 文件" };
+const modelLabels = { diffusion_models: "主模型文件", text_encoders: "文本编码器文件", vae: "VAE 文件", checkpoints: "整合模型文件" };
 
 export class ImageWorkspace {
   constructor(container, services) {
@@ -28,8 +28,10 @@ export class ImageWorkspace {
     if (this.mounted) return;
     this.mounted = true;
     const settings = this.services.config().image_generation || {};
+    this.modelCatalog = this.services.config().image_models || { "qwen-image-2.1": { name: "Qwen-Image 2.1" } };
     this.settings = settings;
     this.controls = {
+      image_model: select(Object.entries(this.modelCatalog).map(([value, spec]) => ({ value, label: spec.name })), settings.image_model || "qwen-image-2.1"),
       prompt: el("textarea", { rows: 6, maxLength: 12000, placeholder: "例如：雨后的小巷，暖黄色窗灯，一把蓝色旧伞，温暖手绘动漫风格……", required: true }),
       optimize: el("input", { type: "checkbox", checked: true }),
       optimized_prompt: el("textarea", { rows: 5, maxLength: 20000, placeholder: "可先优化查看结果，也可直接生成。填写后将使用这里的内容。" }),
@@ -45,6 +47,7 @@ export class ImageWorkspace {
       skill: select([{ value: "", label: "根据用途选择 Skill" }, ...this.services.skills().filter(s => s.stage === "image_prompt").map(s => ({ value: s.id, label: s.name }))], ""),
     };
     const c = this.controls;
+    this.modelNote = el("p", { class: "field-help", role: "status" });
     this.sampling = new ImageSamplingControls({ value: settings.sampling, onChange: () => { this.dirty = true; this.revision++; } });
     this.modelControls = Object.fromEntries(Object.keys(modelLabels).map(key => [key,
       select([{ value: "", label: "使用推荐文件" }, ...(settings.models?.[key] ? [{ value: settings.models[key], label: settings.models[key] }] : [])], settings.models?.[key] || "")]));
@@ -58,7 +61,7 @@ export class ImageWorkspace {
       onBusy: busy => { this.referencesBusy = busy; this.syncButtons(); },
     });
     const form = el("div", { class: "card image-prompt-card" },
-      el("h2", {}, "描述你想看到的画面"), field("自然语言描述", c.prompt),
+      el("h2", {}, "描述你想看到的画面"), field("生图模型", c.image_model), this.modelNote, field("自然语言描述", c.prompt),
       el("div", { class: "grid three" }, field("用途", c.purpose), field("画幅", c.ratio), field("风格", c.style)),
       el("details", { class: "option-section image-reference-options" }, el("summary", {}, "参考图 / 图生图"),
         this.referencePicker.root, field("参考方式", c.reference_mode),
@@ -67,16 +70,16 @@ export class ImageWorkspace {
       field("优化后的提示词（可编辑）", c.optimized_prompt),
       el("details", { class: "option-section image-sampling-options" }, el("summary", {}, "高级采样参数 · 步数 / CFG / 重绘强度"),
         this.sampling.root, this.button("恢复模型推荐参数", () => {
-          this.sampling.load(); this.dirty = true; this.revision++;
+          this.sampling.load(this.modelCatalog[c.image_model.value]?.sampling); this.dirty = true; this.revision++;
         })),
       el("details", { class: "option-section" }, el("summary", {}, "模型、清晰度与优化设置"),
-        el("div", { class: "grid three" }, field("图片模型", c.variant), field("图片大小", c.resolution), field("随机种子", c.seed),
+        el("div", { class: "grid three" }, field("Qwen 精度方案", c.variant), field("图片大小", c.resolution), field("随机种子", c.seed),
           field("文字提供商", c.provider), field("文字模型", c.model), field("优化 Skill", c.skill)),
-        el("p", { class: "field-help" }, "可选择目标服务或模型目录中已有的 safetensors 文件。三个文件须与 Qwen-Image 2.1 兼容；其他模型架构需要对应工作流。"),
+        el("p", { class: "field-help" }, "可选择目录中已有的文件；替换文件须与当前模型架构兼容。整合模型已包含编码器和 VAE，分体模型使用各自的编码器。"),
         el("div", { class: "grid" }, Object.entries(this.modelControls).map(([key, control]) => field(modelLabels[key], control))),
         el("label", { class: "image-switch" }, c.transparent, "请求透明背景 PNG"),
         this.button("保存为图片默认设置", async () => {
-          this.settings = await api("/api/images/settings", { ...this.settings, variant: c.variant.value, provider: c.provider.value,
+          this.settings = await api("/api/images/settings", { ...this.settings, image_model: c.image_model.value, variant: c.variant.value, provider: c.provider.value,
             model: c.model.value.trim(), skill: c.skill.value || "image-qwen-general", models: this.readModels(), sampling: this.sampling.read() });
           await this.services.reloadConfig(); this.services.toast("图片模型、采样参数和优化提供商默认设置已保存。");
         })),
@@ -89,6 +92,13 @@ export class ImageWorkspace {
       if (name === "reference_mode") this.syncReferenceMode();
     });
     c.variant.addEventListener("change", () => this.services.act(() => this.refreshEnvironment()));
+    c.image_model.addEventListener("change", () => {
+      for (const control of Object.values(this.modelControls)) control.value = "";
+      this.sampling.load(this.modelCatalog[c.image_model.value]?.sampling);
+      c.variant.value = "auto";
+      this.syncReferenceMode();
+      this.services.act(() => this.refreshEnvironment());
+    });
     for (const control of Object.values(this.modelControls)) control.addEventListener("change", () => {
       this.dirty = true; this.revision++;
       this.services.act(() => this.refreshEnvironment());
@@ -103,9 +113,25 @@ export class ImageWorkspace {
     this.syncReferenceMode();
   }
   syncReferenceMode() {
+    const c = this.controls, qwen = c.image_model.value === "qwen-image-2.1";
+    const spec = this.modelCatalog[c.image_model.value] || {};
+    c.variant.disabled = !qwen;
+    c.transparent.disabled = !qwen;
+    if (!qwen) {
+      c.transparent.checked = false;
+      if (this.references.length) c.reference_mode.value = "edit";
+    }
+    for (const option of c.reference_mode.options) option.disabled = !qwen && option.value === "reference";
+    if (this.modelNote) this.modelNote.textContent = qwen ? "支持最多 10 张语义参考图、编辑原图及原生透明通道。" :
+      `${spec.name || "所选模型"}：支持文字生图和单张原图重绘；重绘强度越低通常保留越多。${spec.validation === "pending" ? " 本机生成测试进行中。" : ""}`;
+    if (this.referencePicker && this.referencePicker.maxItems !== (qwen ? 10 : 1)) {
+      this.referencePicker.maxItems = qwen ? 10 : 1;
+      this.referencePicker.render();
+    }
     this.controls.reference_mode.disabled = !this.references.length || !!this.referencesBusy;
     if (!this.references.length) this.controls.reference_mode.value = "reference";
     this.controls.ratio.disabled = this.references.length > 0 && this.controls.reference_mode.value === "edit";
+    this.sampling?.setModel(qwen ? null : spec);
     this.sampling?.setContext(this.references.length > 0 && this.controls.reference_mode.value === "edit", this.plan?.variant);
   }
   referencesChanged() {
@@ -120,6 +146,7 @@ export class ImageWorkspace {
     if (values.seed !== null && (!Number.isSafeInteger(values.seed) || values.seed < 0)) throw Error("随机种子请输入非负安全整数，或留空。");
     if (!values.optimize) values.optimized_prompt = "";
     values.models = this.readModels();
+    if (values.image_model !== "qwen-image-2.1" && this.references.length > 1) throw Error("当前模型仅支持一张原图；请移除多余图片，或选择 Qwen 多图参考。");
     values.reference_images = this.references.map(item => item.id);
     values.sampling = this.sampling.read();
     return values;
@@ -134,7 +161,7 @@ export class ImageWorkspace {
     }
   }
   async confirmPreparation(request) {
-    const plan = await api("/api/images/environment/plan", { variant: request.variant, models: request.models });
+    const plan = await api("/api/images/environment/plan", { image_model: request.image_model || "qwen-image-2.1", variant: request.variant, models: request.models });
     if (plan.selection_errors?.length) throw Error(plan.selection_errors.join("；"));
     if (!plan.ready && !plan.local_download) throw Error("请在目标图片服务安装所选模型；本机下载无法修复远程模型目录。");
     if (plan.requires_confirmation) {
@@ -171,7 +198,7 @@ export class ImageWorkspace {
     for (const [name, control] of Object.entries(this.controls)) {
       const value = name === "optimized_prompt" ? record.optimized_prompt || record.request.optimized_prompt || "" : record.request[name];
       if (control.type === "checkbox") control.checked = !!value;
-      else control.value = value ?? (name === "reference_mode" ? "reference" : "");
+      else control.value = value ?? (name === "image_model" ? "qwen-image-2.1" : name === "reference_mode" ? "reference" : "");
     }
     this.controls.optimized_prompt.disabled = !this.controls.optimize.checked;
     this.sampling.load(record.request.sampling);
@@ -193,8 +220,12 @@ export class ImageWorkspace {
   async refreshEnvironment() {
     const version = this.environmentRevision = (this.environmentRevision || 0) + 1;
     this.environmentBox.replaceChildren(el("p", {}, "正在检测图片引擎与目标显卡……"));
-    const plan = await api("/api/images/environment/plan", { variant: this.controls.variant.value, models: this.readModels() });
+    const plan = await api("/api/images/environment/plan", { image_model: this.controls.image_model.value, variant: this.controls.variant.value, models: this.readModels() });
     if (version !== this.environmentRevision) return;
+    for (const [key, control] of Object.entries(this.modelControls)) {
+      const needed = plan.models.some(model => model.category === key);
+      control.closest(".field").hidden = !needed;
+    }
     this.plan = plan;
     this.syncReferenceMode();
     for (const [key, control] of Object.entries(this.modelControls)) {
@@ -207,10 +238,11 @@ export class ImageWorkspace {
     const s = this.engineDraft || this.settings;
     const engine = select([{ value: "auto", label: "自动选择兼容引擎" }, { value: "shared", label: "复用指定 ComfyUI" }, { value: "managed", label: "独立图片引擎" }], s.engine || "auto");
     const url = el("input", { value: s.comfy_url || "", placeholder: "留空使用视频引擎地址" });
-    const directory = el("input", { value: s.models_dir || "", placeholder: "留空使用推荐目录" });
+    const directoryKey = this.controls.image_model.value === "qwen-image-2.1" ? "models_dir" : "library_models_dir";
+    const directory = el("input", { value: s[directoryKey] || "", placeholder: "留空使用推荐目录" });
     const port = el("input", { type: "number", min: 1024, max: 65535, value: s.managed_port || 8190 });
     for (const control of [engine, url, directory, port]) control.addEventListener("input", () => {
-      this.engineDraft = { ...s, engine: engine.value, comfy_url: url.value, models_dir: directory.value, managed_port: Number(port.value) };
+      this.engineDraft = { ...s, engine: engine.value, comfy_url: url.value, [directoryKey]: directory.value, managed_port: Number(port.value) };
       this.dirty = true;
     });
     this.environmentBox.replaceChildren(el("h2", {}, "图片生成环境"), el("span", { class: "badge " + (plan.ready ? "success" : "warning") }, plan.ready ? "环境就绪" : "需要准备"),
@@ -229,14 +261,14 @@ export class ImageWorkspace {
       el("details", { class: "option-section" }, el("summary", {}, "图片引擎设置"), field("引擎方式", engine), field("已有服务地址", url), field("模型存放目录", directory), field("独立引擎端口", port),
         el("p", { class: "field-help" }, "缺少模型时先确认下载。窗口可关闭，后台继续准备；暂停后可继续下载。"),
         this.button("保存引擎设置", async () => {
-          this.settings = await api("/api/images/settings", { ...s, engine: engine.value, comfy_url: url.value.trim(), models_dir: directory.value.trim(), managed_port: Number(port.value), auto_download: false });
+          this.settings = await api("/api/images/settings", { ...s, engine: engine.value, comfy_url: url.value.trim(), [directoryKey]: directory.value.trim(), managed_port: Number(port.value), auto_download: false });
           this.engineDraft = null;
           await this.services.reloadConfig(); await this.refreshEnvironment();
           this.services.toast("图片引擎设置已保存。");
         })));
   }
   async prepareEnvironment() {
-    const request = { variant: this.controls.variant.value, models: this.readModels() };
+    const request = { image_model: this.controls.image_model.value, variant: this.controls.variant.value, models: this.readModels() };
     const plan = await this.confirmPreparation(request);
     if (!plan) return;
     if (plan.ready) { this.services.toast("所选图片模型已就绪。"); return; }
@@ -368,8 +400,11 @@ export class ImageWorkspace {
 export async function renderReferenceImages(workspace, box) {
   const pid = workspace.current.id;
   const preparation = new ImageWorkspace(null, workspace.services);
-  const modelRequest = { variant: workspace.current.settings.reference_images?.variant || "auto", models: null };
-  const block = el("section", { class: "reference-studio" }, el("h2", {}, "用 Qwen 生成项目参考图"),
+  const imageModel = workspace.current.settings.reference_images?.image_model || "qwen-image-2.1";
+  const imageSpec = workspace.services.config().image_models?.[imageModel];
+  const referenceSampling = imageModel === (workspace.services.config().image_generation?.image_model || "qwen-image-2.1") ? workspace.services.config().image_generation?.sampling : imageSpec?.sampling;
+  const modelRequest = { image_model: imageModel, variant: workspace.current.settings.reference_images?.variant || "auto", models: null };
+  const block = el("section", { class: "reference-studio" }, el("h2", {}, "用本地模型生成项目参考图"),
     el("p", { class: "muted" }, "角色图用于身份一致性，场景图用于空间一致性。生成并采用后，会更新对应分镜；旧图和历史版本保留。"));
   box.prepend(block);
   const data = await api(`/api/projects/${pid}/image-references`);
@@ -383,13 +418,17 @@ export async function renderReferenceImages(workspace, box) {
     await workspace.services.refresh();
   }, true, { disabled: blocked || !data.candidates.length });
   block.append(batchGenerate);
+  const unsupportedNote = el("p", {class:"notice warning",hidden:true}, "所选模型只支持一张原图重绘。请移除多余参考图，并将有原图的项目改为“编辑第一张原图”后生成。");
+  block.append(unsupportedNote);
   let savingSources = 0;
   const generateButtons = [batchGenerate];
   workspace.imageDrafts ||= new Map();
   workspace.imageSamplingDrafts ||= new Map();
   const syncGeneration = () => {
     const dirtySampling = [...workspace.imageSamplingDrafts.entries()].some(([key, value]) => key.startsWith(pid + "/") && value.dirty);
-    for (const button of generateButtons) button.disabled = blocked || savingSources > 0 || dirtySampling;
+    const incompatible = imageModel !== "qwen-image-2.1" && data.candidates.some(item=>item.source_assets?.length && (item.source_assets.length>1 || item.reference_mode!=="edit"));
+    unsupportedNote.hidden = !incompatible;
+    for (const button of generateButtons) button.disabled = blocked || savingSources > 0 || dirtySampling || incompatible;
   };
   const grid = el("div", { class: "reference-image-grid" });
   for (const item of data.candidates) {
@@ -403,7 +442,8 @@ export async function renderReferenceImages(workspace, box) {
         await workspace.services.refresh();
       }, false, { disabled: blocked });
     generateButtons.push(generate);
-    const mode = select([{ value: "reference", label: "参考图创作" }, { value: "edit", label: "编辑第一张原图" }], item.reference_mode || "reference");
+    const mode = select([{ value: "reference", label: "参考图创作" }, { value: "edit", label: "编辑第一张原图" }], item.source_assets?.length ? item.reference_mode || "reference" : imageModel === "qwen-image-2.1" ? "reference" : "edit");
+    if (imageModel !== "qwen-image-2.1") mode.options[0].disabled = true;
     mode.disabled = blocked || !item.source_assets?.length;
     const assetItem = asset => ({ id: asset.id, name: asset.name, url: `/media/${pid}/` + asset.file.split("/").map(encodeURIComponent).join("/") });
     const available = select([{ value: "", label: "选择项目已有图片……" }, ...Object.values(workspace.current.assets).filter(a => a.type === "image").map(a => ({ value: a.id, label: a.name }))], "");
@@ -413,11 +453,13 @@ export async function renderReferenceImages(workspace, box) {
       if (sampling && (!items.length || selectedMode !== "edit")) sampling = { ...sampling, denoise: 1 };
       const saved = await api(`/api/projects/${pid}/image-references/${item.key}/sources`, { asset_ids: items.map(a => a.id), reference_mode: items.length ? selectedMode : "reference", sampling: sampling || null });
       item.sampling = saved.sampling; item.reference_mode = saved.reference_mode;
-      mode.value = saved.reference_mode; mode.disabled = blocked || !items.length;
-      syncSampling();
+      item.source_assets = saved.asset_ids;
+      mode.value = !items.length && imageModel !== "qwen-image-2.1" ? "edit" : saved.reference_mode; mode.disabled = blocked || !items.length;
+      syncSampling(); syncGeneration();
       note.textContent = items.length ? `已保存 ${items.length} 张参考图；单项及批量生成都会使用。` : "无参考图，按文字生成。项目素材仍保留。";
     };
     const picker = new ImageInputPicker({
+      maxItems: imageModel === "qwen-image-2.1" ? 10 : 1,
       items: (item.source_assets || []).map(id => workspace.current.assets[id] ? assetItem(workspace.current.assets[id]) : { id, name: "参考素材缺失，请移除或重选", url: "" }),
       disabled: blocked, act: work => workspace.services.act(work), onChange: items => persist(items),
       onBusy: busy => {
@@ -453,8 +495,9 @@ export async function renderReferenceImages(workspace, box) {
       samplingStatus.textContent = "采样参数有修改，请保存后生成。";
       syncSampling(); syncGeneration();
     };
-    samplingControls = new ImageSamplingControls({ value: storedSampling?.value || item.sampling || workspace.services.config().image_generation?.sampling,
+    samplingControls = new ImageSamplingControls({ value: storedSampling?.value || item.sampling || referenceSampling,
       onChange: samplingChanged });
+    samplingControls.setModel(imageModel === "qwen-image-2.1" ? null : imageSpec);
     const samplingStatus = el("p", { class: "field-help", role: "status" }, storedSampling?.dirty ? "采样参数有修改，请保存后生成。" : "单项、批量和自动补齐均使用这里保存的参数。");
     function syncSampling() {
       samplingControls?.setContext(!!picker.items.length && mode.value === "edit", modelRequest.variant === "auto" ? undefined : modelRequest.variant,
@@ -469,7 +512,7 @@ export async function renderReferenceImages(workspace, box) {
     }), false, { disabled: blocked });
     const resetSampling = workspace.button("恢复继承默认", () => {
       inheritSampling.checked = true;
-      samplingControls.load(workspace.services.config().image_generation?.sampling);
+      samplingControls.load(referenceSampling);
       samplingChanged();
     }, false, { disabled: blocked });
     syncSampling();

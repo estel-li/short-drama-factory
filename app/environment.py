@@ -126,7 +126,8 @@ class Installer:
         self.config = config
 
     def manifests(self):
-        return [read_json(p) for p in (ROOT / 'manifests').glob('*.json')]
+        return [value for p in (ROOT / 'manifests').glob('*.json')
+                if (value := read_json(p)).get('comfyui', {}).get('portable_assets')]
 
     def manifest(self, mid='h3-5060ti-16g'):
         value = read_json(ROOT / 'manifests' / (identifier(mid) + '.json'))

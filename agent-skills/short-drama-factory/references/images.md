@@ -1,4 +1,6 @@
-# 图片与项目参考图（3.0.1）
+# 图片与项目参考图
+
+3.2.0 的多模型选择、原图重绘能力差异和视频方案准备见 [模型与工作流选择](workflow-models.md)。使用 `POST /api/images/environment/plan` 传入所选 `image_model`；以下多图语义参考和透明通道说明针对 Qwen。整合模型文件选择使用 `models.checkpoints`。
 
 先读 `/api/health` 核对实例及版本，再读 `/api/images/environment`。该接口检测目标 ComfyUI 的节点、模型、显存、下载清单与许可；`ready:true` 才表示当前方案可以生成。`/api/images/environment/progress` 返回准备状态。Qwen-Image 2.1 为非商用研究许可，商业用途需要模型方授权；应用 MIT 不覆盖模型权重。
 

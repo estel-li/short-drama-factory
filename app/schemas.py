@@ -67,6 +67,30 @@ class Quality(BaseModel):
     scheduler: str = 'simple'
     denoise: float = Field(default=1, ge=0, le=1)
     lora_strength: float = Field(default=1, ge=-2, le=2)
+    workflow: Literal['native', 'lightx2v-8', 'pdd-8', 'pdd-upscale'] = 'native'
+    workflow_lora: str = Field(default='', max_length=500)
+    pdd_fl: str = Field(default='', max_length=500)
+    pdd_ref: str = Field(default='', max_length=500)
+    head_strength: float = Field(default=1, ge=0, le=2)
+    upscale_by: float = Field(default=1.25, ge=1, le=2)
+    upscale_model: str = Field(default='', max_length=500)
+    refine_denoise: Literal[0.0,0.125] = 0.125
+
+    @field_validator('workflow_lora','pdd_fl','pdd_ref','upscale_model')
+    @classmethod
+    def model_filename(cls,value):
+        from .image_schemas import ImageModels
+        return ImageModels.relative_model(value)
+
+    @model_validator(mode='after')
+    def trained_schedule(self):
+        if self.workflow.startswith('pdd') and self.steps not in (4,6,8):
+            raise ValueError('PDD 工作流采样步数只能为 4、6 或 8。')
+        if self.workflow=='lightx2v-8' and self.steps!=8:
+            raise ValueError('LightX2V 8步工作流请使用 8 步。')
+        if self.workflow=='pdd-upscale' and self.steps!=8:
+            raise ValueError('神经放大工作流首遍使用 8 步，精修使用最后一个训练块。')
+        return self
 
 
 class Options(BaseModel):

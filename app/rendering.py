@@ -12,12 +12,28 @@ ROLES = {'fl_model': 'diffusion_models', 'ref_model': 'diffusion_models', 'text_
          'video_vae': 'vae', 'audio_vae': 'vae', 'fl_lora': 'loras', 'ref_lora': 'loras'}
 
 
-def fingerprint_models(config, report, cancel):
+def fingerprint_models(config, report, cancel, profile=None):
+    config = dict(config)
+    roles = dict(ROLES)
+    preset = config.get('profiles', {}).get(profile, {})
+    workflow = preset.get('workflow', 'native')
+    if workflow != 'native':
+        roles.pop('fl_lora', None); roles.pop('ref_lora', None)
+        from .video_workflows import LIGHTX2V_8, PDD_FL, PDD_REF, UPSCALER
+        if workflow == 'lightx2v-8':
+            roles['workflow_lora'] = 'loras'
+            config['workflow_lora'] = preset.get('workflow_lora') or LIGHTX2V_8
+        else:
+            roles.update(pdd_fl='pdd_acc', pdd_ref='pdd_acc')
+            config.update(pdd_fl=preset.get('pdd_fl') or PDD_FL, pdd_ref=preset.get('pdd_ref') or PDD_REF)
+            if workflow=='pdd-upscale':
+                roles['upscaler']='latent_upscale_models'
+                config['upscaler']=preset.get('upscale_model') or UPSCALER
     index_path = ROOT / 'data/model_versions.json'
     index = read_json(index_path, {})
     result = {}
     headers = {'Authorization': 'Bearer ' + config['comfy_auth_token']} if config.get('comfy_auth_token') else {}
-    for role, category in ROLES.items():
+    for role, category in roles.items():
         name = config[role]
         report('核对模型版本：' + name)
         if config.get('mode') == 'remote':
@@ -34,8 +50,11 @@ def fingerprint_models(config, report, cancel):
         except requests.RequestException:
             pass
         roots = [Path(config['comfy_dir']) / 'models' / category]
-        extra_path = Path(config.get('extra_model_paths_file') or ROOT / 'extra_model_paths.yaml')
-        if extra_path.is_file():
+        runtime_root = Path(config.get('runtime_root', ROOT))
+        extra_paths = [Path(config.get('extra_model_paths_file') or runtime_root / 'extra_model_paths.yaml'),
+                       runtime_root / 'data/video-workflow-paths.yaml']
+        for extra_path in extra_paths:
+            if not extra_path.is_file():continue
             for group in (yaml.safe_load(extra_path.read_text(encoding='utf-8')) or {}).values():
                 if isinstance(group, dict):
                     for folder in str(group.get(category, '')).splitlines():
@@ -60,7 +79,8 @@ def fingerprint_models(config, report, cancel):
 
 def used_models(graph, model_version):
     fields = {'UNETLoader': ('diffusion_models', 'unet_name'), 'CLIPLoader': ('text_encoders', 'clip_name'),
-              'VAELoader': ('vae', 'vae_name'), 'LoraLoaderModelOnly': ('loras', 'lora_name')}
+              'VAELoader': ('vae', 'vae_name'), 'LoraLoaderModelOnly': ('loras', 'lora_name'),
+              'MiniMaxH3PDDAccApply': ('pdd_acc', 'pdd_file'), 'MinimaxH3LatentUpscaler3D': ('latent_upscale_models','model_name')}
     wanted = {(fields[node['class_type']][0], node['inputs'].get(fields[node['class_type']][1]))
               for node in graph.values() if node['class_type'] in fields}
     result = {}

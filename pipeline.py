@@ -25,7 +25,18 @@ CONFIG = json.loads((ROOT / ('config.json' if (ROOT / 'config.json').exists() el
 FPS = 24
 
 
-def ensure_comfy(status=None):
+def ensure_comfy(status=None, profile=None):
+    task_root = Path(CONFIG.get('runtime_root', ROOT))
+    workflow_environment = None
+    if profile and CONFIG['profiles'][profile].get('workflow', 'native') != 'native':
+        from app.config import ConfigStore
+        from app.video_environment import VideoWorkflowEnvironment
+        environment = VideoWorkflowEnvironment(ConfigStore(task_root))
+        workflow_environment = environment
+        plan = environment.prepare(profile, lambda message, **extra: status(message) if status else None, lambda: False)
+        if plan.get('restart_required'):
+            from app.processes import stop_owned_comfy
+            stop_owned_comfy(CONFIG, task_root / 'data/comfy-runtime')
     try:
         requests.get(CONFIG['comfy_url'] + '/system_stats', timeout=3).raise_for_status()
         return
@@ -40,29 +51,39 @@ def ensure_comfy(status=None):
             raise RuntimeError('ComfyUI 端口已占用但暂时无响应，请稍后继续。')
     if status:
         status('正在启动本地生成引擎……')
+    runtime = task_root / 'data/comfy-runtime'
     args = [CONFIG['python'], '-u', 'main.py', '--listen', '127.0.0.1', '--port', str(port),
+            '--base-directory', str(runtime),
             '--disable-auto-launch', '--disable-api-nodes', '--reserve-vram', '1.5',
             '--cache-none', '--disable-pinned-memory', '--disable-async-offload',
             '--disable-comfy-compiler', '--disable-all-custom-nodes', '--whitelist-custom-nodes',
             'ComfyUI-DramaFactory-Runtime']
+    optional_node = task_root / 'data/comfy-runtime/custom_nodes/ComfyUI-MiniMax-H3-PDD-Acc'
+    if (optional_node / 'nodes.py').is_file():
+        args.append('ComfyUI-MiniMax-H3-PDD-Acc')
+    upscaler_node = task_root / 'data/comfy-runtime/custom_nodes/Comfyui_Minimax_h3_latent_Upscaler'
+    if (upscaler_node / '__init__.py').is_file():
+        args.append('Comfyui_Minimax_h3_latent_Upscaler')
     if CONFIG.get('fast_disk', True):
         args.append('--fast-disk')
     if CONFIG.get('disable_dynamic_vram', False):
         args.append('--disable-dynamic-vram')
-    model_paths = Path(CONFIG.get('extra_model_paths_file') or ROOT / 'extra_model_paths.yaml')
+    model_paths = Path(CONFIG.get('extra_model_paths_file') or task_root / 'extra_model_paths.yaml')
     if model_paths.is_file():
         args += ['--extra-model-paths-config', str(model_paths)]
+    workflow_paths = task_root / 'data/video-workflow-paths.yaml'
+    if workflow_paths.is_file():
+        args += ['--extra-model-paths-config', str(workflow_paths)]
     stamp = time.strftime('%Y%m%d_%H%M%S')
     process_env = os.environ.copy()
     # Portable installs must not depend on the launcher's system temp directory.
-    temporary = ROOT / 'data/comfy-temp'
+    temporary = task_root / 'data/comfy-temp'
     temporary.mkdir(parents=True, exist_ok=True)
     for name in ('TEMP', 'TMP', 'TMPDIR'):
         process_env[name] = str(temporary)
-    numba_cache = ROOT / 'data/numba-cache'
+    numba_cache = task_root / 'data/numba-cache'
     numba_cache.mkdir(parents=True, exist_ok=True)
     process_env['NUMBA_CACHE_DIR'] = str(numba_cache)
-    runtime = ROOT / 'data/comfy-runtime'
     for kind in ('input', 'output', 'user', 'temp', 'cache'):
         (runtime / kind).mkdir(parents=True, exist_ok=True)
     for kind in ('input', 'output', 'user', 'temp'):
@@ -75,14 +96,20 @@ def ensure_comfy(status=None):
     shutil.copytree(bundled_node, runtime / 'custom_nodes/ComfyUI-DramaFactory-Runtime', dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
     import yaml
+    source_models = runtime / 'source_model_paths.yaml'
+    source_models.write_text(yaml.safe_dump({'installed_models': {
+        'base_path': str(Path(CONFIG['comfy_dir'])/'models'),
+        **{category:category for category in ('diffusion_models','text_encoders','vae','loras','checkpoints','embeddings','vae_approx')}
+    }}, allow_unicode=True), encoding='utf-8')
+    args += ['--extra-model-paths-config', str(source_models)]
     node_paths = runtime / 'node_paths.yaml'
     node_paths.write_text(yaml.safe_dump({'drama_factory_runtime': {'base_path': str(runtime),
                           'custom_nodes': 'custom_nodes', 'is_default': True}}, allow_unicode=True), encoding='utf-8')
     args += ['--extra-model-paths-config', str(node_paths)]
-    (ROOT / 'logs').mkdir(parents=True, exist_ok=True)
+    (task_root / 'logs').mkdir(parents=True, exist_ok=True)
     if CONFIG.get('safe_file_read', True):
         process_env['DRAMA_SAFE_FILE_READ'] = '1'
-    with (ROOT / f'logs/comfy_{stamp}.stdout.log').open('wb') as out, (ROOT / f'logs/comfy_{stamp}.stderr.log').open('wb') as err:
+    with (task_root / f'logs/comfy_{stamp}.stdout.log').open('wb') as out, (task_root / f'logs/comfy_{stamp}.stderr.log').open('wb') as err:
         process = subprocess.Popen(args, cwd=CONFIG['comfy_dir'], stdout=out, stderr=err,
                                    env=process_env,
                                    creationflags=0x08000000 if os.name == 'nt' else 0)
@@ -91,6 +118,8 @@ def ensure_comfy(status=None):
             raise RuntimeError(f'ComfyUI 启动失败，请查看 logs/comfy_{stamp}.stderr.log。')
         try:
             requests.get(CONFIG['comfy_url'] + '/system_stats', timeout=2).raise_for_status()
+            if workflow_environment and not workflow_environment.plan(profile)['ready']:
+                raise RuntimeError('视频引擎已启动，但所选工作流的节点或模型仍未加载。请检查本次 ComfyUI 启动日志。')
             return
         except requests.RequestException:
             time.sleep(1)
@@ -119,6 +148,11 @@ def canvas(megapixels, ratio):
 def frames(seconds):
     count = max(5, math.ceil(seconds * FPS))
     return count + (5 - count % 17) % 17
+
+
+def output_canvas(preset, ratio):
+    from app.video_workflows import refined_size
+    return refined_size(*canvas(preset['megapixels'], ratio), preset)
 
 
 def api(path, data=None):
@@ -303,7 +337,8 @@ def graph_for(shot, project_id, profile='draft', ratio='9:16', references=None, 
     cache_id = shot.get('uid') or f'{shot["id"]:03d}'
     node(16, 'SaveVideo', video=['15', 0], filename_prefix=f'drama/{project_id}/shot_{cache_id}',
          format='mp4', **{'format.codec': 'h264'})
-    return graph
+    from app.video_workflows import apply_workflow
+    return apply_workflow(graph, preset, is_reference)
 
 
 def validate_graph(graph):
@@ -366,7 +401,7 @@ def assemble(project, story, clips, ratio, status=None, subtitles=True, cancel=N
     if (project / 'finishing-settings.json').is_file():
         settings.update(load_json(project / 'finishing-settings.json'))
     settings['subtitles'] = subtitles
-    width, height = canvas(CONFIG['profiles'][settings['profile']]['megapixels'], ratio)
+    width, height = output_canvas(CONFIG['profiles'][settings['profile']], ratio)
     return build(project, story, clips, width, height, settings, status or (lambda text: None),cancel=cancel,proxy=CONFIG.get('proxy',''))
 
 
@@ -484,7 +519,8 @@ class Runner:
         filename = f'drama/{self.project.name}/shot_{cache_id}_{signature[:12]}.safetensors'
         target = Path(CONFIG['comfy_dir']) / 'models/embeddings' / filename
         if not cache_exists('conditioning', filename, target):
-            encoding = {nid: value for nid, value in graph.items() if nid in ('2', '3', '7') or int(nid) > 20}
+            from app.video_workflows import subgraph
+            encoding = subgraph(graph, ['7'])
             if 'audio_vae' in graph['7']['inputs']:
                 encoding['4'] = graph['4']
             encoding['30'] = {'class_type': 'DramaSaveConditioning', 'inputs': {'conditioning': ['7', 0], 'filename': filename}}
@@ -506,11 +542,13 @@ class Runner:
                 raise RuntimeError('编码任务完成，但条件缓存没有保存。')
         api('/free', {'unload_models': True, 'free_memory': True})
         time.sleep(2)
-        render = {nid: value for nid, value in graph.items() if nid not in ('2', '7') and int(nid) <= 20}
+        from app.video_workflows import subgraph, replace_link
+        encoding_ids = set(subgraph(graph, ['7']))
+        render = {nid: value for nid, value in graph.items() if nid not in encoding_ids or nid in ('3','4')}
         render['7'] = {'class_type': 'DramaLoadConditioning', 'inputs': {'filename': filename}}
         render['17'] = {'class_type': 'EmptyMiniMaxH3LatentAV', 'inputs': {
             field: graph['7']['inputs'][field] for field in ('width', 'height', 'length')}}
-        render['12']['inputs']['latent_image'] = ['17', 0]
+        replace_link(render, ['7',1], ['17',0])
         return render
 
     def sample(self, graph, shot, signature):
@@ -518,7 +556,8 @@ class Runner:
         filename = f'{self.project.name}/shot_{cache_id}_{signature[:12]}.safetensors'
         target = Path(CONFIG['comfy_dir']) / 'output/drama_latents' / filename
         if not cache_exists('latent', filename, target):
-            sampling = {nid: value for nid, value in graph.items() if nid not in ('3', '4', '13', '14', '15', '16')}
+            from app.video_workflows import subgraph
+            sampling = subgraph(graph, ['12'])
             sampling['31'] = {'class_type': 'DramaSaveLatent', 'inputs': {'samples': ['12', 0], 'filename': filename}}
             validate_graph(sampling)
             save_json(self.project / 'prompts' / f'{shot["id"]:03d}_sample.json', sampling)
@@ -538,10 +577,11 @@ class Runner:
                 raise RuntimeError('采样已完成，但音画潜空间没有保存。')
         api('/free', {'unload_models': True, 'free_memory': True})
         time.sleep(2)
-        decoding = {nid: value for nid, value in graph.items() if nid in ('3', '4', '13', '14', '15', '16')}
+        from app.video_workflows import subgraph, replace_link
+        decoding = subgraph(graph, ['16'], stop={'12'})
+        decoding.pop('12')
         decoding['32'] = {'class_type': 'DramaLoadLatent', 'inputs': {'filename': filename}}
-        decoding['13']['inputs']['samples'] = ['32', 0]
-        decoding['14']['inputs']['samples'] = ['32', 0]
+        replace_link(decoding, ['12',0], ['32',0])
         return decoding
 
     def run(self, limit=None):
@@ -555,7 +595,7 @@ class Runner:
         try:
             story = validate_story(load_json(self.project / '分镜.json'))
             settings = load_json(self.project / 'settings.json')
-            ensure_comfy(self.report)
+            ensure_comfy(self.report, profile=settings['profile'])
             clips = []
             render_count = 0
             self.report('开始顺序生成', status='rendering', total_shots=len(story['shots']))
@@ -677,7 +717,7 @@ class Runner:
                 from app.comfyio import download_file
                 download_file(item, clip, CONFIG['comfy_url'], CONFIG.get('comfy_auth_token',''), self.stop.is_set)
                 info = media_info(clip, verify_timestamps=True)
-                expected_width, expected_height = canvas(CONFIG['profiles'][settings['profile']]['megapixels'], settings['ratio'])
+                expected_width, expected_height = output_canvas(CONFIG['profiles'][settings['profile']], settings['ratio'])
                 if info['frames'] != frames(shot['duration']) or (info['width'], info['height']) != (expected_width, expected_height) or not info['audio'] or not info['timestamps_monotonic']:
                     raise RuntimeError('生成镜头的帧数、尺寸、原生音频或时间戳校验失败。')
                 record['media'] = info

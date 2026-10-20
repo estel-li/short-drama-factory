@@ -32,7 +32,8 @@ REQUIRED_NODES = ('TextEncodeQwenImage21', 'UNETLoader', 'CLIPLoader', 'VAELoade
                   'EmptyLatentImage', 'VAEDecode', 'SaveImage', 'SamplerCustomAdvanced',
                   'ManualSigmas', 'BasicGuider', 'RandomNoise', 'KSamplerSelect', 'KSampler')
 MODEL_FIELDS = {'diffusion_models': ('UNETLoader', 'unet_name'),
-                'text_encoders': ('CLIPLoader', 'clip_name'), 'vae': ('VAELoader', 'vae_name')}
+                'text_encoders': ('CLIPLoader', 'clip_name'), 'vae': ('VAELoader', 'vae_name'),
+                'checkpoints': ('CheckpointLoaderSimple', 'ckpt_name')}
 
 
 def recommendation(vram_mb):
@@ -87,6 +88,7 @@ class ImageEnvironment:
                 spec = nodes.get(node, {}).get('input', {}).get('required', {}).get(name, [])
                 return spec[0] if spec and isinstance(spec[0], list) else spec[1].get('options', []) if len(spec) > 1 else []
             return {'connected': True, 'missing_nodes': [n for n in REQUIRED_NODES if n not in nodes],
+                    'node_types': list(nodes),
                     'reference_support': 'LoadImage' in nodes and 'TextEncodeQwenImage21' in nodes,
                     'sampling_support': {'samplers': options('KSampler', 'sampler_name'),
                                          'schedulers': options('KSampler', 'scheduler'),
@@ -110,8 +112,12 @@ class ImageEnvironment:
             result[category] = sorted(found.values(), key=lambda item: item['name'].lower())
         return result
 
-    def plan(self, variant='auto', models=None):
+    def plan(self, variant='auto', models=None, image_model=None):
         settings = self.settings()
+        image_model = image_model or settings.image_model
+        if image_model != 'qwen-image-2.1':
+            from .image_library import library_plan
+            return library_plan(self, image_model, models)
         env = self.config.renderer_config()
         shared_url = settings.comfy_url or env.get('comfy_url', 'http://127.0.0.1:8188')
         shared = self.probe(shared_url)
@@ -132,7 +138,7 @@ class ImageEnvironment:
         model_root = Path(settings.models_dir or (self.root / 'models/qwen-image-2.1' if managed else Path(env.get('comfy_dir') or self.root / 'engines/ComfyUI') / 'models')).resolve()
         local_files = managed or (local and bool(settings.models_dir or (shared_url == env.get('comfy_url') and env.get('comfy_dir'))))
         available = self.inventory(model_root, current, local_files)
-        selection = ImageModels.model_validate(models).model_dump() if models is not None else settings.models.model_dump()
+        selection = ImageModels.model_validate(models).model_dump() if models is not None else settings.models.model_dump() if settings.image_model == 'qwen-image-2.1' else ImageModels().model_dump()
         main_name = selection['diffusion_models'].rsplit('/', 1)[-1]
         known_variant = next((key for key, spec in self.manifest['variants'].items()
                               if main_name == self.manifest['models'][spec['files'][0]]['name']), None)
@@ -183,7 +189,9 @@ class ImageEnvironment:
                         'models': [{k: m.get(k) for k in ('name', 'category', 'sha256', 'size')} for m in rows],
                         'downloads': [m['target'] for m in rows if m['action'] == 'download'],
                         'bootstrap_needed': bootstrap_needed, 'source_needed': source_needed})
-        return {'engine': 'managed' if managed else 'shared', 'comfy_url': url,
+        return {'image_model': 'qwen-image-2.1', 'architecture': 'qwen_image_21',
+                'reference_modes': ['reference', 'edit'], 'max_reference_images': 10, 'transparent_support': True,
+                'engine': 'managed' if managed else 'shared', 'comfy_url': url,
                 'connected': current['connected'], 'missing_nodes': current['missing_nodes'],
                 'reference_support': current.get('reference_support', False),
                 'sampling_support': current.get('sampling_support'),
@@ -200,8 +208,10 @@ class ImageEnvironment:
                 'local_download': local_files,
                 'license': self.manifest['license'], 'auto_download': settings.auto_download}
 
-    def prepare(self, variant, report, cancel, models=None, confirmation=''):
-        plan = self.plan(variant, models)
+    def prepare(self, variant, report, cancel, models=None, confirmation='', image_model=None):
+        def current_plan(selected=variant, selection=models):
+            return self.plan(selected, selection, image_model) if image_model else self.plan(selected, selection)
+        plan = current_plan()
         if plan['ready']:
             return plan
         if plan['selection_errors']:
@@ -227,7 +237,7 @@ class ImageEnvironment:
             report('正在校验本地模型：' + model['name'],
                    progress={'status': 'verifying', 'file': model['name']})
             if not downloader.verified(model['target'], model['size'], model['sha256'], cancel):
-                revised = self.plan(variant, models)
+                revised = current_plan()
                 report('本地模型校验失败，请确认修复下载后继续。', download_required=True, download_plan=revised, progress={})
                 raise DownloadConfirmationRequired(revised)
         for model in plan['models']:
@@ -241,7 +251,7 @@ class ImageEnvironment:
         if plan['engine'] == 'managed':
             self.prepare_engine(plan, downloader, report, cancel)
             self.start_engine(plan, report, cancel)
-        result = self.plan(plan['variant'], plan['selection'])
+        result = current_plan(plan['variant'], plan['selection'])
         if not result['ready']:
             raise RuntimeError('模型已保存，但图片服务尚未识别这些文件。检查模型目录映射或重启图片服务后继续。')
         return result
@@ -315,13 +325,30 @@ class ImageEnvironment:
                     raise RuntimeError('图片引擎依赖安装失败，请检查 logs/image-engine-install.log 后继续。')
                 write_json(receipt, {'revision': info['revision'], 'base_python': self.config.renderer_config().get('python')})
         import yaml
-        paths = {category: str(Path(plan['models_dir']) / category) for category in MODEL_FIELDS}
-        (engine_root / 'model_paths.yaml').write_text(yaml.safe_dump({'image_studio': {'base_path': plan['models_dir'], **paths}}, allow_unicode=True), encoding='utf-8')
+        settings = self.settings()
+        qwen_root = Path(settings.models_dir or self.root / 'models/qwen-image-2.1')
+        library_root = Path(settings.library_models_dir or self.root / 'models/image-library')
+        if plan.get('image_model', 'qwen-image-2.1') == 'qwen-image-2.1':
+            qwen_root = Path(plan['models_dir'])
+        else:
+            library_root = Path(plan['models_dir'])
+        mapping = {name: {'base_path': str(root), **{category: str(root/category) for category in MODEL_FIELDS}}
+                   for name, root in (('image_studio',qwen_root),('image_library',library_root))}
+        (engine_root / 'model_paths.yaml').write_text(yaml.safe_dump(mapping, allow_unicode=True), encoding='utf-8')
 
     def start_engine(self, plan, report, cancel):
-        if self.probe(plan['comfy_url'])['connected']:
-            return
         engine_root, source, python = self.paths()
+        current = self.probe(plan['comfy_url'])
+        if current['connected']:
+            recognized = all((m.get('comfy_name') or m['name']).replace('\\','/') in
+                             {name.replace('\\','/') for name in current['choices'].get(m['category'],[])}
+                             for m in plan['models'])
+            if recognized and not plan['missing_nodes']:
+                return
+            from .processes import stop_owned_comfy
+            report('模型目录已更新，正在重启本应用空闲的图片引擎以加载新增文件。',progress={})
+            stop_owned_comfy({'comfy_url':plan['comfy_url'],'comfy_dir':str(source),'comfy_auth_token':self.config.key('comfy')},
+                            self.root/'data/image-comfy-runtime')
         port = urlsplit(plan['comfy_url']).port
         with socket.socket() as probe:
             if probe.connect_ex(('127.0.0.1', port)) == 0:
@@ -331,6 +358,7 @@ class ImageEnvironment:
             (runtime / name).mkdir(parents=True, exist_ok=True)
         args = [str(python), '-u', str(source / 'main.py'), '--listen', '127.0.0.1', '--port', str(port),
                 '--disable-auto-launch', '--disable-api-nodes', '--disable-all-custom-nodes',
+                '--disable-pinned-memory', '--disable-async-offload',
                 '--reserve-vram', '1', '--extra-model-paths-config', str(engine_root / 'model_paths.yaml')]
         for name in ('input', 'output', 'temp', 'user'):
             args += ['--' + name + '-directory', str(runtime / name)]

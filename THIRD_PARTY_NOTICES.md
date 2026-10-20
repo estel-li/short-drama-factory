@@ -14,6 +14,10 @@
 | ComfyUI 与模型 | 用户独立安装或通过固定清单下载 | 不随源码仓库提交，分别适用其发行许可和使用条件 |
 | Qwen-Image 2.1 权重 | [QwenLM/Qwen-Image-2.1](https://github.com/QwenLM/Qwen-Image-2.1)、[Comfy-Org 转换权重](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) | [Qwen Research License Agreement](https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE)，限非商用研究；商业用途需模型方授权。固定 revision 与 SHA256 见 `manifests/qwen-image-2.1.json`，权重不随源码提交 |
 
+新增图片权重及其固定版本和原始页面记录在 `manifests/image-models.json`。SDXL 和 Animagine 使用 OpenRAIL++，FLUX Schnell 和 Z-Image 使用 Apache-2.0；DreamShaper 的限制以作者原始页面为准。源码和便携包均不包含这些权重。
+
+可选 PDD 节点来自 [Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc](https://github.com/Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc)，采用 Apache-2.0；神经潜空间放大节点来自 [LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler](https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler)，采用 MIT。它们独立下载，安装目录保留原许可证和固定提交收据；不会被重新授权为本项目 MIT。固定提交、归档摘要及关联 H3 适配权重见 `manifests/video-workflows.json`。
+
 4 个 `image-qwen-*` 提示词 Skill 为本项目原创适配规则，使用 MIT；其许可不替代生成模型的使用条款。
 
 H3 原声明：

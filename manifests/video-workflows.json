@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "models": {
+    "lightx2v_8": {
+      "name": "minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+      "category": "loras",
+      "size": 1956193000,
+      "sha256": "08cfe946033af7d27719b964b6e0a0e50c32138daabbd6ce4137e23df6bf9980",
+      "url": "https://huggingface.co/lightx2v/Minimax-h3-Turbo/resolve/30f485ed874aa44c8183348ad361c5eabad318da/minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors",
+      "revision": "30f485ed874aa44c8183348ad361c5eabad318da",
+      "source": "https://huggingface.co/lightx2v/Minimax-h3-Turbo"
+    },
+    "pdd_fl": {
+      "name": "minimax_h3_fl2va_pdd_acc_8step_comfyui.safetensors",
+      "category": "pdd_acc",
+      "size": 1658719592,
+      "sha256": "1dce71b90e5d993d3309474d47e414766e65dbd760f18978c399c82db5cda0ea",
+      "url": "https://huggingface.co/aptech0081/MiniMax-H3-PDD-ComfyUI/resolve/c169e9cd1dab4ac56b413b1343218ab4a3af2f19/minimax_h3_fl2va_pdd_acc_8step_comfyui.safetensors",
+      "revision": "c169e9cd1dab4ac56b413b1343218ab4a3af2f19",
+      "source": "https://huggingface.co/aptech0081/MiniMax-H3-PDD-ComfyUI"
+    },
+    "pdd_ref": {
+      "name": "minimax_h3_ref2va_pdd_acc_8step_comfyui.safetensors",
+      "category": "pdd_acc",
+      "size": 1658719592,
+      "sha256": "5531fa0da887c24ec0083b0050ea9e4ff03c479cfbe21ef586d1c5c79bdc78a1",
+      "url": "https://huggingface.co/aptech0081/MiniMax-H3-PDD-ComfyUI/resolve/c169e9cd1dab4ac56b413b1343218ab4a3af2f19/minimax_h3_ref2va_pdd_acc_8step_comfyui.safetensors",
+      "revision": "c169e9cd1dab4ac56b413b1343218ab4a3af2f19",
+      "source": "https://huggingface.co/aptech0081/MiniMax-H3-PDD-ComfyUI"
+    },
+    "upscaler": {
+      "name": "minimax_h3_latent_upscaler_3d_fp16.safetensors",
+      "category": "latent_upscale_models",
+      "size": 690592672,
+      "sha256": "043e5a48e161610ef6c3ea974645220354d06fa618abca15f76d084812eb55c2",
+      "url": "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/resolve/3f941d5d182014dd5c0a5e16330420ee2d4aa0c6/minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
+      "revision": "3f941d5d182014dd5c0a5e16330420ee2d4aa0c6",
+      "source": "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler"
+    }
+  },
+  "plugins": {
+    "pdd-acc": {
+      "name": "ComfyUI-MiniMax-H3-PDD-Acc",
+      "repo": "Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc",
+      "revision": "311a65dd53832d8a5f8177a9d5fb923c09e35a90",
+      "license": "Apache-2.0",
+      "url": "https://codeload.github.com/Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc/zip/311a65dd53832d8a5f8177a9d5fb923c09e35a90",
+      "size": 2351519,
+      "sha256": "b106b37d7e7e9b8ee1773a7387b623065e7e5dd0747de75610ce820004893dab"
+    },
+    "h3-upscaler": {
+      "name": "Comfyui_Minimax_h3_latent_Upscaler",
+      "repo": "LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler",
+      "revision": "40316cf008b2fd8663263270669eb4da23f89d2c",
+      "license": "MIT",
+      "url": "https://codeload.github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler/zip/40316cf008b2fd8663263270669eb4da23f89d2c",
+      "size": 8897912,
+      "sha256": "2e8bb5f235bf1f6b80e95345fd365812242e139653b1d6eacaf5f0fe86822883"
+    }
+  },
+  "workflows": {
+    "lightx2v-8": {
+      "profile": {
+        "label": "LightX2V 8步 · 稳定动作 / 0.4MP",
+        "workflow": "lightx2v-8",
+        "megapixels": 0.4,
+        "steps": 8,
+        "turbo": true,
+        "sampler": "res_multistep"
+      },
+      "files": [
+        "lightx2v_8"
+      ],
+      "plugins": [],
+      "supported_modes": [
+        "T2VA",
+        "I2VA",
+        "L2VA",
+        "FL2VA"
+      ]
+    },
+    "pdd-8": {
+      "profile": {
+        "label": "PDD Acc 8步 · 音画加速 / 0.4MP",
+        "workflow": "pdd-8",
+        "megapixels": 0.4,
+        "steps": 8,
+        "turbo": false,
+        "sampler": "euler"
+      },
+      "files": [
+        "pdd_fl",
+        "pdd_ref"
+      ],
+      "plugins": [
+        "pdd-acc"
+      ],
+      "supported_modes": [
+        "T2VA",
+        "I2VA",
+        "L2VA",
+        "FL2VA",
+        "Ref2VA"
+      ]
+    },
+    "pdd-upscale": {
+      "profile": {
+        "label": "PDD 神经放大 · 3D放大 + 轻精修",
+        "workflow": "pdd-upscale",
+        "megapixels": 0.4,
+        "steps": 8,
+        "turbo": false,
+        "sampler": "euler",
+        "upscale_by": 1.25,
+        "refine_denoise": 0.125
+      },
+      "files": [
+        "pdd_fl",
+        "pdd_ref",
+        "upscaler"
+      ],
+      "plugins": [
+        "pdd-acc",
+        "h3-upscaler"
+      ],
+      "supported_modes": [
+        "T2VA",
+        "I2VA",
+        "L2VA",
+        "FL2VA",
+        "Ref2VA"
+      ]
+    }
+  }
+}

@@ -44,7 +44,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='3.1.1', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='3.2.0', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -115,6 +115,7 @@ def home():
 def get_config():
     value = config.public()
     value.update(profiles=config.renderer_config().get('profiles', {}), comfy_url=config.renderer_config().get('comfy_url'), api_key_configured=bool(config.key('deepseek')))
+    value['image_models'] = image_model_catalog()['models']
     return value
 
 
@@ -430,9 +431,18 @@ def jobs():
 
 
 @app.get('/api/images/environment')
-def image_environment(variant: str = 'auto'):
-    ImageSettings(variant=variant)
-    return worker.images.environment.plan(variant)
+def image_environment(variant: str = 'auto', image_model: str = 'qwen-image-2.1'):
+    ImageSettings(variant=variant, image_model=image_model)
+    return worker.images.environment.plan(variant, image_model=image_model)
+
+
+@app.get('/api/images/models')
+def image_model_catalog():
+    from .image_models import model_catalog
+    return {'models': {'qwen-image-2.1': {'name': 'Qwen-Image 2.1 · 多图参考与编辑',
+             'architecture': 'qwen_image_21', 'sampling': {'steps': None, 'cfg': 1, 'sampler': 'euler', 'scheduler': 'auto'},
+             'reference_modes': ['reference', 'edit'], 'max_reference_images': 10, 'transparent_support': True},
+             **{key: {**value, 'max_reference_images': 1, 'transparent_support': False} for key,value in model_catalog().items()}}}
 
 
 @app.get('/api/images/environment/progress')
@@ -442,8 +452,8 @@ def image_environment_progress():
 
 @app.post('/api/images/environment/plan')
 def image_environment_plan(body: dict):
-    ImageSettings(variant=body.get('variant', 'auto'))
-    return worker.images.environment.plan(body.get('variant', 'auto'), body.get('models'))
+    ImageSettings(variant=body.get('variant', 'auto'), image_model=body.get('image_model', 'qwen-image-2.1'))
+    return worker.images.environment.plan(body.get('variant', 'auto'), body.get('models'), body.get('image_model'))
 
 
 @app.post('/api/images/settings')
@@ -460,9 +470,10 @@ def image_settings(body: dict):
 @app.post('/api/images/environment/prepare', status_code=202)
 def image_prepare(body: dict):
     variant = body.get('variant', 'auto')
-    ImageSettings(variant=variant)
+    image_model = body.get('image_model', 'qwen-image-2.1')
+    ImageSettings(variant=variant, image_model=image_model)
     models = ImageModels.model_validate(body['models']).model_dump() if body.get('models') is not None else None
-    jid = worker.enqueue('__image_environment', 'image-prepare', {'variant': variant, 'models': models,
+    jid = worker.enqueue('__image_environment', 'image-prepare', {'variant': variant, 'models': models, 'image_model': image_model,
                          'download_confirmation': body.get('download_confirmation', '')})
     # Worker owns subsequent progress; avoid replacing a running/done state after enqueue.
     return {'job_id': jid}
@@ -648,6 +659,50 @@ def health():
 @app.get('/api/environment/catalog')
 def environment_catalog():
     return catalog({**config.renderer_config(), 'comfy_auth_token': config.key('comfy')})
+
+
+@app.get('/api/video/workflows/plan')
+def video_workflow_plan(profile: str):
+    return worker.video_environment.plan(profile)
+
+
+@app.get('/api/video/workflows/progress')
+def video_workflow_progress():
+    return read_json(config.root/'data/video-environment-progress.json', {})
+
+
+@app.post('/api/video/workflows/prepare', status_code=202)
+def video_workflow_prepare(body: dict):
+    profile = str(body.get('profile', ''))
+    plan = worker.video_environment.plan(profile)
+    if plan.get('requires_confirmation') and body.get('download_confirmation') != plan['confirmation_token']:
+        raise ValueError('工作流资源发生变化，请重新检查并确认下载。')
+    return {'job_id': worker.enqueue('__video_environment', 'video-prepare',
+            {'profile':profile,'download_confirmation':body.get('download_confirmation','')})}
+
+
+@app.post('/api/video/workflows/stop')
+def video_workflow_stop():
+    worker.stop('__video_environment')
+    return {'ok':True}
+
+
+@app.post('/api/video/workflows/profiles', status_code=201)
+def video_workflow_profile(body: dict):
+    if worker.active:
+        raise ValueError('请等待当前任务完成后再保存视频工作流方案。')
+    import uuid
+    from .schemas import Quality
+    profiles = config.renderer_config()['profiles']
+    base = profiles.get(str(body.get('base_profile', '')))
+    if not base:raise ValueError('原视频工作流不存在。')
+    changes = body.get('changes', {})
+    allowed = {'megapixels','steps','lora_strength','head_strength','upscale_by','refine_denoise'}
+    if not isinstance(changes,dict) or set(changes)-allowed:raise ValueError('工作流参数不支持。')
+    quality=Quality.model_validate({**base,**changes,'label':str(body.get('label','')).strip()}).model_dump()
+    name='custom-'+uuid.uuid4().hex[:12]
+    value=config.get();value['environment']['profiles']={**profiles,name:quality};config.save(value)
+    return {'id':name,'profile':quality}
 
 
 @app.get('/api/environment')

@@ -37,6 +37,10 @@ class ReadinessTests(unittest.TestCase):
                 socket.return_value.__enter__.return_value.connect_ex.return_value=1
                 pipeline.ensure_comfy()
             args=launch.call_args.args[0];env=launch.call_args.kwargs['env']
+            self.assertEqual(Path(args[args.index('--base-directory')+1]),root/'data/comfy-runtime')
+            source_paths=root/'data/comfy-runtime/source_model_paths.yaml'
+            self.assertTrue(source_paths.is_file())
+            self.assertIn(str(readonly/'models'),source_paths.read_text(encoding='utf-8'))
             for name in ('TEMP','TMP','TMPDIR','NUMBA_CACHE_DIR','DRAMA_FACTORY_CACHE_DIR'):
                 self.assertTrue(Path(env[name]).is_relative_to(root))
                 self.assertTrue(Path(env[name]).is_dir())

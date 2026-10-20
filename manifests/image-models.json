@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "models": {
+    "sdxl-base": {
+      "name": "SDXL 1.0 · 通用写实",
+      "architecture": "checkpoint",
+      "source": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0",
+      "revision": "462165984030d82259a11f4367a4eed129e94a7b",
+      "license": "openrail++",
+      "files": [
+        {
+          "role": "checkpoint",
+          "category": "checkpoints",
+          "name": "sd_xl_base_1.0.safetensors",
+          "size": 6938078334,
+          "sha256": "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b",
+          "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/462165984030d82259a11f4367a4eed129e94a7b/sd_xl_base_1.0.safetensors"
+        }
+      ],
+      "sampling": {
+        "steps": 28,
+        "cfg": 7,
+        "sampler": "dpmpp_2m",
+        "scheduler": "karras"
+      },
+      "resolution": 1024,
+      "reference_modes": [
+        "edit"
+      ],
+      "validation": "tested",
+      "tested": {
+        "gpu": "RTX 5060 Ti 16GB",
+        "comfyui_revision": "ba994879b88d0ebd9950b1e5c1e923d928f216ba",
+        "cases": [
+          "text-to-image",
+          "image-to-image"
+        ],
+        "text_seconds": 15.701,
+        "edit_seconds": 16.678,
+        "resolution": [
+          1024,
+          1024
+        ],
+        "text_output_sha256": "ff7be344dadc83208f071d3482cc49333201eed1cc7d128e5d6fdb2e50c6157b",
+        "edit_output_sha256": "243a18d64a800f1494c1b9c243eccb72e836a1ed97b21df7962d598a4bf34a3c"
+      }
+    },
+    "animagine-xl-4": {
+      "name": "Animagine XL 4.0 · 动漫角色",
+      "architecture": "checkpoint",
+      "source": "https://huggingface.co/cagliostrolab/animagine-xl-4.0",
+      "revision": "2b7c1b397761bf5bd3cc42e5b39ec99314a75a96",
+      "license": "openrail++",
+      "files": [
+        {
+          "role": "checkpoint",
+          "category": "checkpoints",
+          "name": "animagine-xl-4.0-opt.safetensors",
+          "size": 6938350040,
+          "sha256": "6327eca98bfb6538dd7a4edce22484a1bbc57a8cff6b11d075d40da1afb847ac",
+          "url": "https://huggingface.co/cagliostrolab/animagine-xl-4.0/resolve/2b7c1b397761bf5bd3cc42e5b39ec99314a75a96/animagine-xl-4.0-opt.safetensors"
+        }
+      ],
+      "sampling": {
+        "steps": 28,
+        "cfg": 6,
+        "sampler": "euler_ancestral",
+        "scheduler": "normal"
+      },
+      "resolution": 1024,
+      "reference_modes": [
+        "edit"
+      ],
+      "validation": "tested",
+      "tested": {
+        "gpu": "RTX 5060 Ti 16GB",
+        "comfyui_revision": "ba994879b88d0ebd9950b1e5c1e923d928f216ba",
+        "cases": [
+          "text-to-image",
+          "image-to-image"
+        ],
+        "text_seconds": 14.06,
+        "edit_seconds": 15.004,
+        "resolution": [
+          1024,
+          1024
+        ],
+        "text_output_sha256": "339ad21417772d3fa55c48c7aaf22f901ebdc684b8624140bdcab41d11ab1ca2",
+        "edit_output_sha256": "e5deb15f28db6ad53c519300d909e99f06f4e734d84c39a3ce578e1f9c6cae9f"
+      }
+    },
+    "dreamshaper-8": {
+      "name": "DreamShaper 8 · 插画与轻量草图",
+      "architecture": "checkpoint",
+      "source": "https://huggingface.co/Lykon/DreamShaper",
+      "revision": "228d79cb20811466f5c5710aa91f05dabd0b8a14",
+      "license": "other",
+      "files": [
+        {
+          "role": "checkpoint",
+          "category": "checkpoints",
+          "name": "DreamShaper_8_pruned.safetensors",
+          "size": 2132625894,
+          "sha256": "879db523c30d3b9017143d56705015e15a2cb5628762c11d086fed9538abd7fd",
+          "url": "https://huggingface.co/Lykon/DreamShaper/resolve/228d79cb20811466f5c5710aa91f05dabd0b8a14/DreamShaper_8_pruned.safetensors"
+        }
+      ],
+      "sampling": {
+        "steps": 24,
+        "cfg": 7,
+        "sampler": "dpmpp_2m",
+        "scheduler": "karras"
+      },
+      "resolution": 512,
+      "reference_modes": [
+        "edit"
+      ],
+      "validation": "tested",
+      "tested": {
+        "gpu": "RTX 5060 Ti 16GB",
+        "comfyui_revision": "ba994879b88d0ebd9950b1e5c1e923d928f216ba",
+        "cases": [
+          "text-to-image",
+          "image-to-image"
+        ],
+        "text_seconds": 3.994,
+        "edit_seconds": 4.398,
+        "resolution": [
+          512,
+          512
+        ],
+        "text_output_sha256": "8d9a6732672ecb801578e4ed70cfa40abeae3c26783cc70024a4d4847e360160",
+        "edit_output_sha256": "f7e4077d99ed588a86e9c2daa95c85f50c7f39376e8899efe8076c98a7f86c34"
+      }
+    },
+    "dreamshaper-xl-turbo": {
+      "name": "DreamShaper XL Turbo · 快速风格图",
+      "architecture": "checkpoint",
+      "source": "https://huggingface.co/Lykon/DreamShaper",
+      "revision": "228d79cb20811466f5c5710aa91f05dabd0b8a14",
+      "license": "other",
+      "files": [
+        {
+          "role": "checkpoint",
+          "category": "checkpoints",
+          "name": "DreamShaperXL_Turbo_dpmppSdeKarras_half_pruned_6.safetensors",
+          "size": 6939220250,
+          "sha256": "676f0d60c8e860146d5e8a0d802599cadd04e7cadf85c283f189f41f01c9e359",
+          "url": "https://huggingface.co/Lykon/DreamShaper/resolve/228d79cb20811466f5c5710aa91f05dabd0b8a14/DreamShaperXL_Turbo_dpmppSdeKarras_half_pruned_6.safetensors"
+        }
+      ],
+      "sampling": {
+        "steps": 6,
+        "cfg": 2,
+        "sampler": "dpmpp_sde",
+        "scheduler": "karras"
+      },
+      "resolution": 1024,
+      "reference_modes": [
+        "edit"
+      ],
+      "validation": "tested",
+      "tested": {
+        "gpu": "RTX 5060 Ti 16GB",
+        "comfyui_revision": "ba994879b88d0ebd9950b1e5c1e923d928f216ba",
+        "cases": [
+          "text-to-image",
+          "image-to-image"
+        ],
+        "text_seconds": 9.995,
+        "edit_seconds": 9.186,
+        "resolution": [
+          1024,
+          1024
+        ],
+        "text_output_sha256": "ed05defc9d1bc26e70cf812bd6bbe9b47e6e47f3892cded8190be8fa622a247c",
+        "edit_output_sha256": "74b02a1d977a3d44a98c701d5dc943a6d9d4a16cd9a5e4c36e978271f3b6413a"
+      }
+    },
+    "flux-schnell": {
+      "name": "FLUX.1 Schnell FP8 · 构图与提示词遵循",
+      "architecture": "flux_checkpoint",
+      "source": "https://huggingface.co/Comfy-Org/flux1-schnell",
+      "revision": "c2b683ea00713d6feadcd54b39e3725bbc78638b",
+      "license": "apache-2.0",
+      "files": [
+        {
+          "role": "checkpoint",
+          "category": "checkpoints",
+          "name": "flux1-schnell-fp8.safetensors",
+          "size": 17236328572,
+          "sha256": "ead426278b49030e9da5df862994f25ce94ab2ee4df38b556ddddb3db093bf72",
+          "url": "https://huggingface.co/Comfy-Org/flux1-schnell/resolve/c2b683ea00713d6feadcd54b39e3725bbc78638b/flux1-schnell-fp8.safetensors"
+        }
+      ],
+      "sampling": {
+        "steps": 4,
+        "cfg": 1,
+        "sampler": "euler",
+        "scheduler": "simple"
+      },
+      "resolution": 1024,
+      "reference_modes": [
+        "edit"
+      ],
+      "validation": "tested",
+      "tested": {
+        "gpu": "RTX 5060 Ti 16GB",
+        "comfyui_revision": "ba994879b88d0ebd9950b1e5c1e923d928f216ba",
+        "cases": [
+          "text-to-image",
+          "image-to-image"
+        ],
+        "text_seconds": 14.223,
+        "edit_seconds": 14.981,
+        "resolution": [
+          1024,
+          1024
+        ],
+        "text_output_sha256": "5cb13c7c7c4db0b7be0f106df08e76b7e5fd5d6227cf57bffaeb8ab11527f5b7",
+        "edit_output_sha256": "03906704f996cf4a3adee94feefb800a461800046c4f0f9aa0b096ed809f25cd"
+      }
+    },
+    "z-image-turbo": {
+      "name": "Z-Image Turbo INT8 · 中文与写实",
+      "architecture": "z_image",
+      "source": "https://huggingface.co/Comfy-Org/z_image_turbo",
+      "revision": "6fc90a3b1b653e935a0d175e260736de25b84df5",
+      "license": "apache-2.0",
+      "files": [
+        {
+          "role": "diffusion_models",
+          "category": "diffusion_models",
+          "name": "z_image_turbo_int8_convrot.safetensors",
+          "size": 6201001296,
+          "sha256": "be517ebd47c912a5626a588e1aeea43e6be4a43c0cdcd2b48a2a780d9f358635",
+          "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/diffusion_models/z_image_turbo_int8_convrot.safetensors"
+        },
+        {
+          "role": "text_encoders",
+          "category": "text_encoders",
+          "name": "qwen_3_4b_fp4_mixed.safetensors",
+          "size": 3479416193,
+          "sha256": "7ca32dcf07dfe7692945d80fff86e3a74cb83c6206b9b223ac6836b939bb85d6",
+          "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/text_encoders/qwen_3_4b_fp4_mixed.safetensors"
+        },
+        {
+          "role": "vae",
+          "category": "vae",
+          "name": "ae.safetensors",
+          "size": 335304388,
+          "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+          "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors"
+        }
+      ],
+      "sampling": {
+        "steps": 9,
+        "cfg": 1,
+        "sampler": "euler",
+        "scheduler": "simple"
+      },
+      "resolution": 1024,
+      "reference_modes": [
+        "edit"
+      ],
+      "validation": "tested",
+      "tested": {
+        "gpu": "RTX 5060 Ti 16GB",
+        "comfyui_revision": "ba994879b88d0ebd9950b1e5c1e923d928f216ba",
+        "cases": [
+          "text-to-image",
+          "image-to-image"
+        ],
+        "text_seconds": 10.937,
+        "edit_seconds": 11.254,
+        "resolution": [
+          1024,
+          1024
+        ],
+        "text_output_sha256": "665c45aee79b9cdbd1d5b5eaa3df0a35013ac5447609b75cea442dd3f28f9b20",
+        "edit_output_sha256": "ab8c0e55bc12dfa54f31671a3f445f0b894d5295d2753a68e98c8405096cbb69"
+      }
+    }
+  }
+}

@@ -7,11 +7,19 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+def valid_image_model(value):
+    if value != 'qwen-image-2.1':
+        from .image_models import model_spec
+        model_spec(value)
+    return value
+
+
 class ImageModels(BaseModel):
     model_config = ConfigDict(extra='forbid')
     diffusion_models: str = Field(default='', max_length=500)
     text_encoders: str = Field(default='', max_length=500)
     vae: str = Field(default='', max_length=500)
+    checkpoints: str = Field(default='', max_length=500)
 
     @field_validator('*')
     @classmethod
@@ -38,6 +46,8 @@ class ImageSettings(BaseModel):
     engine: Literal['auto', 'shared', 'managed'] = 'auto'
     comfy_url: str = ''
     models_dir: str = ''
+    library_models_dir: str = ''
+    image_model: str = 'qwen-image-2.1'
     managed_port: int = Field(default=8190, ge=1024, le=65535)
     variant: Literal['auto', 'turbo-int8', 'turbo-bf16', 'quality-int8'] = 'auto'
     provider: str = 'deepseek'
@@ -47,6 +57,8 @@ class ImageSettings(BaseModel):
     models: ImageModels = Field(default_factory=ImageModels)
     sampling: ImageSampling = Field(default_factory=ImageSampling)
     timeout: int = Field(default=1800, ge=60, le=7200)
+
+    _image_model_valid = field_validator('image_model')(valid_image_model)
 
     @field_validator('comfy_url')
     @classmethod
@@ -70,6 +82,9 @@ class ReferenceImageOptions(BaseModel):
     resolution: Literal['auto', '512', '768', '1024', '1536', '2048'] = 'auto'
     provider: str = ''
     model: str = ''
+    image_model: str = 'qwen-image-2.1'
+
+    _image_model_valid = field_validator('image_model')(valid_image_model)
 
 
 class ReferenceSourceSelection(BaseModel):
@@ -88,6 +103,7 @@ class ReferenceSourceSelection(BaseModel):
 class ImageRequest(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     prompt: str = Field(min_length=1, max_length=12000)
+    image_model: str = 'qwen-image-2.1'
     optimize: bool = True
     optimized_prompt: str = Field(default='', max_length=20000)
     provider: str = Field(default='', max_length=80)
@@ -104,6 +120,8 @@ class ImageRequest(BaseModel):
     reference_images: list[Annotated[str, Field(pattern=r'^[0-9a-f]{64}$')]] = Field(default_factory=list, max_length=10)
     reference_mode: Literal['reference', 'edit'] = 'reference'
     sampling: ImageSampling = Field(default_factory=ImageSampling)
+
+    _image_model_valid = field_validator('image_model')(valid_image_model)
 
     @model_validator(mode='after')
     def references_valid(self):

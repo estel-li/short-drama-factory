@@ -19,13 +19,16 @@ from .comfyio import download_file
 from .content import json_text
 from .image_environment import ImageEnvironment, image_size
 from .image_inputs import ImageInputs
-from .image_sampling import resolve_sampling, validate_sampling_support
+from .image_sampling import resolve_sampling, sampling_for_plan, validate_sampling_support
 from .image_schemas import ImageRequest, ReferenceSourceSelection
 from .providers import Cancelled, LLMClient
 from .storage import contained, digest, identifier, now, read_json, write_json
 
 
 def image_graph(request, prompt, plan, manifest, prefix, references=None):
+    if plan.get('image_model', 'qwen-image-2.1') != 'qwen-image-2.1':
+        from .image_models import library_image_graph
+        return library_image_graph(request, prompt, plan, prefix, references)
     sampling = resolve_sampling(request, plan['variant'])
     validate_sampling_support(sampling, plan)
     models = {m['category']: m['comfy_name'] or m['name'] for m in plan['models']}
@@ -206,12 +209,25 @@ class ImageStudio:
         return value
 
     def image_request(self, raw):
+        settings = self.environment.settings()
+        raw = {**raw, 'image_model': raw.get('image_model', settings.image_model)}
         if 'sampling' not in raw:
-            sampling = self.environment.settings().sampling.model_dump()
+            if raw['image_model'] == settings.image_model:
+                sampling = settings.sampling.model_dump()
+            elif raw['image_model'] == 'qwen-image-2.1':
+                from .image_schemas import ImageSampling
+                sampling = ImageSampling().model_dump()
+            else:
+                from .image_models import model_spec
+                sampling = model_spec(raw['image_model'])['sampling'].copy()
             if raw.get('reference_mode') != 'edit':
                 sampling['denoise'] = 1
             raw = {**raw, 'sampling': sampling}
-        return ImageRequest.model_validate(raw)
+        request = ImageRequest.model_validate(raw)
+        if request.image_model != 'qwen-image-2.1':
+            from .image_models import model_spec, validate_model_inputs
+            validate_model_inputs(request, model_spec(request.image_model))
+        return request
 
     @staticmethod
     def validate_edit_inputs(request, references):
@@ -286,9 +302,19 @@ class ImageStudio:
         messages = [{'role': 'system', 'content': skill + '\n输出 JSON，字段为 prompt（生图提示词）和 summary（中文优化说明）。'},
                     {'role': 'user', 'content': json.dumps({'prompt': request.prompt, 'style': request.style,
                      'purpose': request.purpose, 'ratio': request.ratio, 'transparent': request.transparent}, ensure_ascii=False)}]
+        if request.image_model != 'qwen-image-2.1':
+            from .image_models import model_spec
+            spec = model_spec(request.image_model)
+            messages[0]['content'] += ('\n当前目标生图模型：' + spec['name'] + '，架构：' + spec['architecture'] +
+                '。优先采用适合该模型的英文最终画面描述；用户指定的语言和画面文字原文仍需保留。不要输出 Qwen 专属图片编号、RGBA 或渲染操作指令。')
+            if request.image_model == 'animagine-xl-4':
+                messages[0]['content'] += ' 使用清晰的动漫标签式描述，明确人物数量、外观、服装、场景和构图。'
         if request.reference_images:
-            messages[0]['content'] += ('\n用户提供了参考图，使用 <image1>、<image2> 等编号引用。保留用户指定的身份、服装、风格或编辑范围；'
-                                       '你没有看到图片，不要臆造图片细节。编辑模式仅描述要修改的部分，其余保持。')
+            if request.image_model == 'qwen-image-2.1':
+                messages[0]['content'] += ('\n用户提供了参考图，使用 <image1>、<image2> 等编号引用。保留用户指定的身份、服装、风格或编辑范围；'
+                                           '你没有看到图片，不要臆造图片细节。编辑模式仅描述要修改的部分，其余保持。')
+            else:
+                messages[0]['content'] += '\n用户提供一张原图做 VAE 图生图。请描述最终完整画面及指定改动，不使用图片编号；你没有看到图片，不要臆造图片细节。'
             messages[1]['content'] = json.dumps({'prompt': request.prompt, 'style': request.style, 'purpose': request.purpose,
                 'reference_mode': request.reference_mode, 'reference_count': len(request.reference_images),
                 'ratio': '保持第一张参考图比例' if request.reference_mode == 'edit' else request.ratio,
@@ -341,14 +367,14 @@ class ImageStudio:
         request = ImageRequest.model_validate(value['request'])
         self.update(iid, status='preparing', message='正在检查图片环境。', effective_prompt=prompt)
         models = request.models.model_dump() if request.models is not None else None
-        plan = value.get('model_plan') if value.get('prompt_id') else self.environment.plan(request.variant, models)
+        plan = value.get('model_plan') if value.get('prompt_id') else self.environment.plan(request.variant, models, request.image_model)
         if not plan:
             raise RuntimeError('原图片任务缺少环境快照，请核对历史后重新生成。')
         if not value.get('prompt_id') and not plan['ready']:
-            plan = self.environment.prepare(request.variant, report, cancel, models, value.get('download_confirmation', ''))
+            plan = self.environment.prepare(request.variant, report, cancel, models, value.get('download_confirmation', ''), request.image_model)
         if request.reference_images and not plan.get('reference_support', True):
-            raise RuntimeError('图片引擎缺少 Qwen-Image 2.1 图像输入节点，请升级目标 ComfyUI 或切换独立图片引擎。')
-        validate_sampling_support(resolve_sampling(request, plan['variant']), plan)
+            raise RuntimeError('图片引擎缺少所选模型的图像输入节点，请升级目标 ComfyUI 或切换独立图片引擎。')
+        validate_sampling_support(sampling_for_plan(request, plan), plan)
         shared = self.config.renderer_config().get('comfy_url')
         if shared and shared != plan['comfy_url']:
             self.release_idle(shared, required=True)
@@ -366,13 +392,13 @@ class ImageStudio:
             prompt_id = str(uuid.uuid4())
             write_json(self.path(iid) / 'workflow.json', graph)
             self.update(iid, prompt_id=prompt_id, comfy_url=url, submission='intent', width=width, height=height, model_plan=plan,
-                        effective_sampling=resolve_sampling(request, plan['variant']))
+                        effective_sampling=sampling_for_plan(request, plan))
             submitted = self.request(url, '/prompt', {'prompt': graph, 'prompt_id': prompt_id, 'client_id': 'image-studio-' + iid})
             if submitted.get('prompt_id') != prompt_id:
                 raise RuntimeError('图片服务未保留指定任务 ID，请升级兼容服务；提交结果待核对。')
             self.update(iid, submission='submitted')
-        self.update(iid, status='rendering', message='Qwen 正在生成图片。')
-        report('Qwen 正在生成图片。', progress={})
+        self.update(iid, status='rendering', message='正在生成图片。')
+        report('正在生成图片。', progress={})
         deadline = time.monotonic() + self.environment.settings().timeout
         while time.monotonic() < deadline:
             if cancel():
@@ -473,6 +499,8 @@ class ImageStudio:
     def reference_signature(self, pid, candidate):
         options = self.projects.options(self.projects.path(pid))
         parts = [candidate['description'], options.style]
+        if options.reference_images.image_model != 'qwen-image-2.1':
+            parts.append({'image_model':options.reference_images.image_model})
         if candidate.get('sampling'):
             parts.append(candidate['sampling'])
         if candidate.get('source_assets'):
@@ -489,6 +517,7 @@ class ImageStudio:
         options = self.projects.options(self.projects.path(pid))
         preferences = options.reference_images
         request = {'prompt': candidate['name'] + '：' + candidate['description'], 'purpose': candidate['kind'],
+                   'image_model': preferences.image_model,
                    'style': options.style, 'ratio': '3:4' if candidate['kind'] == 'character' else options.ratio,
                    'optimize': preferences.optimize, 'variant': preferences.variant, 'resolution': preferences.resolution,
                    'provider': preferences.provider, 'model': preferences.model}
@@ -503,7 +532,13 @@ class ImageStudio:
                 raise ValueError('项目参考素材文件缺失，请恢复或重新选择。')
             references.append(self.inputs.add(path.read_bytes(), asset['name'])['id'])
         request.update(reference_images=references, reference_mode=candidate.get('reference_mode', 'reference'))
-        sampling = copy.deepcopy(candidate.get('sampling') or self.environment.settings().sampling.model_dump())
+        settings = self.environment.settings()
+        if preferences.image_model == settings.image_model or preferences.image_model == 'qwen-image-2.1':
+            defaults = settings.sampling.model_dump() if preferences.image_model == settings.image_model else {}
+        else:
+            from .image_models import model_spec
+            defaults = model_spec(preferences.image_model)['sampling']
+        sampling = copy.deepcopy(candidate.get('sampling') or defaults)
         if request['reference_mode'] != 'edit':
             sampling['denoise'] = 1
         request['sampling'] = sampling

@@ -27,6 +27,8 @@ class Worker:
         self.installer = Installer(config)
         self.series = Series(config, db, projects, content)
         self.images = ImageStudio(config, db, projects, assets, getattr(content, 'skills', None) or Skills())
+        from .video_environment import VideoWorkflowEnvironment
+        self.video_environment = VideoWorkflowEnvironment(config)
         self.instance_lock = InstanceLock(db.path.with_suffix('.worker.lock'))
 
     def start(self):
@@ -38,7 +40,7 @@ class Worker:
         self.thread.start()
 
     def enqueue(self, pid, kind='all', payload=None):
-        if pid == '__image_environment':
+        if pid in ('__image_environment', '__video_environment'):
             pass
         elif pid.startswith('__image_'):
             self.images.path(pid.removeprefix('__image_'))
@@ -52,6 +54,8 @@ class Worker:
 
     def stop(self, pid):
         self.db.cancel(pid)
+        if pid == '__video_environment':
+            return
         if pid.startswith('__image_'):
             if pid != '__image_environment':
                 self.images.update(pid.removeprefix('__image_'), status='paused', message='已请求停止图片任务。')
@@ -103,7 +107,7 @@ class Worker:
                 self.image_failure(job, 'paused', str(exc))
                 if job['project_id'] == '__environment':
                     write_json(ROOT / 'data/installation_progress.json', {'status': 'paused', 'message': str(exc)})
-                elif job['project_id'].startswith(('__series_', '__image_')):
+                elif job['project_id'].startswith(('__series_', '__image_', '__video_')):
                     pass  # Durable job and partial series plans are the recovery source.
                 else:
                     path = self.projects.path(job['project_id']) / 'state.json'
@@ -117,7 +121,7 @@ class Worker:
                 self.image_failure(job, 'paused' if was_cancelled else 'error', message)
                 if job['project_id'] == '__environment':
                     write_json(ROOT / 'data/installation_progress.json', {'status': 'error', 'message': str(exc)[:2000]})
-                elif job['project_id'].startswith(('__series_', '__image_')):
+                elif job['project_id'].startswith(('__series_', '__image_', '__video_')):
                     pass
                 else:
                     project = self.projects.path(job['project_id'])
@@ -137,8 +141,8 @@ class Worker:
 
     def image_failure(self, job, status, message):
         payload = json.loads(job['payload'])
-        if job['project_id'] == '__image_environment':
-            path = self.config.root / 'data/image-environment-progress.json'
+        if job['project_id'] in ('__image_environment', '__video_environment'):
+            path = self.config.root / ('data/video-environment-progress.json' if job['project_id']=='__video_environment' else 'data/image-environment-progress.json')
             previous = read_json(path, {})
             write_json(path, {**(previous if previous.get('job_id') == job['id'] else {}),
                               'job_id': job['id'], 'status': status, 'message': message})
@@ -150,6 +154,20 @@ class Worker:
     def execute(self, job):
         import pipeline
         pid, jid = job['project_id'], job['id']
+        if job['kind'] == 'video-prepare' and pid == '__video_environment':
+            payload = json.loads(job['payload'])
+            def video_report(message, **extra):
+                self.db.update(jid, message=message, event={'message':message, **extra})
+                write_json(self.config.root/'data/video-environment-progress.json', {'job_id':jid,'status':'running','message':message,**extra})
+            self.video_environment.prepare(payload['profile'],video_report,lambda:self.db.cancelled(jid) or self.shutdown.is_set(),payload.get('download_confirmation',''))
+            if self.db.cancelled(jid) or self.shutdown.is_set():raise Cancelled('视频工作流准备已暂停。')
+            pipeline.CONFIG.clear();pipeline.CONFIG.update(self.config.renderer_config());pipeline.CONFIG['comfy_auth_token']=self.config.key('comfy')
+            pipeline.ensure_comfy(video_report,profile=payload['profile'])
+            if self.db.cancelled(jid) or self.shutdown.is_set():raise Cancelled('视频工作流准备已暂停。')
+            if not self.video_environment.plan(payload['profile'])['ready']:
+                raise RuntimeError('所选工作流仍缺少节点或模型，请检查 ComfyUI 启动日志。')
+            write_json(self.config.root/'data/video-environment-progress.json',{'job_id':jid,'status':'done','message':'所选视频工作流已就绪。'})
+            return 'done'
         if job['kind'] in ('image-prepare', 'image-generate', 'image-optimize'):
             payload = json.loads(job['payload'])
             def image_report(message, **extra):
@@ -167,7 +185,7 @@ class Worker:
             cancel = lambda: self.db.cancelled(jid) or self.shutdown.is_set()
             if job['kind'] == 'image-prepare':
                 self.images.environment.prepare(payload.get('variant', 'auto'), image_report, cancel,
-                                                payload.get('models'), payload.get('download_confirmation', ''))
+                                                payload.get('models'), payload.get('download_confirmation', ''), payload.get('image_model'))
                 write_json(self.config.root / 'data/image-environment-progress.json', {'job_id': jid, 'status': 'done', 'message': '图片环境已就绪。'})
             else:
                 result = self.images.generate(payload['image_id'], image_report, cancel, job['kind'] == 'image-optimize')
@@ -231,7 +249,7 @@ class Worker:
                 clips=[];width,height=recipe['width'],recipe['height'];settings=recipe['settings']
             else:
                 recipe=None;clips=collect_clips(project,story)
-                width,height=pipeline.canvas(pipeline.CONFIG['profiles'][options.profile]['megapixels'],options.ratio)
+                width,height=pipeline.output_canvas(pipeline.CONFIG['profiles'][options.profile],options.ratio)
                 settings=options.model_dump();settings.update({k:payload[k] for k in ('edit_preset','notes','masks','review_interval') if k in payload})
             report('开始 CPU 质检与后期，原镜头不会重生成。',status='assembling',current_stage='finishing')
             output=build(project,story,clips,width,height,settings,lambda text:report(text),cancelled,recipe,proxy=self.config.renderer_config().get('proxy',''))
@@ -301,7 +319,12 @@ class Worker:
                     raise RuntimeError('此项目在另一进程中生成。')
                 lock.unlink()
             runner = pipeline.Runner(project, callback=lambda state: self.db.update(jid, message=state['message'], event=state))
-            runner.model_versions = fingerprint_models(pipeline.CONFIG, report, cancelled)
+            image_settings = self.images.environment.settings()
+            for url in {image_settings.comfy_url, f'http://127.0.0.1:{image_settings.managed_port}'}-{pipeline.CONFIG['comfy_url'], ''}:
+                self.images.release_idle(url,required=True)
+            if pipeline.CONFIG['profiles'][options.profile].get('workflow','native') != 'native':
+                pipeline.ensure_comfy(report, profile=options.profile)
+            runner.model_versions = fingerprint_models(pipeline.CONFIG, report, cancelled, profile=options.profile)
             write_json(project / 'renderer_snapshot.json', {'models': runner.model_versions, 'environment': {
                 k: pipeline.CONFIG.get(k) for k in ('attention', 'profiles')}, 'settings': options.model_dump(), 'created_at': now()})
             def resolve(shot, story, refs):
