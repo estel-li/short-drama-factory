@@ -1,5 +1,5 @@
-import { api, el, field, select, download } from "./api.js?v=3.2.0";
-import { optionsEditor, MODES } from "./options.js?v=3.2.0";
+import { api, el, field, select, download } from "./api.js?v=3.3.0";
+import { optionsEditor, MODES } from "./options.js?v=3.3.0";
 import {
   ProjectDraft,
   STAGES,
@@ -8,10 +8,10 @@ import {
   shotRecord,
   continuationIssue,
   finishingPayload,
-} from "./state.js?v=3.2.0";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.2.0";
-import { renderQuality } from "./quality.js?v=3.2.0";
-import { renderReferenceImages } from "./images.js?v=3.2.0";
+} from "./state.js?v=3.3.0";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.3.0";
+import { renderQuality } from "./quality.js?v=3.3.0";
+import { renderReferenceImages } from "./images.js?v=3.3.0";
 
 const SCOPES = {
   story: "分镜",
@@ -947,13 +947,23 @@ export class Workspace {
       mark();
     };
     const slots = el("div", { class: "grid" });
+    const workflow = this.services.config().profiles[this.draft.data.settings.profile]?.workflow;
+    const mediaSlots = {
+      'h3-audio-drive':['source_audio'], 'h3-foley':['source_video'],
+      'h3-keyframe-guide':['guide_image'], 'h3-motion-context':['source_video'],
+      'h3-canny-control':['source_video'],
+    }[workflow] || [];
     for (const [slot, label, type, multiple] of [
       ["first_frame", "手动首帧", "image", false],
       ["last_frame", "尾帧", "image", false],
       ["images", "人物 / 图片参考", "image", true],
       ["videos", "视频参考", "video", true],
       ["audios", "音频参考", "audio", true],
+      ["source_video", "工作流源视频 · 拟音 / 接续 / 轮廓", "video", false],
+      ["source_audio", "驱动原声 · 音频驱动数字人", "audio", false],
+      ["guide_image", "中段引导图 · 关键帧导演", "image", false],
     ]) {
+      if(['source_video','source_audio','guide_image'].includes(slot) && !mediaSlots.includes(slot) && !shot.bindings?.[slot])continue;
       const selected = multiple
           ? shot.bindings?.[slot] || []
           : [shot.bindings?.[slot]],

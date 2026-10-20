@@ -76,9 +76,11 @@ class VideoWorkflowEnvironment:
         rows=[]
         for role in spec['files']:
             f=self.manifest['models'][role]
-            name=preset.get({'lightx2v_8':'workflow_lora','pdd_fl':'pdd_fl','pdd_ref':'pdd_ref','upscaler':'upscale_model'}[role]) or f['name']
+            name=preset.get({'lightx2v_8':'workflow_lora','pdd_fl':'pdd_fl','pdd_ref':'pdd_ref','upscaler':'upscale_model',
+                             'controlnet':'control_model'}[role]) or f['name']
             node,field={'loras':('LoraLoaderModelOnly','lora_name'),'pdd_acc':('MiniMaxH3PDDAccApply','pdd_file'),
-                        'latent_upscale_models':('MinimaxH3LatentUpscaler3D','model_name')}[f['category']]
+                        'latent_upscale_models':('MinimaxH3LatentUpscaler3D','model_name'),
+                        'model_patches':('ModelPatchLoader','name')}[f['category']]
             raw=nodes.get(node,{}).get('input',{}).get('required',{}).get(field,[])
             choices=raw[0] if raw and isinstance(raw[0],list) else raw[1].get('options',[]) if len(raw)>1 else []
             recognized=next((n for n in choices if n.replace('\\','/')==name or n.rsplit('\\',1)[-1].rsplit('/',1)[-1]==name),None)
@@ -94,6 +96,7 @@ class VideoWorkflowEnvironment:
         plugins=[]
         required={'MiniMaxH3PDDAccApply','MiniMaxH3PDDAccScheduler'} if workflow.startswith('pdd') else set()
         if workflow=='pdd-upscale':required.update(('MinimaxH3LatentUpscaler3D','LTXVSeparateAVLatent','LTXVConcatAVLatent','DramaPreserveLatentAudio'))
+        required.update(spec.get('required_nodes',[]))
         for key in spec['plugins']:
             plugin=self.manifest['plugins'][key]
             target=self.root/'data/comfy-runtime/custom_nodes'/plugin['name']
@@ -104,7 +107,7 @@ class VideoWorkflowEnvironment:
         result={'profile':profile,'workflow':workflow,'preset':preset,'models':rows,'plugins':plugins,'download_bytes':downloaded,
                 'requires_confirmation':bool(downloaded),'ready':ready,'remote':remote,
                 'restart_required':bool(nodes) and not ready,'free_disk_bytes':shutil.disk_usage(self.root).free,
-                'supported_modes':spec['supported_modes']}
+                'supported_modes':spec['supported_modes'], 'required_slots':spec.get('required_slots',[])}
         result['confirmation_token']=digest({k:result[k] for k in ('profile','workflow','models','plugins','download_bytes')})
         return result
 
@@ -139,7 +142,7 @@ class VideoWorkflowEnvironment:
             shutil.copytree(source,Path(plugin['target']),dirs_exist_ok=True,ignore=shutil.ignore_patterns('.git','__pycache__','tests','*.pyc'))
             write_json(Path(plugin['target'])/'factory-source.json',{k:plugin[k] for k in ('repo','revision','license','sha256')})
         mapping={}
-        for category in ('loras','pdd_acc','latent_upscale_models'):
+        for category in ('loras','pdd_acc','latent_upscale_models','model_patches'):
             paths=list(dict.fromkeys(str(Path(f['target']).parents[len(Path(f['name']).parts)-1]) for f in plan['models'] if f['category']==category))
             if paths:mapping[category]='\n'.join(paths)
         write=self.root/'data/video-workflow-paths.yaml'

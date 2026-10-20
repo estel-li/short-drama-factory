@@ -1,7 +1,7 @@
-import { api, el, field, select } from "./api.js?v=3.2.0";
-import { badge, dialog, icon } from "./ui.js?v=3.2.0";
-import { ImageInputPicker, imageFileData } from "./image-inputs.js?v=3.2.0";
-import { ImageSamplingControls, samplingSummary } from "./image-sampling.js?v=3.2.0";
+import { api, el, field, select } from "./api.js?v=3.3.0";
+import { badge, dialog, icon } from "./ui.js?v=3.3.0";
+import { ImageInputPicker, imageFileData } from "./image-inputs.js?v=3.3.0";
+import { ImageSamplingControls, samplingSummary } from "./image-sampling.js?v=3.3.0";
 
 const kinds = { general: "自由创作", character: "角色参考", scene: "场景参考", prop: "道具参考" };
 const variants = [{ value: "auto", label: "根据显存自动选择" }, { value: "turbo-int8", label: "Turbo INT8 · 快速预览" }, { value: "turbo-bf16", label: "Turbo BF16 · 大显存" }, { value: "quality-int8", label: "标准 INT8 · 细节优先" }];

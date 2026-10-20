@@ -53,7 +53,7 @@ MODEL_INDEX_LOCK = threading.Lock()
 
 
 def model_file_info(category, filename):
-    if category not in ('diffusion_models', 'text_encoders', 'vae', 'loras', 'pdd_acc', 'latent_upscale_models') or filename not in folder_paths.get_filename_list(category):
+    if category not in ('diffusion_models', 'text_encoders', 'vae', 'loras', 'pdd_acc', 'latent_upscale_models', 'model_patches') or filename not in folder_paths.get_filename_list(category):
         raise ValueError('Unknown model file.')
     path = Path(folder_paths.get_full_path(category, filename))
     stat = path.stat()
@@ -203,8 +203,13 @@ class DramaSaveLatent:
         target = latent_path(filename)
         target.parent.mkdir(parents=True, exist_ok=True)
         temp = target.with_suffix('.tmp')
-        safetensors.torch.save_file({'video': video.detach().to('cpu', copy=True).contiguous(),
-                                    'audio': audio.detach().to('cpu', copy=True).contiguous()}, str(temp))
+        tensors = {'video': video.detach().to('cpu', copy=True).contiguous(),
+                   'audio': audio.detach().to('cpu', copy=True).contiguous()}
+        if samples.get('noise_mask') is not None:
+            video_mask, audio_mask = samples['noise_mask'].unbind()
+            tensors.update(video_mask=video_mask.detach().to('cpu', copy=True).contiguous(),
+                           audio_mask=audio_mask.detach().to('cpu', copy=True).contiguous())
+        safetensors.torch.save_file(tensors, str(temp))
         temp.replace(target)
         return {'ui': {'latent_files': [{'filename': filename}]}, 'result': (filename,)}
 
@@ -220,7 +225,10 @@ class DramaLoadLatent:
 
     def load(self, filename):
         tensors = safetensors.torch.load_file(str(latent_path(filename)))
-        return ({'samples': comfy.nested_tensor.NestedTensor((tensors['video'], tensors['audio']))},)
+        result = {'samples': comfy.nested_tensor.NestedTensor((tensors['video'], tensors['audio']))}
+        if 'video_mask' in tensors and 'audio_mask' in tensors:
+            result['noise_mask'] = comfy.nested_tensor.NestedTensor((tensors['video_mask'], tensors['audio_mask']))
+        return (result,)
 
     @classmethod
     def IS_CHANGED(cls, filename):
@@ -255,3 +263,5 @@ NODE_CLASS_MAPPINGS = {'DramaSaveConditioning': DramaSaveConditioning, 'DramaLoa
 NODE_DISPLAY_NAME_MAPPINGS = {'DramaSaveConditioning': '短剧 · 保存H3条件（释放编码器）', 'DramaLoadConditioning': '短剧 · 加载H3条件',
                               'DramaSaveLatent': '短剧 · 保存音画潜空间', 'DramaLoadLatent': '短剧 · 加载音画潜空间',
                               'DramaPreserveLatentAudio': '短剧 · 精修画面并保留原始音频'}
+from .h3_media import CLASSES as H3_MEDIA_CLASSES
+NODE_CLASS_MAPPINGS.update(H3_MEDIA_CLASSES)

@@ -12,6 +12,8 @@ BUILTIN_PROFILES = {
     'pdd-8': {'label': 'PDD Acc 8步 · 音画加速 / 0.4MP', 'workflow': 'pdd-8', 'megapixels': 0.4, 'steps': 8, 'turbo': False, 'sampler': 'euler'},
     'pdd-upscale': {'label': 'PDD 神经放大 · 3D放大 + 轻精修', 'workflow': 'pdd-upscale', 'megapixels': 0.4, 'steps': 8, 'turbo': False, 'sampler': 'euler', 'upscale_by': 1.25, 'refine_denoise': 0.125},
 }
+from .h3_advanced import PROFILES as H3_PROFILES
+BUILTIN_PROFILES.update(H3_PROFILES)
 
 
 def subgraph(graph, roots, stop=()):
@@ -43,10 +45,13 @@ def replace_link(graph, old, new):
                 node['inputs'][key] = list(new)
 
 
-def apply_workflow(graph, preset, is_reference):
+def apply_workflow(graph, preset, is_reference, shot=None, bindings=None, mode='T2VA'):
     workflow=preset.get('workflow','native')
     if workflow=='native':
         return graph
+    if workflow.startswith('h3-'):
+        from .h3_advanced import build
+        return build(graph, preset, shot or {}, bindings or {}, mode)
     def node(nid,kind,**inputs):
         graph[str(nid)]={'class_type':kind,'inputs':inputs}
     if workflow=='lightx2v-8':

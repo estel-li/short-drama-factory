@@ -374,8 +374,13 @@ class Content:
 
     def prompt_shot(self, project, story, shot, options, bindings, status, cancel):
         mode = self.mode(shot, options, bindings)
+        workflow_preset = self.config.renderer_config().get('profiles', {}).get(options.profile, {})
+        workflow = workflow_preset.get('workflow','native')
+        if workflow.startswith('h3-'):
+            from .h3_advanced import validate_inputs
+            validate_inputs(workflow, shot, bindings, mode)
         if mode == 'T2VA':
-            bindings = {}
+            bindings = {key:value for key,value in bindings.items() if key in ('source_video','source_audio','guide_image')}
         if mode=='Ref2VA':prompt_cast_valid('',story,shot,bindings,mode)
         public_bindings = {}
         for kind, values in bindings.items():
@@ -405,6 +410,19 @@ class Content:
             data['shot'].pop('use_previous_last_frame', None)
             data['shot'].pop('first_frame_reason', None)
         data['reference_labels'] = reference_labels(mode, bindings)
+        if workflow.startswith('h3-'):
+            from .h3_advanced import RECIPES
+            data['workflow_context'] = {'id':workflow, 'description':RECIPES[workflow]['description'],
+                'source_slots_are_not_reference_labels':True,
+                'instructions':'工作流源视频、驱动原声与中段引导图由专用节点处理，不为它们发明 Picture/Video/Audio 引用标签；只描述目标动作和声音。'}
+            if workflow == 'h3-motion-context':
+                import math
+                target = __import__('pipeline').frames(shot['duration'])
+                context = workflow_preset.get('context_frames',22)
+                data['workflow_context']['timing'] = {'sampled_seconds':(target+math.ceil(context/17)*17)/24,
+                    'pinned_head_seconds':context/24,'delivery_start_seconds':context/24,
+                    'delivery_end_seconds':(context+target)/24,
+                    'instructions':'开头保持源片末尾的构图与动作；重要动作和对白必须在 delivery_start_seconds 与 delivery_end_seconds 之间完成，之后会裁掉。'}
         data['required_first_line'] = keyframe_prefix(mode, data['aligned_duration'])
         from .templates import selected
         template=selected(project,shot,mode,public_bindings)

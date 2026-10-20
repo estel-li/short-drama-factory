@@ -64,6 +64,8 @@ def ensure_comfy(status=None, profile=None):
     upscaler_node = task_root / 'data/comfy-runtime/custom_nodes/Comfyui_Minimax_h3_latent_Upscaler'
     if (upscaler_node / '__init__.py').is_file():
         args.append('Comfyui_Minimax_h3_latent_Upscaler')
+    if (task_root / 'data/comfy-runtime/custom_nodes/ComfyUI-H3-Motion-Context/__init__.py').is_file():
+        args.append('ComfyUI-H3-Motion-Context')
     if CONFIG.get('fast_disk', True):
         args.append('--fast-disk')
     if CONFIG.get('disable_dynamic_vram', False):
@@ -270,7 +272,13 @@ def graph_for(shot, project_id, profile='draft', ratio='9:16', references=None, 
     width, height = canvas(preset['megapixels'], ratio)
     references = references or []
     bindings = bindings or {}
-    mode = shot.get('compiled_mode') or ('Ref2VA' if references else 'T2VA')
+    mode = shot.get('compiled_mode') or shot.get('mode') or 'auto'
+    if mode == 'auto':
+        mode = ('FL2VA' if bindings.get('first_frame') and bindings.get('last_frame') else
+                'I2VA' if bindings.get('first_frame') else 'L2VA' if bindings.get('last_frame') else
+                'Ref2VA' if references or any(bindings.get(k) for k in ('images','videos','audios')) else 'T2VA')
+    if mode not in ('T2VA','I2VA','L2VA','FL2VA','Ref2VA'):
+        raise ValueError('H3 生成模式不支持。')
     is_reference = mode == 'Ref2VA'
     model = CONFIG['ref_model'] if is_reference else CONFIG['fl_model']
     graph = {}
@@ -338,7 +346,7 @@ def graph_for(shot, project_id, profile='draft', ratio='9:16', references=None, 
     node(16, 'SaveVideo', video=['15', 0], filename_prefix=f'drama/{project_id}/shot_{cache_id}',
          format='mp4', **{'format.codec': 'h264'})
     from app.video_workflows import apply_workflow
-    return apply_workflow(graph, preset, is_reference)
+    return apply_workflow(graph, preset, is_reference, shot, bindings, mode)
 
 
 def validate_graph(graph):
@@ -442,11 +450,11 @@ class Runner:
                         record.setdefault('timings', {})[phase] = {'seconds': round((max(stamps) - min(stamps)) / 1000, 3), 'prompt_id': prompt_id}
                     if conditioning:
                         return history
-                    for output in history.get('outputs', {}).values():
-                        for key in ('images', 'gifs', 'videos'):
-                            for item in output.get(key, []):
-                                if item.get('filename', '').lower().endswith(('.mp4', '.webm', '.mkv')):
-                                    return item
+                    output = history.get('outputs', {}).get('16', {})
+                    for key in ('images', 'gifs', 'videos'):
+                        for item in output.get(key, []):
+                            if item.get('filename', '').lower().endswith(('.mp4', '.webm', '.mkv')):
+                                return item
                     raise RuntimeError('任务完成，但未找到视频输出。')
             if time.monotonic() - last_update > 25:
                 self.report(f'镜头 {self.state.get("current_shot")} 正在生成，已等待 {int(CONFIG["shot_timeout_seconds"]-(deadline-time.monotonic()))} 秒……')
@@ -518,12 +526,17 @@ class Runner:
         cache_id = shot.get('uid') or f'{shot["id"]:03d}'
         filename = f'drama/{self.project.name}/shot_{cache_id}_{signature[:12]}.safetensors'
         target = Path(CONFIG['comfy_dir']) / 'models/embeddings' / filename
-        if not cache_exists('conditioning', filename, target):
+        prepared = graph['7']['class_type'] == 'DramaH3StageInputs'
+        input_filename = f'inputs/{self.project.name}/shot_{cache_id}_{signature[:12]}.safetensors'
+        inputs_ready = not prepared or cache_exists('latent', input_filename, target)
+        if not cache_exists('conditioning', filename, target) or not inputs_ready:
             from app.video_workflows import subgraph
             encoding = subgraph(graph, ['7'])
             if 'audio_vae' in graph['7']['inputs']:
                 encoding['4'] = graph['4']
             encoding['30'] = {'class_type': 'DramaSaveConditioning', 'inputs': {'conditioning': ['7', 0], 'filename': filename}}
+            if prepared:
+                encoding['37'] = {'class_type': 'DramaSaveLatent', 'inputs': {'samples':['7',1], 'filename':input_filename}}
             validate_graph(encoding)
             self.report(f'镜头 {shot["id"]}：先编码提示词与参考素材，随后释放大编码器。', current_stage='encoding')
             record = self.state['shots'][str(shot['id'])]
@@ -540,13 +553,16 @@ class Runner:
             self.wait(prompt_id, conditioning=True, phase='encoding')
             if not cache_exists('conditioning', filename, target):
                 raise RuntimeError('编码任务完成，但条件缓存没有保存。')
+            if prepared and not cache_exists('latent', input_filename, target):
+                raise RuntimeError('媒体编码完成，但锁定音画潜空间没有保存，不能退回空潜空间采样。')
         api('/free', {'unload_models': True, 'free_memory': True})
         time.sleep(2)
         from app.video_workflows import subgraph, replace_link
         encoding_ids = set(subgraph(graph, ['7']))
         render = {nid: value for nid, value in graph.items() if nid not in encoding_ids or nid in ('3','4')}
         render['7'] = {'class_type': 'DramaLoadConditioning', 'inputs': {'filename': filename}}
-        render['17'] = {'class_type': 'EmptyMiniMaxH3LatentAV', 'inputs': {
+        render['17'] = {'class_type': 'DramaLoadLatent', 'inputs': {'filename':input_filename}} if prepared else {
+            'class_type': 'EmptyMiniMaxH3LatentAV', 'inputs': {
             field: graph['7']['inputs'][field] for field in ('width', 'height', 'length')}}
         replace_link(render, ['7',1], ['17',0])
         return render

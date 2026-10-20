@@ -36,6 +36,15 @@
       "url": "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler/resolve/3f941d5d182014dd5c0a5e16330420ee2d4aa0c6/minimax_h3_latent_upscaler_3d_conv_v1/minimax_h3_latent_upscaler_3d_conv_v1_fp16.safetensors",
       "revision": "3f941d5d182014dd5c0a5e16330420ee2d4aa0c6",
       "source": "https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler"
+    },
+    "controlnet": {
+      "name": "minimax_h3_fun_controlnet_union_pruned_int8_convrot.safetensors",
+      "category": "model_patches",
+      "size": 2296635360,
+      "sha256": "9c645c0a308c8af361efd43b409710f6f8fec0db297c29503e141a84991fed0c",
+      "url": "https://huggingface.co/Kijai/MiniMax-H3-experimental/resolve/137541ff66fbe22d35beb73e09bca5d663b70cc5/model_patches/minimax_h3_fun_controlnet_union_pruned_int8_convrot.safetensors",
+      "revision": "137541ff66fbe22d35beb73e09bca5d663b70cc5",
+      "source": "https://huggingface.co/Kijai/MiniMax-H3-experimental"
     }
   },
   "plugins": {
@@ -56,6 +65,15 @@
       "url": "https://codeload.github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler/zip/40316cf008b2fd8663263270669eb4da23f89d2c",
       "size": 8897912,
       "sha256": "2e8bb5f235bf1f6b80e95345fd365812242e139653b1d6eacaf5f0fe86822883"
+    },
+    "h3-motion-context": {
+      "name": "ComfyUI-H3-Motion-Context",
+      "repo": "NikoDemon80/ComfyUI-H3-Motion-Context",
+      "revision": "518c083d11d80fa5920222ad89889924ee4401c9",
+      "license": "GPL-3.0-only",
+      "url": "https://codeload.github.com/NikoDemon80/ComfyUI-H3-Motion-Context/zip/518c083d11d80fa5920222ad89889924ee4401c9",
+      "size": 2074367,
+      "sha256": "ad7ce2ec8bd10fba1326df9efb1d0bb931ef52b6f785c92bec7fe99a02ae7af9"
     }
   },
   "workflows": {
@@ -129,6 +147,139 @@
         "L2VA",
         "FL2VA",
         "Ref2VA"
+      ]
+    },
+    "h3-audio-drive": {
+      "profile": {
+        "label": "H3 音频驱动数字人 · 保留原声",
+        "workflow": "h3-audio-drive",
+        "megapixels": 0.4,
+        "steps": 12,
+        "turbo": false,
+        "sampler": "euler"
+      },
+      "files": [],
+      "plugins": [],
+      "required_nodes": [
+        "DramaH3StageInputs",
+        "DramaH3AudioDrive",
+        "DramaH3AudioInput"
+      ],
+      "required_slots": [
+        "source_audio"
+      ],
+      "supported_modes": [
+        "T2VA",
+        "I2VA",
+        "L2VA",
+        "FL2VA",
+        "Ref2VA"
+      ]
+    },
+    "h3-foley": {
+      "profile": {
+        "label": "H3 锁画面拟音 · 重新生成声音",
+        "workflow": "h3-foley",
+        "megapixels": 0.4,
+        "steps": 12,
+        "turbo": false,
+        "sampler": "euler"
+      },
+      "files": [],
+      "plugins": [],
+      "required_nodes": [
+        "DramaH3StageInputs",
+        "DramaH3FoleyLatent",
+        "DramaH3VideoInput"
+      ],
+      "required_slots": [
+        "source_video"
+      ],
+      "supported_modes": [
+        "T2VA"
+      ]
+    },
+    "h3-keyframe-guide": {
+      "profile": {
+        "label": "H3 中段关键帧导演 · 时间点引导",
+        "workflow": "h3-keyframe-guide",
+        "megapixels": 0.4,
+        "steps": 12,
+        "turbo": false,
+        "sampler": "euler"
+      },
+      "files": [],
+      "plugins": [],
+      "required_nodes": [
+        "DramaH3StageInputs",
+        "MiniMaxH3AddGuide"
+      ],
+      "required_slots": [
+        "guide_image"
+      ],
+      "supported_modes": [
+        "T2VA",
+        "I2VA",
+        "L2VA",
+        "FL2VA",
+        "Ref2VA"
+      ]
+    },
+    "h3-motion-context": {
+      "profile": {
+        "label": "H3 多帧音画接续 · 延续动作",
+        "workflow": "h3-motion-context",
+        "megapixels": 0.4,
+        "steps": 12,
+        "turbo": false,
+        "sampler": "euler"
+      },
+      "files": [],
+      "plugins": [
+        "h3-motion-context"
+      ],
+      "required_nodes": [
+        "DramaH3StageInputs",
+        "MiniMaxH3MotionContext",
+        "MiniMaxH3MotionContextTrim",
+        "DramaH3VideoInput",
+        "DramaH3TrimAV"
+      ],
+      "required_slots": [
+        "source_video"
+      ],
+      "supported_modes": [
+        "T2VA",
+        "Ref2VA"
+      ]
+    },
+    "h3-canny-control": {
+      "profile": {
+        "label": "H3 视频轮廓控制 · 保留动作结构",
+        "workflow": "h3-canny-control",
+        "megapixels": 0.4,
+        "steps": 12,
+        "turbo": false,
+        "sampler": "euler"
+      },
+      "files": [
+        "controlnet"
+      ],
+      "plugins": [],
+      "required_nodes": [
+        "MiniMaxH3FunControlNetApply",
+        "ModelPatchLoader",
+        "Canny",
+        "DramaH3VideoInput"
+      ],
+      "required_slots": [
+        "source_video"
+      ],
+      "supported_modes": [
+        "T2VA",
+        "I2VA",
+        "L2VA",
+        "FL2VA"
       ]
     }
   }

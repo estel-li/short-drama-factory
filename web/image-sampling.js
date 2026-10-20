@@ -1,4 +1,4 @@
-import { el, field, select } from "./api.js?v=3.2.0";
+import { el, field, select } from "./api.js?v=3.3.0";
 
 export const samplingDefaults = { steps: null, cfg: 1, sampler: "euler", scheduler: "auto", denoise: 1, negative_prompt: "" };
 const samplers = ["euler", "euler_ancestral", "heun", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_sde", "uni_pc"];

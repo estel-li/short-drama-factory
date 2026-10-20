@@ -67,7 +67,8 @@ class Quality(BaseModel):
     scheduler: str = 'simple'
     denoise: float = Field(default=1, ge=0, le=1)
     lora_strength: float = Field(default=1, ge=-2, le=2)
-    workflow: Literal['native', 'lightx2v-8', 'pdd-8', 'pdd-upscale'] = 'native'
+    workflow: Literal['native', 'lightx2v-8', 'pdd-8', 'pdd-upscale', 'h3-audio-drive',
+        'h3-foley', 'h3-keyframe-guide', 'h3-motion-context', 'h3-canny-control'] = 'native'
     workflow_lora: str = Field(default='', max_length=500)
     pdd_fl: str = Field(default='', max_length=500)
     pdd_ref: str = Field(default='', max_length=500)
@@ -75,8 +76,18 @@ class Quality(BaseModel):
     upscale_by: float = Field(default=1.25, ge=1, le=2)
     upscale_model: str = Field(default='', max_length=500)
     refine_denoise: Literal[0.0,0.125] = 0.125
+    source_start_seconds: float = Field(default=0, ge=0, le=15, allow_inf_nan=False)
+    guide_position: float = Field(default=0.5, ge=0.01, le=0.99, allow_inf_nan=False)
+    context_frames: Literal[5,22,39,56] = 22
+    audio_context_frames: int = Field(default=18, ge=0, le=240)
+    control_model: str = Field(default='', max_length=500)
+    control_strength: float = Field(default=0.7, ge=0.05, le=2, allow_inf_nan=False)
+    control_start: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
+    control_end: float = Field(default=0.9, ge=0, le=1, allow_inf_nan=False)
+    canny_low: float = Field(default=0.2, ge=0.01, le=0.99, allow_inf_nan=False)
+    canny_high: float = Field(default=0.5, ge=0.01, le=0.99, allow_inf_nan=False)
 
-    @field_validator('workflow_lora','pdd_fl','pdd_ref','upscale_model')
+    @field_validator('workflow_lora','pdd_fl','pdd_ref','upscale_model','control_model')
     @classmethod
     def model_filename(cls,value):
         from .image_schemas import ImageModels
@@ -90,6 +101,12 @@ class Quality(BaseModel):
             raise ValueError('LightX2V 8步工作流请使用 8 步。')
         if self.workflow=='pdd-upscale' and self.steps!=8:
             raise ValueError('神经放大工作流首遍使用 8 步，精修使用最后一个训练块。')
+        if self.workflow.startswith('h3-') and (self.turbo or self.denoise != 1):
+            raise ValueError('H3 高级媒体方案使用完整原生采样，不叠加旧 Turbo 或局部 denoise。')
+        if self.control_start >= self.control_end:
+            raise ValueError('控制起点必须小于终点。')
+        if self.canny_low >= self.canny_high:
+            raise ValueError('Canny 低阈值必须小于高阈值。')
         return self
 
 

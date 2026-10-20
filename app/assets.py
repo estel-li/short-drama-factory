@@ -92,7 +92,7 @@ class Assets:
         assets = read_json(project / 'assets.json', {})
         raw = shot.get('bindings', {})
         result = {}
-        for kind in ('images', 'videos', 'audios', 'first_frame', 'last_frame'):
+        for kind in ('images', 'videos', 'audios', 'first_frame', 'last_frame', 'source_video', 'source_audio', 'guide_image'):
             values = raw.get(kind)
             if values is None:
                 continue
@@ -105,7 +105,7 @@ class Assets:
                 asset = assets.get(identifier(aid))
                 if not asset or not contained(project, asset['file']).is_file():
                     raise ValueError('已绑定素材不存在：' + aid)
-                expected = 'video' if kind == 'videos' else 'audio' if kind == 'audios' else 'image'
+                expected = 'video' if kind in ('videos','source_video') else 'audio' if kind in ('audios','source_audio') else 'image'
                 if asset['type'] != expected:
                     raise ValueError('素材类型与绑定槽位不匹配。')
                 selected.append({k: asset[k] for k in ('id', 'type', 'name', 'file', 'sha256')})
@@ -115,7 +115,7 @@ class Assets:
                     selected[-1]['include_audio'] = asset['include_audio']
                 selected[-1]['sha256'] = hashlib.sha256(contained(project, asset['file']).read_bytes()).hexdigest()
             result[kind] = selected if multiple else selected[0] if selected else None
-        if not any(result.values()):
+        if not any(result.get(kind) for kind in ('images','videos','audios','first_frame','last_frame')):
             for cid in shot.get('characters', []):
                 for asset in reversed(list(assets.values())):
                     if asset.get('character') == cid:

@@ -335,7 +335,7 @@ class Worker:
                 return self.assets.materialize(project, bindings)
             runner.binding_resolver = resolve
             # 旧项目已有提示词沿用原来的渲染行为，新项目按实际素材重新编译。
-            if any(s.get('prompt_snapshot') or s.get('use_previous_last_frame') for s in read_json(project / '分镜.json')['shots']):
+            if pipeline.CONFIG['profiles'][options.profile].get('workflow','native').startswith('h3-') or any(s.get('prompt_snapshot') or s.get('use_previous_last_frame') for s in read_json(project / '分镜.json')['shots']):
                 runner.prompt_compiler = lambda story, shot, bindings: self.content.prompt_shot(
                     project, story, shot, options, bindings, report, cancelled)
             class Stop:

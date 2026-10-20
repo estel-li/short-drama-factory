@@ -23,12 +23,16 @@ def fingerprint_models(config, report, cancel, profile=None):
         if workflow == 'lightx2v-8':
             roles['workflow_lora'] = 'loras'
             config['workflow_lora'] = preset.get('workflow_lora') or LIGHTX2V_8
-        else:
+        elif workflow.startswith('pdd'):
             roles.update(pdd_fl='pdd_acc', pdd_ref='pdd_acc')
             config.update(pdd_fl=preset.get('pdd_fl') or PDD_FL, pdd_ref=preset.get('pdd_ref') or PDD_REF)
             if workflow=='pdd-upscale':
                 roles['upscaler']='latent_upscale_models'
                 config['upscaler']=preset.get('upscale_model') or UPSCALER
+        elif workflow == 'h3-canny-control':
+            from .h3_advanced import CONTROL_MODEL
+            roles['control_model']='model_patches'
+            config['control_model']=preset.get('control_model') or CONTROL_MODEL
     index_path = ROOT / 'data/model_versions.json'
     index = read_json(index_path, {})
     result = {}
@@ -80,7 +84,8 @@ def fingerprint_models(config, report, cancel, profile=None):
 def used_models(graph, model_version):
     fields = {'UNETLoader': ('diffusion_models', 'unet_name'), 'CLIPLoader': ('text_encoders', 'clip_name'),
               'VAELoader': ('vae', 'vae_name'), 'LoraLoaderModelOnly': ('loras', 'lora_name'),
-              'MiniMaxH3PDDAccApply': ('pdd_acc', 'pdd_file'), 'MinimaxH3LatentUpscaler3D': ('latent_upscale_models','model_name')}
+              'MiniMaxH3PDDAccApply': ('pdd_acc', 'pdd_file'), 'MinimaxH3LatentUpscaler3D': ('latent_upscale_models','model_name'),
+              'ModelPatchLoader': ('model_patches','name')}
     wanted = {(fields[node['class_type']][0], node['inputs'].get(fields[node['class_type']][1]))
               for node in graph.values() if node['class_type'] in fields}
     result = {}

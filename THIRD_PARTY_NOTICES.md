@@ -27,3 +27,5 @@ H3 原声明：
 完整协议见 [H3 LICENSE](resources/builtin_skills/h3-t2va/references/licenses/MiniMax-H3-LICENSE.txt)。模型及上游材料的地域、分发、使用与商业条款以该完整协议为准。源码仓库不包含模型权重。
 
 `skills/` 和 `resources/builtin_skills/` 保留上游文本与对应来源记录；本地 SKILL.md 的工作台适配段落由本项目维护。每包 `metadata.json` 记录来源仓库、提交、路径、摘要及许可。更新上游材料应同步保留这些记录。
+
+3.3 多帧接续独立下载 [NikoDemon80/ComfyUI-H3-Motion-Context](https://github.com/NikoDemon80/ComfyUI-H3-Motion-Context) 的固定提交，原节点使用 GPL-3.0，安装目录保留完整源码和许可证，不重新授权为本项目 MIT。视频轮廓控制使用 ComfyUI 原生节点及 [Kijai H3 实验权重](https://huggingface.co/Kijai/MiniMax-H3-experimental) 的固定 pruned INT8 ConvRot 文件；转换不改变模型原许可。新增本地媒体输入、音画锁定和裁切适配由本项目编写。来源与验证见 [3.3 指南](docs/h3-advanced-3.3.md)。
