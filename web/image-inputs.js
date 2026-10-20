@@ -1,4 +1,4 @@
-import { el, field } from "./api.js?v=3.3.0";
+import { el, field } from "./api.js?v=3.5.0";
 
 export async function imageFileData(file) {
   if (file.size > 8_000_000) throw Error("单张参考图最多 8MB，请缩小后上传。");

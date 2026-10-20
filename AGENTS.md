@@ -8,7 +8,7 @@
 
 ## 从这里开始
 
-1. 确认用户的故事、目标项目和制作要求，按技能选择“工厂调用文字模型”或“外部 AI 提供完整分镜”。
+1. 先按 [工作流选择指南](agent-skills/short-drama-factory/references/workflow-selection.md) 匹配原声、原画面、动作接续、关键帧或多模态需求，再确认用户的故事、目标项目和制作要求，按技能选择“工厂调用文字模型”或“外部 AI 提供完整分镜”。
 2. 已有服务先读取 `http://127.0.0.1:8765/api/health`，核对 `application_root` 和版本，复用正确实例。端口可以按用户配置改变。
 3. 在项目根目录可运行 `python agent-skills/short-drama-factory/scripts/factory_api.py get /api/health`；也可用应用的 `runtime/python.exe` 或 `.venv/Scripts/python.exe` 替换 python。
 4. 使用技能里的接口保存和排队；保留项目 ID、任务 ID、镜头 UID。超时先查原任务，避免重复提交。

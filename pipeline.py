@@ -25,7 +25,10 @@ CONFIG = json.loads((ROOT / ('config.json' if (ROOT / 'config.json').exists() el
 FPS = 24
 
 
-def ensure_comfy(status=None, profile=None):
+def ensure_comfy(status=None, profile=None, cancel=lambda: False):
+    from app.providers import Cancelled
+    if cancel():
+        raise Cancelled('视频引擎准备已停止。')
     task_root = Path(CONFIG.get('runtime_root', ROOT))
     workflow_environment = None
     if profile and CONFIG['profiles'][profile].get('workflow', 'native') != 'native':
@@ -33,7 +36,9 @@ def ensure_comfy(status=None, profile=None):
         from app.video_environment import VideoWorkflowEnvironment
         environment = VideoWorkflowEnvironment(ConfigStore(task_root))
         workflow_environment = environment
-        plan = environment.prepare(profile, lambda message, **extra: status(message) if status else None, lambda: False)
+        plan = environment.prepare(profile, lambda message, **extra: status(message) if status else None, cancel)
+        if plan.get('ready'):
+            CONFIG['profiles'][profile] = plan['resolved_preset']
         if plan.get('restart_required'):
             from app.processes import stop_owned_comfy
             stop_owned_comfy(CONFIG, task_root / 'data/comfy-runtime')
@@ -116,12 +121,17 @@ def ensure_comfy(status=None, profile=None):
                                    env=process_env,
                                    creationflags=0x08000000 if os.name == 'nt' else 0)
     for _ in range(120):
+        if cancel():
+            raise Cancelled('视频引擎准备已停止；已启动的服务可在下次继续使用。')
         if process.poll() is not None:
             raise RuntimeError(f'ComfyUI 启动失败，请查看 logs/comfy_{stamp}.stderr.log。')
         try:
             requests.get(CONFIG['comfy_url'] + '/system_stats', timeout=2).raise_for_status()
-            if workflow_environment and not workflow_environment.plan(profile)['ready']:
-                raise RuntimeError('视频引擎已启动，但所选工作流的节点或模型仍未加载。请检查本次 ComfyUI 启动日志。')
+            if workflow_environment:
+                plan = workflow_environment.plan(profile)
+                if not plan['ready']:
+                    raise RuntimeError('视频引擎已启动，但所选工作流的节点或模型仍未加载。请检查本次 ComfyUI 启动日志。')
+                CONFIG['profiles'][profile] = plan['resolved_preset']
             return
         except requests.RequestException:
             time.sleep(1)
@@ -611,7 +621,8 @@ class Runner:
         try:
             story = validate_story(load_json(self.project / '分镜.json'))
             settings = load_json(self.project / 'settings.json')
-            ensure_comfy(self.report, profile=settings['profile'])
+            if not getattr(self, 'engine_prepared', False):
+                ensure_comfy(self.report, profile=settings['profile'], cancel=self.stop.is_set)
             clips = []
             render_count = 0
             self.report('开始顺序生成', status='rendering', total_shots=len(story['shots']))

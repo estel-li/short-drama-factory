@@ -34,9 +34,9 @@ class AdvancedH3Tests(unittest.TestCase):
     def test_audio_drive_caches_locked_latent_and_muxes_source_audio(self):
         graph=self.graph('h3-audio-drive')
         self.assertEqual(graph['7']['class_type'],'DramaH3StageInputs')
-        self.assertEqual(graph['7']['inputs']['latent'],['63',0])
-        self.assertEqual(graph['63']['class_type'],'DramaH3AudioDrive')
-        self.assertEqual(graph['15']['inputs']['audio'],['91',0])
+        self.assertEqual(graph['7']['inputs']['latent'],['163',0])
+        self.assertEqual(graph['163']['class_type'],'DramaH3AudioDrive')
+        self.assertEqual(graph['15']['inputs']['audio'],['191',0])
         encoding=subgraph(graph,['7'])
         self.assertIn('LoadAudio',{n['class_type'] for n in encoding.values()})
         rendered={k:copy.deepcopy(v) for k,v in graph.items() if k not in encoding or k in ('3','4')}
@@ -51,28 +51,28 @@ class AdvancedH3Tests(unittest.TestCase):
 
     def test_foley_preserves_source_pixels_instead_of_decoding_video_latent(self):
         graph=self.graph('h3-foley')
-        self.assertEqual(graph['63']['class_type'],'DramaH3FoleyLatent')
+        self.assertEqual(graph['163']['class_type'],'DramaH3FoleyLatent')
         decoding=subgraph(graph,['16'],stop={'12'})
         self.assertNotIn('VAEDecodeTiled',{n['class_type'] for n in decoding.values()})
         self.assertIn('VAEDecodeAudio',{n['class_type'] for n in decoding.values()})
-        self.assertEqual(graph['15']['inputs']['images'],['92',0])
+        self.assertEqual(graph['15']['inputs']['images'],['192',0])
 
     def test_middle_guide_position_and_continuation_output_length_are_explicit(self):
         guide=self.graph('h3-keyframe-guide',guide_position=0.25)
-        self.assertEqual(guide['61']['inputs']['frame_idx'],26)
+        self.assertEqual(guide['161']['inputs']['frame_idx'],26)
         for context in (5,22,39,56):
             graph=self.graph('h3-motion-context',context_frames=context)
             generated=graph['7']['inputs']['length']
             self.assertEqual(generated%17,5)
             self.assertGreaterEqual(generated-context,107)
-            self.assertEqual(graph['91']['inputs']['frames'],107)
-            self.assertEqual(graph['90']['inputs']['trim_frames'],context)
+            self.assertEqual(graph['191']['inputs']['frames'],107)
+            self.assertEqual(graph['190']['inputs']['trim_frames'],context)
 
     def test_canny_patch_is_in_guider_path_and_fingerprinted(self):
         graph=self.graph('h3-canny-control',control_strength=0.6)
-        self.assertEqual(graph['9']['inputs']['model'],['65',0])
-        self.assertEqual(graph['65']['inputs']['strength'],0.6)
-        self.assertEqual(graph['64']['inputs']['name'],CONTROL_MODEL)
+        self.assertEqual(graph['9']['inputs']['model'],['165',0])
+        self.assertEqual(graph['165']['inputs']['strength'],0.6)
+        self.assertEqual(graph['164']['inputs']['name'],CONTROL_MODEL)
         versions={'control':{'name':CONTROL_MODEL,'category':'model_patches','sha256':'a'*64}}
         self.assertTrue(used_models(graph,versions))
 
@@ -106,7 +106,7 @@ class AdvancedH3Tests(unittest.TestCase):
         with patch.dict(pipeline.CONFIG,config,clear=True):
             graph=pipeline.graph_for(shot,'manual','h3-audio-drive','16:9',bindings={
                 'source_audio':{'comfy_file':'voice.wav'},'first_frame':{'comfy_file':'first.png'}})
-            self.assertIn('first_frame',graph['69']['inputs'])
+            self.assertIn('first_frame',graph['169']['inputs'])
             graph=pipeline.graph_for({**shot,'mode':'Ref2VA'},'manual','pdd-8','16:9',
                 bindings={'images':[{'comfy_file':'face.png','name':'reader'}]})
             self.assertEqual(graph['7']['class_type'],'MiniMaxH3ReferenceToVideo')
@@ -116,12 +116,31 @@ class AdvancedH3Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             runner=pipeline.Runner(Path(folder));runner.state.update(shots={'1':{}},current_shot=1)
             source={'filename':'source.mp4','type':'input'};generated={'filename':'generated.mp4','type':'output'}
-            history={'status':{'completed':True},'outputs':{'90':{'images':[source]},'16':{'images':[generated]}}}
+            history={'status':{'completed':True},'outputs':{'190':{'images':[source]},'16':{'images':[generated]}}}
             with patch('pipeline.api',return_value={'saved':history}):
                 self.assertEqual(runner.wait('saved'),generated)
             history['outputs'].pop('16')
             with patch('pipeline.api',return_value={'saved':history}),self.assertRaisesRegex(RuntimeError,'未找到视频'):
                 runner.wait('saved')
+
+    def test_ref_audio_video_and_advanced_recipe_keep_disjoint_dependencies(self):
+        config = copy.deepcopy(pipeline.CONFIG)
+        config['profiles'].update(copy.deepcopy(BUILTIN_PROFILES))
+        for workflow in ('h3-audio-drive', 'h3-keyframe-guide', 'h3-motion-context'):
+            bindings = {'images': [{'comfy_file': 'face.png', 'name': 'reader'}],
+                'videos': [{'comfy_file': 'reference.mp4', 'include_audio': True}],
+                'audios': [{'comfy_file': 'reference.wav'}],
+                **{slot: {'comfy_file': slot + '.mp4'} for slot in RECIPES[workflow]['slots']}}
+            with self.subTest(workflow=workflow), patch.dict(pipeline.CONFIG, config, clear=True):
+                graph = pipeline.graph_for({'id': 1, 'duration': 4, 'prompt': 'test', 'mode': 'Ref2VA'},
+                    'test', workflow, '16:9', bindings=bindings)
+                encoding = subgraph(graph, ['7'])
+                ref = next(n for n in encoding.values() if n['class_type'] == 'MiniMaxH3ReferenceToVideo')
+                audio_id = ref['inputs']['ref_audios.ref_audio_1'][0]
+                self.assertEqual(encoding[audio_id]['class_type'], 'LoadAudio')
+                self.assertEqual(encoding[audio_id]['inputs']['audio'], 'reference.wav')
+                self.assertEqual(encoding['42']['class_type'], 'LoadVideo')
+                subgraph(graph, ['16'])
 
 
 if __name__=='__main__':unittest.main()

@@ -2,7 +2,7 @@
 name: short-drama-factory
 license: MIT
 metadata:
-  version: "1.6.0"
+  version: "1.7.0"
 description: 操作本地短剧工厂（Short Drama Factory），将灵感、大纲、剧本或外部 AI 编写的分镜与 H3 提示词变成视频，也可用本地生图模型生成独立图片和项目参考图。支持审核、素材绑定、续跑、重生成与导出。用于通过该程序制作图片或视频；不用于修改应用代码或一般视频剪辑。
 ---
 
@@ -12,7 +12,7 @@ description: 操作本地短剧工厂（Short Drama Factory），将灵感、大
 
 ## 连接与准备
 
-适配短剧工厂 **3.3.0** 的实际 API；基本图片功能要求 3.0.0，下载确认、图片删除及编辑后继续原任务要求 3.0.1，多图参考、图生图和自定义角色图片依据要求 3.1.0，高级采样参数要求 3.1.1，见 [图片参数与接口](references/images.md)。需要 AI 能执行本地命令或访问本机 HTTP；客户端脚本只用 Python 3.10+ 标准库，不依赖 Codex 专属工具。只有云端聊天能力的 AI 无法直接访问用户电脑的 `127.0.0.1`，应由本机代理执行命令。不要为此公开工作台端口。
+适配短剧工厂 **3.5.0** 的实际 API；基本图片功能要求 3.0.0，下载确认、图片删除及编辑后继续原任务要求 3.0.1，多图参考、图生图和自定义角色图片依据要求 3.1.0，高级采样参数要求 3.1.1，见 [图片参数与接口](references/images.md)。需要 AI 能执行本地命令或访问本机 HTTP；客户端脚本只用 Python 3.10+ 标准库，不依赖 Codex 专属工具。只有云端聊天能力的 AI 无法直接访问用户电脑的 `127.0.0.1`，应由本机代理执行命令。不要为此公开工作台端口。
 
 1. 找到用户指定的应用目录与端口，先 `GET /api/health`。默认 `http://127.0.0.1:8765`，返回 `version`、`application_root`、`comfy`、`active_project`。不要把技能目录误当作应用目录。已启动的正确实例直接复用。
 2. 未启动时，在应用目录运行 `启动短剧工厂.cmd --no-browser`；也可用该应用的 `runtime/python.exe`（便携包）或 `.venv/Scripts/python.exe` 运行 `launcher/start.py --no-browser`。后台启动时隐藏窗口，轮询健康接口。端口冲突时先辨认实例，明确使用 `--port 8770` 等空闲端口，客户端对应传入 `--base-url`。
@@ -32,6 +32,8 @@ python scripts/factory_api.py get /api/environment/catalog
 有应用自带 Python 时可用其绝对路径替换 `python`。`--base-url`、`--timeout` 是子命令前的全局参数。
 
 ## 选择创作路径
+
+先按 [完整工作流选择指南](references/workflow-selection.md) 根据用户目标、已有素材和硬件条件选择视频方案与图片模型。该指南覆盖全部原生／加速／高级工作流、兼容模式、参数、时长、性能与验收，优先保留用户指定的原声、画面和动作约束。读取 `/api/video/workflows` 获取本机能力；不要凭方案名称或步数猜测效果。
 
 使用 3.3 的音频驱动、锁画面拟音、中段关键帧、多帧接续与轮廓控制时，先读 [H3 高级媒体工作流](references/h3-advanced.md)。
 
@@ -89,4 +91,4 @@ python scripts/factory_api.py download /media/PROJECT_ID/成片.mp4 --output 成
 - 修改／重生成限于用户指定项目；按用户授权范围调用文字 API 和 GPU，不因为“测试技能”而启动有费用的创作或大量 GPU 任务。默认不做环境重装、升级、模型下载或全局配置替换。
 - POST 超时可能已经成功。先查项目列表、队列和原任务，不自动重发创建／生成／导出请求。脚本不自动重试写操作；应用本身已有有限重试。
 - 优先用 HTTP API 保存和排队，保留版本、缓存与锁定语义。不要直接改 SQLite、`state.json`、`分镜.json` 或并发启动 `pipeline.py`。
-- 修复、停止、后期、素材和分集功能见 [API 操作表](references/api.md)；异常按 [故障恢复](references/recovery.md)。当前接口没有单任务查询端点，`/api/jobs` 仅返回最近 100 条，找不到旧 ID 时不能猜测成功或重新排队。
+- 修复、停止、后期、素材和分集功能见 [API 操作表](references/api.md)；异常按 [故障恢复](references/recovery.md)。普通创作任务没有单任务查询端点（工作流环境准备可用 `/api/video/workflows/progress?job_id=...` 精确追踪），`/api/jobs` 仅返回最近 100 条，找不到旧 ID 时不能猜测成功或重新排队。

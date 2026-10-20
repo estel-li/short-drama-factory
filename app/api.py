@@ -44,7 +44,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='3.3.0', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='3.5.0', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -116,6 +116,7 @@ def get_config():
     value = config.public()
     value.update(profiles=config.renderer_config().get('profiles', {}), comfy_url=config.renderer_config().get('comfy_url'), api_key_configured=bool(config.key('deepseek')))
     value['image_models'] = image_model_catalog()['models']
+    value['video_workflows'] = video_workflow_catalog()['workflows']
     return value
 
 
@@ -328,10 +329,12 @@ def run_stage(pid: str, stage: str, body: dict):
 
 @app.get('/api/projects/{pid}/preflight')
 def preflight(pid: str):
-    from .quality import story_report
+    from .workflow_checks import workflow_report
     project = projects.path(pid)
     story = projects.get(pid)['story']
-    return story_report(story, projects.options(project)) if story else {'ready': False, 'issues': [], 'shots': [], 'message': '请先生成分镜。'}
+    return workflow_report(story, projects.options(project), config.renderer_config(),
+        lambda shot, value: assets.resolve(project, shot, value, inspect_media=True), content.mode
+    ) if story else {'ready': False, 'issues': [], 'shots': [], 'message': '请先生成分镜。'}
 
 
 @app.get('/api/projects/{pid}/quality')
@@ -666,9 +669,29 @@ def video_workflow_plan(profile: str):
     return worker.video_environment.plan(profile)
 
 
+@app.get('/api/video/workflows')
+def video_workflow_catalog():
+    from .video_workflows import workflow_catalog
+    return {'workflows': workflow_catalog(), 'profiles': config.renderer_config()['profiles']}
+
+
 @app.get('/api/video/workflows/progress')
-def video_workflow_progress():
-    return read_json(config.root/'data/video-environment-progress.json', {})
+def video_workflow_progress(job_id: str = ''):
+    import json
+    with db.connect() as connection:
+        row = connection.execute(
+            "SELECT * FROM jobs WHERE project_id='__video_environment' " +
+            ("AND id=? " if job_id else "") + "ORDER BY rowid DESC LIMIT 1",
+            (job_id,) if job_id else ()).fetchone()
+    if not row:
+        return {'status': 'idle', 'message': '尚未准备视频工作流。'}
+    state = read_json(config.root/'data/video-environment-progress.json', {})
+    if state.get('job_id') != row['id']:
+        state = {}
+    message = row['message'] or ('正在排队，等待当前任务完成。' if row['status'] == 'queued' else
+                               '准备已暂停，可重新检查后继续。' if row['status'] == 'paused' else '正在准备工作流。')
+    return {**state, 'job_id': row['id'], 'profile': json.loads(row['payload']).get('profile'),
+            'status': row['status'], 'message': message, 'cancel_requested': bool(row['cancel_requested'])}
 
 
 @app.post('/api/video/workflows/prepare', status_code=202)

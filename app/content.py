@@ -376,9 +376,9 @@ class Content:
         mode = self.mode(shot, options, bindings)
         workflow_preset = self.config.renderer_config().get('profiles', {}).get(options.profile, {})
         workflow = workflow_preset.get('workflow','native')
-        if workflow.startswith('h3-'):
-            from .h3_advanced import validate_inputs
-            validate_inputs(workflow, shot, bindings, mode)
+        from .video_workflows import validate_workflow
+        if workflow_preset:
+            validate_workflow(workflow_preset, shot, bindings, mode)
         if mode == 'T2VA':
             bindings = {key:value for key,value in bindings.items() if key in ('source_video','source_audio','guide_image')}
         if mode=='Ref2VA':prompt_cast_valid('',story,shot,bindings,mode)

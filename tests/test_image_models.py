@@ -107,6 +107,17 @@ class ImageModelGraphTests(unittest.TestCase):
         preference.image_model='dreamshaper-8';dream=ImageStudio.reference_signature(studio,'test',candidate)
         self.assertEqual(len({qwen,sdxl,dream}),3)
 
+    def test_partial_sampling_override_keeps_target_model_defaults(self):
+        studio = SimpleNamespace(environment=SimpleNamespace(settings=lambda: ImageSettings()))
+        for changes in ({'steps': 30}, {'cfg': 5}, {}):
+            request = ImageStudio.image_request(studio, {'prompt': 'bookstore', 'image_model': 'sdxl-base', 'sampling': changes})
+            expected = {**model_spec('sdxl-base')['sampling'], **changes}
+            actual = model_sampling(request, model_spec('sdxl-base'))
+            self.assertEqual({k: actual[k] for k in expected}, expected)
+        request = ImageStudio.image_request(studio, {'prompt': 'bookstore', 'image_model': 'sdxl-base',
+            'sampling': {'cfg': 1, 'sampler': 'euler'}})
+        self.assertEqual((request.sampling.cfg, request.sampling.sampler), (1, 'euler'))
+
     def test_auto_engine_reuses_local_library_when_video_service_has_no_image_weights(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);write_json(root/'config.default.json',read_json(ROOT/'config.default.json'))

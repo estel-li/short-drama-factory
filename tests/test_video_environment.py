@@ -77,5 +77,54 @@ class VideoEnvironmentTests(unittest.TestCase):
         self.assertEqual(len(list((self.root/'data/video-model-verification').glob('*.json'))),3)
         self.assertFalse(list((self.root/'models').rglob('*.verified.json')))
 
+    def test_category_mapping_and_nested_comfy_name_are_reused(self):
+        import yaml
+        f = self.environment.manifest['models']['lightx2v_8']
+        shared = self.root / 'shared-adapters'
+        path = shared / 'nested' / f['name']
+        path.parent.mkdir(parents=True)
+        path.write_bytes(self.content)
+        (self.root / 'extra_model_paths.yaml').write_text(yaml.safe_dump({'shared': {'loras': str(shared)}}), encoding='utf-8')
+        nodes = {'LoraLoaderModelOnly': {'input': {'required': {'lora_name': [['nested/' + f['name']]]}}}}
+        with patch.object(self.environment, 'probe', return_value=nodes):
+            plan = self.environment.plan('lightx2v-8')
+            self.assertEqual(plan['download_bytes'], 0)
+            self.assertFalse(plan['ready'])  # Local bytes need a checksum even if Comfy lists the name.
+            self.assertEqual(plan['models'][0]['action'], 'verify')
+            with patch('app.video_environment.Downloader.fetch') as fetch:
+                ready = self.environment.prepare('lightx2v-8', lambda *a, **k: None, lambda: False)
+                fetch.assert_not_called()
+            self.assertTrue(ready['ready'])
+            self.assertEqual(ready['resolved_preset']['workflow_lora'], 'nested/' + f['name'])
+            with patch.object(Path, 'rglob', side_effect=AssertionError('Exact mapped paths should not scan trees')):
+                self.assertTrue(self.environment.plan('lightx2v-8')['ready'])
+
+    def test_corrupt_recognized_model_is_not_reported_ready(self):
+        f = self.environment.manifest['models']['lightx2v_8']
+        path = self.root / 'models/video-workflows/loras' / f['name']
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b'truncated')
+        nodes = {'LoraLoaderModelOnly': {'input': {'required': {'lora_name': [[f['name']]]}}}}
+        with patch.object(self.environment, 'probe', return_value=nodes):
+            plan = self.environment.plan('lightx2v-8')
+        self.assertFalse(plan['ready'])
+        self.assertTrue(plan['requires_confirmation'])
+        self.assertEqual(plan['models'][0]['action'], 'download')
+
+    def test_installed_plugin_is_not_downloaded_because_another_plugin_is_missing(self):
+        nodes = {'MiniMaxH3PDDAccApply': {}, 'MiniMaxH3PDDAccScheduler': {}}
+        with patch.object(self.environment, 'probe', return_value=nodes):
+            plan = self.environment.plan('pdd-upscale')
+        self.assertEqual(plan['plugins'][0]['action'], 'available')
+        self.assertEqual(plan['plugins'][1]['action'], 'download')
+
+    def test_cancelled_prepare_does_not_scan_download_or_modify_paths(self):
+        from app.providers import Cancelled
+        with patch.object(self.environment, 'plan') as plan, patch('app.video_environment.Downloader.fetch') as fetch:
+            with self.assertRaises(Cancelled):
+                self.environment.prepare('pdd-8', lambda *a, **k: None, lambda: True)
+            plan.assert_not_called()
+            fetch.assert_not_called()
+
 
 if __name__=='__main__':unittest.main()

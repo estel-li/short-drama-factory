@@ -30,7 +30,7 @@ class VideoWorkflowTests(unittest.TestCase):
         graph=self.graph('lightx2v-8')
         self.assertIn('8step_v1.0_768p',graph['5']['inputs']['lora_name'])
         self.assertEqual(graph['11']['inputs']['steps'],8)
-        with self.assertRaisesRegex(ValueError,'多参考'):
+        with self.assertRaisesRegex(ValueError,'Ref2VA'):
             self.graph('lightx2v-8',True)
 
     def test_two_pass_graph_retains_original_audio_and_cache_all_dependencies(self):

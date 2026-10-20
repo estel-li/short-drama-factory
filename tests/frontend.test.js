@@ -8,6 +8,20 @@ import {
   finishingPayload,
 } from "../web/state.js";
 import { api, ApiError, el } from "../web/api.js";
+import {parameterSpecs, formatSize} from "../web/video-workflows.js";
+
+test("workflow form offers only trained step grids and explicit context choices", () => {
+  assert.deepEqual(parameterSpecs({workflow:"pdd-8"}).find(x=>x.key==="steps").choices,[4,6,8]);
+  for(const workflow of ["pdd-upscale","lightx2v-8"])
+    assert.deepEqual(parameterSpecs({workflow}).find(x=>x.key==="steps").choices,[8]);
+  assert.deepEqual(parameterSpecs({workflow:"h3-motion-context"}).find(x=>x.key==="context_frames").choices,[5,22,39,56]);
+  assert.equal(parameterSpecs({workflow:"native",turbo:false}).some(x=>x.key==="lora_strength"),false);
+  assert.equal(parameterSpecs({workflow:"h3-foley"}).some(x=>x.key==="guide_position"),false);
+});
+test("small plugin downloads show actual MB instead of a misleading zero GB", () => {
+  assert.equal(formatSize(2*1024**2),"2.0 MB");
+  assert.equal(formatSize(2*1024**3),"2.00 GB");
+});
 
 const project = () => ({
   id: "story",

@@ -1,5 +1,7 @@
 # H3 高级媒体工作流（3.3.0）
 
+选择方案之前先读 [完整工作流选择指南](workflow-selection.md)。以下保留各方案的接口与详细契约；3.5 的预检会检查源帧数、模式及接续上限。
+
 先从 `/api/config` 的 `profiles` 读取实际方案 ID，再检查 `/api/video/workflows/plan?profile=...`。沿用主 Skill 的下载确认、排队、原任务追踪和验收流程。
 
 | profile / workflow | 必需的单镜 bindings | 用途与参数 |

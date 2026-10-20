@@ -1,6 +1,7 @@
 """Advanced H3 recipes with native graphs and explicit staged-cache boundaries."""
 from __future__ import annotations
 import copy
+from functools import lru_cache
 
 LIGHTX2V_8 = 'minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors'
 PDD_FL = 'minimax_h3_fl2va_pdd_acc_8step_comfyui.safetensors'
@@ -14,6 +15,25 @@ BUILTIN_PROFILES = {
 }
 from .h3_advanced import PROFILES as H3_PROFILES
 BUILTIN_PROFILES.update(H3_PROFILES)
+
+
+@lru_cache(maxsize=1)
+def workflow_catalog():
+    from .storage import ROOT, read_json
+    return read_json(ROOT / 'manifests/video-workflows.json')['workflows']
+
+
+def validate_workflow(preset, shot, bindings, mode):
+    """The same contract is used by preflight, prompt compilation and rendering."""
+    from .schemas import Quality
+    Quality.model_validate(preset)
+    workflow = preset.get('workflow', 'native')
+    spec = workflow_catalog().get(workflow)
+    if spec and mode not in spec['supported_modes']:
+        raise ValueError(f"所选工作流不支持 {mode}；支持：{' / '.join(spec['supported_modes'])}。")
+    if workflow.startswith('h3-'):
+        from .h3_advanced import validate_inputs
+        validate_inputs(workflow, shot, bindings, mode, preset)
 
 
 def subgraph(graph, roots, stop=()):
@@ -46,6 +66,7 @@ def replace_link(graph, old, new):
 
 
 def apply_workflow(graph, preset, is_reference, shot=None, bindings=None, mode='T2VA'):
+    validate_workflow(preset, shot or {}, bindings or {}, mode)
     workflow=preset.get('workflow','native')
     if workflow=='native':
         return graph

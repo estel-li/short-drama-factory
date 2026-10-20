@@ -1,4 +1,4 @@
-# API 操作表（2.4.1）
+# API 操作表（3.5.0）
 
 基址默认 `http://127.0.0.1:8765`，不是 ComfyUI 的 8188。工作台校验 Host 与浏览器 Origin；本地脚本不需要伪造 Origin。下列路径由 `app/api.py` 核对，升级后先比对本机 `/openapi.json` 与实际返回；多数请求体是普通 dict，OpenAPI 不会列出所有字段。
 
@@ -12,6 +12,8 @@ CLI：`python scripts/factory_api.py post 路径 --json 请求文件.json`；没
 | --- | --- |
 | GET `/api/health` | 程序版本、应用根目录、当前项目、ComfyUI 连通性 |
 | GET `/api/config` | 公开配置、`providers`、`profiles`、凭证是否配置；不返回 key |
+| GET `/api/video/workflows` | 当前视频方案、模式、必需槽位、用途与限制；见 [选择指南](workflow-selection.md) |
+| GET `/api/video/workflows/progress?job_id=ID` | 精确跟踪准备任务；刷新后恢复排队／运行／暂停／错误／完成状态 |
 | GET `/api/skills`、`/api/presets` | 实际可用 Skill 和选项预设 |
 | GET `/api/environment/catalog` | 模型列表、缺失节点／模型、缓存协议 |
 | GET `/api/environment` | GPU、显存、磁盘和安装状态；不启动生成 |

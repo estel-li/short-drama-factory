@@ -1,5 +1,5 @@
-import { api, el, field, select, download } from "./api.js?v=3.3.0";
-import { optionsEditor, MODES } from "./options.js?v=3.3.0";
+import { api, el, field, select, download } from "./api.js?v=3.5.0";
+import { optionsEditor, MODES } from "./options.js?v=3.5.0";
 import {
   ProjectDraft,
   STAGES,
@@ -8,10 +8,10 @@ import {
   shotRecord,
   continuationIssue,
   finishingPayload,
-} from "./state.js?v=3.3.0";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.3.0";
-import { renderQuality } from "./quality.js?v=3.3.0";
-import { renderReferenceImages } from "./images.js?v=3.3.0";
+} from "./state.js?v=3.5.0";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.5.0";
+import { renderQuality } from "./quality.js?v=3.5.0";
+import { renderReferenceImages } from "./images.js?v=3.5.0";
 
 const SCOPES = {
   story: "分镜",
@@ -842,10 +842,14 @@ export class Workspace {
         field("对白", dialogue),
       ),
     );
+    const selectedPreset = this.services.config().profiles[this.draft.data.settings.profile] || {};
+    const workflow = selectedPreset.workflow;
+    const workflowSpec = this.services.config().video_workflows?.[workflow] || {};
+    const advancedMedia = workflow?.startsWith("h3-");
     const frame = el("input", {
       type: "checkbox",
       checked: shot.use_previous_last_frame === true,
-      disabled: readOnly || (index === 0 && !shot.use_previous_last_frame),
+      disabled: readOnly || ((index === 0 || advancedMedia) && !shot.use_previous_last_frame),
       "aria-label": `镜头 ${index + 1} 首帧功能`,
       onchange: (event) => {
         shot.use_previous_last_frame = event.target.checked;
@@ -942,12 +946,16 @@ export class Workspace {
         ),
       );
     const mode = select(MODES, shot.mode || "auto");
+    for (const option of mode.options)
+      if (option.value !== "auto" && workflowSpec.supported_modes && !workflowSpec.supported_modes.includes(option.value))
+        option.disabled = true;
+    const workflowHint = el("p", {class: "field-help", role: "status"});
     mode.onchange = () => {
       shot.mode = mode.value;
       mark();
+      updateWorkflowHint();
     };
     const slots = el("div", { class: "grid" });
-    const workflow = this.services.config().profiles[this.draft.data.settings.profile]?.workflow;
     const mediaSlots = {
       'h3-audio-drive':['source_audio'], 'h3-foley':['source_video'],
       'h3-keyframe-guide':['guide_image'], 'h3-motion-context':['source_video'],
@@ -989,9 +997,22 @@ export class Workspace {
         if (ids.length) shot.bindings[slot] = multiple ? ids : ids[0];
         else delete shot.bindings[slot];
         mark();
+        updateWorkflowHint();
       };
-      slots.append(field(label, pick));
+      slots.append(field(label + (mediaSlots.includes(slot) ? "（必需）" : ""), pick,
+        mediaSlots.includes(slot) && !Object.values(this.current.assets).some(a => a.type === type)
+          ? "尚无可选素材，请先在“素材”页上传。" : ""));
     }
+    function updateWorkflowHint() {
+      const missing = mediaSlots.filter(slot => !shot.bindings?.[slot]);
+      const incompatible = mode.value !== "auto" && workflowSpec.supported_modes && !workflowSpec.supported_modes.includes(mode.value);
+      workflowHint.textContent = `${selectedPreset.label || "当前工作流"}。${workflowSpec.description || ""} ` +
+        (missing.length ? "请补齐下方标记为必需的素材。 " : "") +
+        (incompatible ? "当前生成模式与工作流不兼容，请重新选择。 " : "") +
+        (workflowSpec.limitation || "");
+      workflowHint.classList.toggle("error-text", !!missing.length || !!incompatible);
+    }
+    updateWorkflowHint();
     function updateFrame() {
       const enabled = shot.use_previous_last_frame === true,
         issue = continuationIssue(story.shots, index);
@@ -1005,6 +1026,8 @@ export class Workspace {
         ? issue
           ? "无法接续：" + issue
           : `自动使用镜头 ${index} 的末帧，以 I2VA 生成。${shot.first_frame_reason ? " AI 判断：" + shot.first_frame_reason : ""}`
+        : advancedMedia
+          ? "当前工作流使用专用素材控制；多帧接续请绑定工作流源视频。"
         : index === 0
           ? "第一镜没有可接续的前镜。"
           : "默认关闭，由 AI 分镜人判断是否适合同场景连续动作。";
@@ -1026,6 +1049,7 @@ export class Workspace {
       this.details(
         "prompt",
         "H3 提示词与参考素材",
+        workflowHint,
         field("生成模式", mode),
         slots,
         field("完整提示词", prompt),

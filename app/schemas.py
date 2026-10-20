@@ -58,7 +58,7 @@ class StageChoice(BaseModel):
 
 
 class Quality(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
     label: str = Field(min_length=1, max_length=200)
     megapixels: float = Field(ge=0.1, le=4)
     steps: int = Field(ge=1, le=100)
@@ -101,6 +101,10 @@ class Quality(BaseModel):
             raise ValueError('LightX2V 8步工作流请使用 8 步。')
         if self.workflow=='pdd-upscale' and self.steps!=8:
             raise ValueError('神经放大工作流首遍使用 8 步，精修使用最后一个训练块。')
+        if self.workflow.startswith('pdd') and (self.turbo or self.sampler != 'euler' or self.denoise != 1):
+            raise ValueError('PDD 必须使用 Euler、完整首遍采样且关闭旧 Turbo。')
+        if self.workflow=='lightx2v-8' and (self.sampler != 'res_multistep' or self.denoise != 1):
+            raise ValueError('LightX2V 8步使用 res_multistep 与完整采样。')
         if self.workflow.startswith('h3-') and (self.turbo or self.denoise != 1):
             raise ValueError('H3 高级媒体方案使用完整原生采样，不叠加旧 Turbo 或局部 denoise。')
         if self.control_start >= self.control_end:

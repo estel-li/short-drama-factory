@@ -6,7 +6,7 @@
 
 文字模型默认使用 DeepSeek，也支持 Ollama、LM Studio 和兼容 OpenAI Chat Completions 接口的服务。大纲、分镜、提示词三个阶段可以分别配置模型与 Skill。
 
-**当前版本：3.3.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+**当前版本：3.5.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ![2.3 创作工作台](docs/images/ui-workspace.jpg)
 
@@ -96,6 +96,8 @@ py -3.13 -m venv .venv
 整剧批量生成使用“分集 / 批量”。完整操作见 [使用指南](使用说明.md)。
 
 ### 让其他 AI 操作工作台
+
+3.5 提供 [完整工作流选择指南](agent-skills/short-drama-factory/references/workflow-selection.md)：覆盖 11 个内置视频方案、7 类图片模型、素材与模式匹配、16GB 参数建议、真实时长与验收。新增工作流用途卡片、合法参数下拉、可恢复的准备进度及素材预检。
 
 仓库提供 [short-drama-factory 操作技能](agent-skills/short-drama-factory/SKILL.md)，包含中文操作流程、HTTP 客户端、两种请求模板及故障恢复说明。支持让工厂调用文字模型，或让外部 AI 编写完整分镜和 H3 提示词后直接渲染。另有实战制作经验、只读素材与耗时诊断，以及解码、接缝、字幕三类成片验收指导。
 

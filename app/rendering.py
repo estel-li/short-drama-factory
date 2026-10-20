@@ -33,7 +33,7 @@ def fingerprint_models(config, report, cancel, profile=None):
             from .h3_advanced import CONTROL_MODEL
             roles['control_model']='model_patches'
             config['control_model']=preset.get('control_model') or CONTROL_MODEL
-    index_path = ROOT / 'data/model_versions.json'
+    index_path = Path(config.get('runtime_root', ROOT)) / 'data/model_versions.json'
     index = read_json(index_path, {})
     result = {}
     headers = {'Authorization': 'Bearer ' + config['comfy_auth_token']} if config.get('comfy_auth_token') else {}

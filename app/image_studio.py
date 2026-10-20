@@ -211,18 +211,20 @@ class ImageStudio:
     def image_request(self, raw):
         settings = self.environment.settings()
         raw = {**raw, 'image_model': raw.get('image_model', settings.image_model)}
-        if 'sampling' not in raw:
-            if raw['image_model'] == settings.image_model:
-                sampling = settings.sampling.model_dump()
-            elif raw['image_model'] == 'qwen-image-2.1':
-                from .image_schemas import ImageSampling
-                sampling = ImageSampling().model_dump()
-            else:
-                from .image_models import model_spec
-                sampling = model_spec(raw['image_model'])['sampling'].copy()
-            if raw.get('reference_mode') != 'edit':
-                sampling['denoise'] = 1
-            raw = {**raw, 'sampling': sampling}
+        if raw['image_model'] == settings.image_model:
+            sampling = settings.sampling.model_dump()
+        elif raw['image_model'] == 'qwen-image-2.1':
+            from .image_schemas import ImageSampling
+            sampling = ImageSampling().model_dump()
+        else:
+            from .image_models import model_spec
+            sampling = model_spec(raw['image_model'])['sampling'].copy()
+        if raw.get('reference_mode') != 'edit':
+            sampling['denoise'] = 1
+        # A partial override such as {"steps":30} must not reset SDXL's CFG
+        # and sampler to Qwen defaults. Explicit values always win.
+        if isinstance(raw.get('sampling', {}), dict):
+            raw = {**raw, 'sampling': {**sampling, **raw.get('sampling', {})}}
         request = ImageRequest.model_validate(raw)
         if request.image_model != 'qwen-image-2.1':
             from .image_models import model_spec, validate_model_inputs

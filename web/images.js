@@ -1,7 +1,7 @@
-import { api, el, field, select } from "./api.js?v=3.3.0";
-import { badge, dialog, icon } from "./ui.js?v=3.3.0";
-import { ImageInputPicker, imageFileData } from "./image-inputs.js?v=3.3.0";
-import { ImageSamplingControls, samplingSummary } from "./image-sampling.js?v=3.3.0";
+import { api, el, field, select } from "./api.js?v=3.5.0";
+import { badge, dialog, icon } from "./ui.js?v=3.5.0";
+import { ImageInputPicker, imageFileData } from "./image-inputs.js?v=3.5.0";
+import { ImageSamplingControls, samplingSummary } from "./image-sampling.js?v=3.5.0";
 
 const kinds = { general: "自由创作", character: "角色参考", scene: "场景参考", prop: "道具参考" };
 const variants = [{ value: "auto", label: "根据显存自动选择" }, { value: "turbo-int8", label: "Turbo INT8 · 快速预览" }, { value: "turbo-bf16", label: "Turbo BF16 · 大显存" }, { value: "quality-int8", label: "标准 INT8 · 细节优先" }];
@@ -87,12 +87,14 @@ export class ImageWorkspace {
       el("p", { class: "field-help" }, "图片在本地 ComfyUI 生成。勾选优化时，文字会发送到所选文字提供商；也可选本地模型。"));
     for (const [name, control] of Object.entries(c)) control.addEventListener("input", () => {
       this.dirty = true; this.revision++;
-      if (["prompt", "purpose", "style", "ratio", "transparent", "reference_mode"].includes(name)) c.optimized_prompt.value = "";
+      if (["prompt", "purpose", "style", "ratio", "transparent", "reference_mode", "image_model"].includes(name)) c.optimized_prompt.value = "";
       c.optimized_prompt.disabled = !c.optimize.checked;
       if (name === "reference_mode") this.syncReferenceMode();
     });
     c.variant.addEventListener("change", () => this.services.act(() => this.refreshEnvironment()));
     c.image_model.addEventListener("change", () => {
+      c.optimized_prompt.value = "";
+      this.pendingOptimize = null;
       for (const control of Object.values(this.modelControls)) control.value = "";
       this.sampling.load(this.modelCatalog[c.image_model.value]?.sampling);
       c.variant.value = "auto";

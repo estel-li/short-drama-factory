@@ -162,7 +162,8 @@ class Worker:
             self.video_environment.prepare(payload['profile'],video_report,lambda:self.db.cancelled(jid) or self.shutdown.is_set(),payload.get('download_confirmation',''))
             if self.db.cancelled(jid) or self.shutdown.is_set():raise Cancelled('视频工作流准备已暂停。')
             pipeline.CONFIG.clear();pipeline.CONFIG.update(self.config.renderer_config());pipeline.CONFIG['comfy_auth_token']=self.config.key('comfy')
-            pipeline.ensure_comfy(video_report,profile=payload['profile'])
+            pipeline.ensure_comfy(video_report,profile=payload['profile'],
+                                  cancel=lambda:self.db.cancelled(jid) or self.shutdown.is_set())
             if self.db.cancelled(jid) or self.shutdown.is_set():raise Cancelled('视频工作流准备已暂停。')
             if not self.video_environment.plan(payload['profile'])['ready']:
                 raise RuntimeError('所选工作流仍缺少节点或模型，请检查 ComfyUI 启动日志。')
@@ -286,6 +287,15 @@ class Worker:
             elif stage == 'storyboard':
                 self.content.storyboard(project, options, report, cancelled, reset=force)
             else:
+                from .workflow_checks import workflow_report
+                check = workflow_report(read_json(project / '分镜.json'), options, self.config.renderer_config(),
+                    lambda shot, story: self.assets.resolve(project, shot, story, inspect_media=True), self.content.mode)
+                # Stop before asking a text provider to write unusable prompts.
+                blockers = [i for i in check['issues'] if i['kind'] == 'workflow' and i['severity'] == 'error']
+                if blockers:
+                    write_json(project / '出片预检.json', check)
+                    report('工作流预检未通过：' + '\n'.join(i['message'] for i in blockers), status='review')
+                    return 'review'
                 if force:
                     story = read_json(project / '分镜.json')
                     for shot in story['shots']:
@@ -307,7 +317,9 @@ class Worker:
         if requested in ('all', 'render'):
             if cancelled():
                 raise Cancelled('已停止。')
-            preflight = story_report(read_json(project / '分镜.json'), options)
+            from .workflow_checks import workflow_report
+            preflight = workflow_report(read_json(project / '分镜.json'), options, self.config.renderer_config(),
+                lambda shot, story: self.assets.resolve(project, shot, story, inspect_media=True), self.content.mode)
             write_json(project / '出片预检.json', preflight)
             if not preflight['ready']:
                 report('出片预检未通过：' + '\n'.join(i['message'] for i in preflight['issues'] if i['severity']=='error'), status='review')
@@ -323,7 +335,8 @@ class Worker:
             for url in {image_settings.comfy_url, f'http://127.0.0.1:{image_settings.managed_port}'}-{pipeline.CONFIG['comfy_url'], ''}:
                 self.images.release_idle(url,required=True)
             if pipeline.CONFIG['profiles'][options.profile].get('workflow','native') != 'native':
-                pipeline.ensure_comfy(report, profile=options.profile)
+                pipeline.ensure_comfy(report, profile=options.profile, cancel=cancelled)
+                runner.engine_prepared = True
             runner.model_versions = fingerprint_models(pipeline.CONFIG, report, cancelled, profile=options.profile)
             write_json(project / 'renderer_snapshot.json', {'models': runner.model_versions, 'environment': {
                 k: pipeline.CONFIG.get(k) for k in ('attention', 'profiles')}, 'settings': options.model_dump(), 'created_at': now()})
@@ -334,8 +347,8 @@ class Worker:
                         'comfy_file': r['image'], 'file': r.get('local_file'), 'sha256': r['sha256'], 'character':r.get('character')} for i, r in enumerate(refs, 1)]
                 return self.assets.materialize(project, bindings)
             runner.binding_resolver = resolve
-            # 旧项目已有提示词沿用原来的渲染行为，新项目按实际素材重新编译。
-            if pipeline.CONFIG['profiles'][options.profile].get('workflow','native').startswith('h3-') or any(s.get('prompt_snapshot') or s.get('use_previous_last_frame') for s in read_json(project / '分镜.json')['shots']):
+            # Optional workflows must honor the project mode even for manual prompts.
+            if pipeline.CONFIG['profiles'][options.profile].get('workflow','native') != 'native' or any(s.get('prompt_snapshot') or s.get('use_previous_last_frame') for s in read_json(project / '分镜.json')['shots']):
                 runner.prompt_compiler = lambda story, shot, bindings: self.content.prompt_shot(
                     project, story, shot, options, bindings, report, cancelled)
             class Stop:

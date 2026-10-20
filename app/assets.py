@@ -14,6 +14,24 @@ import requests
 from .storage import contained, identifier, now, read_json, write_json
 
 
+def media_metadata(path, kind):
+    """Read stream headers without decoding the whole input on every preflight."""
+    with av.open(str(path)) as media:
+        streams = media.streams.video if kind == 'video' else media.streams.audio
+        if not streams:
+            raise ValueError('素材缺少需要的视频或音频流。')
+        stream = streams[0]
+        seconds = float(stream.duration * stream.time_base) if stream.duration is not None else (
+            media.duration / av.time_base if media.duration else None)
+        result = {'duration': seconds, 'include_audio': bool(media.streams.audio)}
+        if kind == 'video':
+            result.update(width=stream.width, height=stream.height,
+                          fps=float(stream.average_rate) if stream.average_rate else None)
+            if stream.frames:
+                result['frames'] = stream.frames
+        return result
+
+
 class Assets:
     def __init__(self, config, projects):
         self.config, self.projects = config, projects
@@ -77,6 +95,7 @@ class Assets:
             value = {'id': aid, 'type': kind, 'name': name or aid, 'file': str(path.relative_to(project)).replace('\\', '/'),
                      'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'source': 'user', 'duration': duration,
                      'include_audio': include_audio, 'created_at': now()}
+            value.update(media_metadata(path, kind))
             assets = read_json(project / 'assets.json', {})
             assets[aid] = value
             write_json(project / 'assets.json', assets)
@@ -85,7 +104,7 @@ class Assets:
             path.unlink(missing_ok=True)
             raise
 
-    def resolve(self, project, shot, story):
+    def resolve(self, project, shot, story, inspect_media=False):
         from .continuity import enabled, planned_frame, predecessor
         if enabled(shot):
             return {'first_frame': planned_frame(shot, predecessor(shot, story))}
@@ -113,6 +132,11 @@ class Assets:
                     selected[-1]['character'] = asset['character']
                 if 'include_audio' in asset:
                     selected[-1]['include_audio'] = asset['include_audio']
+                for key in ('duration', 'frames', 'fps', 'width', 'height'):
+                    if key in asset:
+                        selected[-1][key] = asset[key]
+                if inspect_media and kind in ('source_video', 'source_audio'):
+                    selected[-1].update(media_metadata(contained(project, asset['file']), expected))
                 selected[-1]['sha256'] = hashlib.sha256(contained(project, asset['file']).read_bytes()).hexdigest()
             result[kind] = selected if multiple else selected[0] if selected else None
         if not any(result.get(kind) for kind in ('images','videos','audios','first_frame','last_frame')):

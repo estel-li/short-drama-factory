@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import torchaudio
 import comfy.nested_tensor
 import comfy.utils
+import av
+import numpy as np
 
 
 def av_parts(latent):
@@ -55,6 +57,75 @@ class DramaH3VideoInput:
         if tuple(result.shape[1:3]) != (height, width):
             result = comfy.utils.common_upscale(result.movedim(-1, 1), width, height, 'bicubic', 'center').movedim(1, -1)
         return result, crop_audio(audio, start/fps, frames/fps)
+
+
+class DramaH3VideoSource:
+    """Decode only the requested window at output size, not a whole 4K tensor."""
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {'required': {'video': ('VIDEO',),
+            'width': ('INT', {'default': 832, 'min': 32}), 'height': ('INT', {'default': 480, 'min': 32}),
+            'frames': ('INT', {'default': 107, 'min': 1, 'max': 362}),
+            'start_seconds': ('FLOAT', {'default': 0, 'min': 0, 'max': 15}),
+            'tail': ('BOOLEAN', {'default': False})}}
+    RETURN_TYPES = ('IMAGE', 'AUDIO')
+    FUNCTION = 'prepare'
+    CATEGORY = '短剧工厂/H3 工作流'
+
+    def prepare(self, video, width, height, frames, start_seconds, tail):
+        from collections import deque
+        source = video.get_stream_source()
+        if not isinstance(source, str):
+            raise ValueError('工作流源视频需要已上传的文件。')
+        selected = deque(maxlen=frames)
+        start = round(start_seconds * 24)
+        count = 0
+        with av.open(source) as media:
+            stream = media.streams.video[0]
+            if not stream.average_rate or abs(float(stream.average_rate) - 24) > .01:
+                raise ValueError('源视频必须为 24fps，请通过工作台素材上传转换。')
+            # Keep CPU allocation bounded even for long/high resolution sources.
+            for index, frame in enumerate(media.decode(video=0)):
+                count = index + 1
+                if tail or start <= index < start + frames:
+                    scale = max(width / frame.width, height / frame.height)
+                    scaled = frame.reformat(width=max(width, round(frame.width * scale)),
+                        height=max(height, round(frame.height * scale)), format='rgb24').to_ndarray()
+                    x, y = (scaled.shape[1] - width) // 2, (scaled.shape[0] - height) // 2
+                    selected.append(scaled[y:y+height, x:x+width].copy())
+                if not tail and count >= start + frames:
+                    break
+        if len(selected) < frames:
+            raise ValueError('源视频可用帧数不足，请缩短目标镜头或更换源片。')
+        if tail:
+            start = count - frames
+        waveform = torch.zeros(1, 2, round(frames / 24 * 32000))
+        # Read audio independently; video decoding above never materializes it.
+        with av.open(source) as media:
+            if media.streams.audio:
+                stream = media.streams.audio[0]
+                origin = float(stream.start_time * stream.time_base) if stream.start_time is not None else 0
+                resampler = av.AudioResampler(format='fltp', layout='stereo', rate=32000)
+                cursor = 0
+                begin = round(start / 24 * 32000)
+                end = begin + waveform.shape[-1]
+                def copy_audio(frame):
+                    nonlocal cursor
+                    pos = round((float(frame.time) - origin) * 32000) if frame.time is not None else cursor
+                    samples = frame.to_ndarray()
+                    left, right = max(begin, pos), min(end, pos + samples.shape[-1])
+                    if left < right:
+                        waveform[0, :, left-begin:right-begin] = torch.from_numpy(samples[:, left-pos:right-pos].copy())
+                    cursor = pos + samples.shape[-1]
+                for frame in media.decode(audio=0):
+                    for item in resampler.resample(frame):
+                        copy_audio(item)
+                    if cursor >= end:
+                        break
+                for item in resampler.resample(None):
+                    copy_audio(item)
+        images = torch.from_numpy(np.stack(selected)).float().div_(255)
+        return images, {'sample_rate': 32000, 'waveform': waveform}
 
 
 class DramaH3StageInputs:
@@ -125,5 +196,5 @@ class DramaH3TrimAV:
         return images[:frames], crop_audio(audio, 0, frames/fps)
 
 
-CLASSES = {cls.__name__: cls for cls in (DramaH3AudioInput, DramaH3VideoInput, DramaH3StageInputs,
+CLASSES = {cls.__name__: cls for cls in (DramaH3AudioInput, DramaH3VideoInput, DramaH3VideoSource, DramaH3StageInputs,
     DramaH3AudioDrive, DramaH3FoleyLatent, DramaH3TrimAV)}
