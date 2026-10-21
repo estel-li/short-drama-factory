@@ -1,5 +1,5 @@
-import { el } from "./api.js?v=3.5.0";
-import { statusInfo } from "./state.js?v=3.5.0";
+﻿import { el } from "./api.js?v=3.6.0";
+import { statusInfo } from "./state.js?v=3.6.0";
 
 const paths = {
   film: ["M4 3h16v18H4z", "M4 7h16M4 17h16M8 3v18M16 3v18"],

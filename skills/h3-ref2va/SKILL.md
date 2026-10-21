@@ -12,17 +12,18 @@ description: 官方完整多模态参考 Ref2VA；在短剧工厂 prompt 阶段�
 ## 完整上游参考
 
 - [SKILL.md](references/minimax-h3/SKILL.md)
-- [base-en.txt](references/minimax-h3/references/base-en.txt)
 - [ref-en.txt](references/minimax-h3/references/ref-en.txt)
 - [generability.md](references/drama-skills/short-drama-video-prompts/references/generability.md)
 - [voice-direction.md](references/drama-skills/short-drama-assets/references/voice-direction.md)
 
 ## H3 单镜头产物
 
-只返回 {"prompt":"完整提示词"}，不得返回 Markdown 或生成工具调用。
+返回本次请求末尾 schema 规定的命名字段，不要包装成单个 prompt 字符串，也不得返回 Markdown 或生成工具调用：
+T2VA/I2VA/FL2VA/L2VA 返回 integrated_multimodal_description、overall_soundscape、non_diegetic_music 三段；
+Ref2VA 返回 subject_definitions、summary、retention_analysis、detailed_description、overall_soundscape、non_diegetic_music 六段。
+由程序按官方顺序拼接并添加第一行对齐指令，正文中不要重复该对齐行。
 当前生成片段只使用 [Shot 1]；工作台分镜编号不是片段内的剪辑编号。
-实际时长来自 aligned_duration，尾帧对齐指令将该时长格式化为两位小数。
-严格使用官方三段/六段格式及对应模式的第一行对齐指令。不要给 [Shot 1] 添加切镜时间戳。
+严格使用官方对应模式的段落结构；不要给 [Shot 1] 添加切镜时间戳。
 画面、摄影和声音描述为英文；用户对白和必要画内文字保留原语言、原词与标点。
 每个真正发声者采用稳定 (S1) 等编号；声音身份描述放在 <d> 外，<d> 中只放 [语言] 原对白。
 旁白用 says in an off-screen voiceover，并在每个旁白块后说明画面人物 lips remain completely closed。
@@ -34,6 +35,21 @@ overall_soundscape 不重复对白，只交代环境和动作声音；全静音�
 将精确外观交给真实参考，描述目标动作和需保留的特征。
 自检：字段有序、素材定义一致、动作可生成、时长闭合、没有未绑定标签、对白完整、无额外水印字幕。
 
+## Ref2VA 六段字段与保留标记
+
+subject_definitions：按 reference_labels 逐个定义实际绑定素材，写作 `<Subject 1> ...`、`<Picture 1> ...`、
+`<Video 1> ...`、`<Audio 1> ...`，只用已绑定的编号；编号顺序与 ComfyUI 装载一致。
+summary：以任务类型前缀开头，参考复现写 `[reference generation]`，其余按上游任务类型表选择；
+一句话说明本镜要用参考生成什么。
+retention_analysis：对每个被引用素材显式标注保留关系——完全保留 fully_preserved、
+部分保留 partially_preserved、只转移属性 attribute_transfer、弱参考 weak_reference，
+信息不足写 [unclear] 并说明缺什么。不能给未出场人物写 fully_preserved。
+detailed_description：写成完整的镜头正文，包含 [Shot 1]、构图、人物位置、动作与状态变化、
+摄影机运动、环境与光线，并指明参考内容在何处真正出现或生效；不要退化成剧情摘要。
+overall_soundscape / non_diegetic_music：同其它模式的规则。
+本模式没有首帧/尾帧对齐指令；不要添加对齐行，也不要给 [Shot 1] 写切镜时间戳。
+参考里的其他人物不出场时不得写 fully_preserved，也不要为未绑定的素材发明标签。
+
 ## 工作台适配契约（本文件为本地适配层）
 
 这里执行短剧工厂的一个文字生成阶段。上游原文保留为真实参考；采用其创作与制作方法。
@@ -42,8 +58,9 @@ overall_soundscape 不重复对白，只交代环境和动作声音；全静音�
 检查模式的暂停由工作台控制；自动模式不额外提问或暂停。资料缺口采用与原意一致的保守选择。
 
 - 视觉风格：{{style}}；题材：{{genre}}；时长：{{duration}} 秒。
-- 对白语言：{{language}}；配乐说明：{{music}}；实际 H3 模式：{{mode}}。
+- 对白语言：{{language}}；配乐说明：{{music}}。
 - 不把示例中的人物、对白、画幅、分集数、九宫格、1080p 或 30fps 当成项目事实。
 - 不输出讲解、代码围栏、审批请求或脚本，只返回程序指定的 JSON。
 - 不改用户已确定的人物、主题、关键动作与结局；改编实现方式时保留戏剧结果。
-- 参考素材仅以 bindings 和 reference_labels 中的真实文件与编号为准。
+- 参考素材仅以真实绑定的文件与编号为准，不虚构素材。
+- 实际 H3 模式：{{mode}}（已由程序确定，不得根据参考图片数量更改）。

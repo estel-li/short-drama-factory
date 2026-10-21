@@ -1,4 +1,4 @@
-# API 操作表（3.5.0）
+﻿# API 操作表（3.6.0）
 
 基址默认 `http://127.0.0.1:8765`，不是 ComfyUI 的 8188。工作台校验 Host 与浏览器 Origin；本地脚本不需要伪造 Origin。下列路径由 `app/api.py` 核对，升级后先比对本机 `/openapi.json` 与实际返回；多数请求体是普通 dict，OpenAPI 不会列出所有字段。
 
@@ -17,6 +17,7 @@ CLI：`python scripts/factory_api.py post 路径 --json 请求文件.json`；没
 | GET `/api/skills`、`/api/presets` | 实际可用 Skill 和选项预设 |
 | GET `/api/environment/catalog` | 模型列表、缺失节点／模型、缓存协议 |
 | GET `/api/environment` | GPU、显存、磁盘和安装状态；不启动生成 |
+| GET `/api/environment/progress?job_id=ID` | 跟踪环境准备任务；准备用 POST `/api/environment/prepare` 或 `/install`，停止用 `/stop`，校验用 `/verify` |
 | POST `/api/duration-plan` | 完整或部分 Options 对象，**没有 options 包装层**；只计算时长 |
 | GET `/api/projects` | 项目列表，用真实 ID 选择已有项目 |
 | POST `/api/projects` | `{"input":"故事正文","options":{...},"start":false}`；外部 AI 分镜加 `"storyboard":{...}` |
@@ -86,6 +87,8 @@ python scripts/factory_api.py asset --project PROJECT_ID --file 角色.png --kin
 - 字幕：`/media/{id}/字幕.srt`，先确认存在。
 - 可用 `download` 保存；CLI 流式处理、输出 SHA-256，拒绝覆盖已有文件。输出存在时换文件名。
 - 项目迁移：`POST /api/export`，`{"projects":["项目ID"],"include_videos":true}`，返回 `url` 和 `size`。用 `download 返回的url --output 项目.zip`。执行前先确保目标项目空闲。
+- 反向导入：`POST /api/import`，请求体是 multipart 的**导出 zip 文件本身**（字段名 `file`），不是 JSON 摘要。导入会在当前任务空闲时把项目与 Skill 并回本机；冲突时按返回的 `projects`／`skills` 分别核对，不要假设原项目 ID 不变。
+- 已命名导出物可用 GET `/api/exports/{name}` 读取，`name` 来自导出响应，不接受自行拼造的路径。
 - HTTP 媒体链接需要应用运行；用户要离线文件时下载，并返回实际绝对路径。不要把本机链接称为公开链接。
 
 ## 多集（用户确实需要时）

@@ -14,113 +14,113 @@
     "h3-fl2va",
     "h3-l2va",
     "h3-ref2va",
-    "image-qwen-general",
     "image-qwen-character",
-    "image-qwen-scene",
-    "image-qwen-prop"
+    "image-qwen-general",
+    "image-qwen-prop",
+    "image-qwen-scene"
   ],
   "skills": [
     {
       "id": "outline-hook",
       "stage": "outline",
       "sources": 4,
-      "bytes": 56724
+      "bytes": 56660
     },
     {
       "id": "outline-three-act",
       "stage": "outline",
       "sources": 3,
-      "bytes": 63262
+      "bytes": 63198
     },
     {
       "id": "outline-mystery",
       "stage": "outline",
       "sources": 4,
-      "bytes": 45591
+      "bytes": 45527
     },
     {
       "id": "outline-warm",
       "stage": "outline",
       "sources": 4,
-      "bytes": 70643
+      "bytes": 70579
     },
     {
       "id": "storyboard-fast",
       "stage": "storyboard",
-      "sources": 5,
-      "bytes": 78424
+      "sources": 4,
+      "bytes": 70699
     },
     {
       "id": "storyboard-dialogue",
       "stage": "storyboard",
       "sources": 4,
-      "bytes": 81375
+      "bytes": 81481
     },
     {
       "id": "storyboard-action",
       "stage": "storyboard",
       "sources": 5,
-      "bytes": 72316
+      "bytes": 72422
     },
     {
       "id": "storyboard-montage",
       "stage": "storyboard",
       "sources": 5,
-      "bytes": 73481
+      "bytes": 73587
     },
     {
       "id": "h3-t2va",
       "stage": "prompt",
       "sources": 4,
-      "bytes": 56133
+      "bytes": 56475
     },
     {
       "id": "h3-i2va",
       "stage": "prompt",
       "sources": 4,
-      "bytes": 56133
+      "bytes": 57293
     },
     {
       "id": "h3-fl2va",
       "stage": "prompt",
       "sources": 4,
-      "bytes": 56143
+      "bytes": 57303
     },
     {
       "id": "h3-l2va",
       "stage": "prompt",
       "sources": 4,
-      "bytes": 56133
+      "bytes": 57293
     },
     {
       "id": "h3-ref2va",
       "stage": "prompt",
-      "sources": 5,
-      "bytes": 79772
-    },
-    {
-      "id": "image-qwen-general",
-      "stage": "image_prompt",
-      "sources": 0,
-      "bytes": 1670
+      "sources": 4,
+      "bytes": 65551
     },
     {
       "id": "image-qwen-character",
       "stage": "image_prompt",
       "sources": 0,
-      "bytes": 1820
+      "bundled": true
     },
     {
-      "id": "image-qwen-scene",
+      "id": "image-qwen-general",
       "stage": "image_prompt",
       "sources": 0,
-      "bytes": 1783
+      "bundled": true
     },
     {
       "id": "image-qwen-prop",
       "stage": "image_prompt",
       "sources": 0,
-      "bytes": 1728
+      "bundled": true
+    },
+    {
+      "id": "image-qwen-scene",
+      "stage": "image_prompt",
+      "sources": 0,
+      "bundled": true
     }
   ],
   "license_source": {

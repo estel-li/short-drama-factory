@@ -25,11 +25,10 @@ description: 对白正反打与潜台词；在短剧工厂 storyboard 阶段使�
 - characters：稳定 id、name、visual_description（英文外观）、voice_description。
 - scenes / props：稳定 id 和 name；记录光源、空间锚点、道具归属、状态及必要文字。
 - shot.scene / scene_id / continuity_group：场景名称、对应场景 id、连续段。
-- shot.summary / purpose：本镜承担的信息、决定或后果，不只写“人物说话”。
-- shot.action：动作开始、可见过程和结果；begin_state / end_state 可补充边界事实。
+- shot.summary：本镜承担的信息、决定或后果，不只写“人物说话”。
+- shot.action：动作开始、可见过程和结果。
 - shot.camera：景别、观察侧、运动类型、幅度、速度与停止位置，并解释动机。
 - shot.characters / props：只填本镜真实出场的 id；dialogue 保留原文与说话人。
-- source_fact / sound / continuity_notes / keyframe_description 可作为扩展字段保存。
 
 一个工作台镜头对应一段单独生成的视频。按当前时长保留一个主要动作及可读反应，
 默认最多两名可见人物，可连续至多三句短对白。按 dialogue_pacing 的语速、起手、句间和收尾预算装镜；长句按语义分到相邻镜头，不能强行快读或改词。角色至少用脸型/年龄、服装主色、配饰等多个外观锚点区分，不能只靠发长。
@@ -45,17 +44,8 @@ description: 对白正反打与潜台词；在短剧工厂 storyboard 阶段使�
 检查模式的暂停由工作台控制；自动模式不额外提问或暂停。资料缺口采用与原意一致的保守选择。
 
 - 视觉风格：{{style}}；题材：{{genre}}；时长：{{duration}} 秒。
-- 对白语言：{{language}}；配乐说明：{{music}}；实际 H3 模式：{{mode}}。
+- 对白语言：{{language}}；配乐说明：{{music}}。
 - 不把示例中的人物、对白、画幅、分集数、九宫格、1080p 或 30fps 当成项目事实。
 - 不输出讲解、代码围栏、审批请求或脚本，只返回程序指定的 JSON。
 - 不改用户已确定的人物、主题、关键动作与结局；改编实现方式时保留戏剧结果。
-- 参考素材仅以 bindings 和 reference_labels 中的真实文件与编号为准。
-
-## 首帧功能（工作台 2.2）
-
-首帧功能由 AI 分镜人逐镜决定：use_previous_last_frame 为 JSON 布尔值，默认 false。
-仅当当前镜头与紧邻的上一镜头属于同一场景、同一连续段，而且画面应从上一镜头的结束状态继续时，才设为 true，并在 first_frame_reason 简述理由。
-第一镜、换场、时间跳跃、闪回、蒙太奇、需要硬切/正反打或完全不同起始构图的镜头设为 false。不要为了人物相同或风格一致而启用。
-场景使用稳定的 scene_id 或完全一致的 scene；同一连续段使用相同 continuity_group，时间或动作中断时换组。
-跨批次第一镜也要参考 previous_shots 的最后一镜。启用后由程序强制 I2VA，并以当前顺序上一条视频的实际最后一帧为首帧；无需填写绑定或上传图片。
-新镜头动作必须接续上一镜头末态，禁止重新演上一镜头已完成的动作。未启用时原有模式、素材和规则照常。
+- 参考素材仅以真实绑定的文件与编号为准，不虚构素材。

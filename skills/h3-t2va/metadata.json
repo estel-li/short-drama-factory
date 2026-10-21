@@ -66,7 +66,7 @@
   "modes": [
     "T2VA"
   ],
-  "official_keyframe_prefix": true,
+  "official_keyframe_prefix": false,
   "references": [
     "references/minimax-h3/SKILL.md",
     "references/minimax-h3/references/base-en.txt",

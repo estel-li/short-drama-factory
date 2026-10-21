@@ -45,16 +45,6 @@
       "bytes": 2118,
       "local_file": "references/drama-skills/short-drama-storyboard/references/lighting-craft.md",
       "license": "MIT"
-    },
-    {
-      "repo": "aicontentskills/ai-video-storyboard-skill",
-      "revision": "93f8a6d6935858bc4acd7ff3bbea2411edf88caa",
-      "path": "SKILL.md",
-      "url": "https://raw.githubusercontent.com/aicontentskills/ai-video-storyboard-skill/93f8a6d6935858bc4acd7ff3bbea2411edf88caa/SKILL.md",
-      "sha256": "030662a226bd3e4ba0f8bbdf088b0fe1ebbb3805c586a856616a3f4c372a5eff",
-      "bytes": 7777,
-      "local_file": "references/ai-video-storyboard/SKILL.md",
-      "license": "MIT (declared in SKILL.md)"
     }
   ],
   "license": "上游各自许可；详见 references/licenses",
@@ -62,16 +52,14 @@
     "references/drama-skills/short-drama-storyboard/SKILL.md",
     "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
     "references/drama-skills/short-drama-storyboard/references/production-shot-grammar.md",
-    "references/drama-skills/short-drama-storyboard/references/lighting-craft.md",
-    "references/ai-video-storyboard/SKILL.md"
+    "references/drama-skills/short-drama-storyboard/references/lighting-craft.md"
   ],
   "variables": [
     "style",
     "genre",
     "duration",
     "language",
-    "music",
-    "mode"
+    "music"
   ],
   "source_url": "https://github.com/zenstory-ai/drama-skills",
   "references": [
@@ -79,7 +67,6 @@
     "references/drama-skills/short-drama-storyboard/references/shot-craft.md",
     "references/drama-skills/short-drama-storyboard/references/production-shot-grammar.md",
     "references/drama-skills/short-drama-storyboard/references/lighting-craft.md",
-    "references/ai-video-storyboard/SKILL.md",
     "references/licenses/drama-skills-LICENSE.txt"
   ]
 }

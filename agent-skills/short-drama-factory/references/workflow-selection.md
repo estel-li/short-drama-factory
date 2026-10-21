@@ -1,4 +1,4 @@
-# 工作流选择与执行（3.5.0）
+﻿# 工作流选择与执行（3.6.0）
 
 先读取 `/api/video/workflows` 与 `/api/images/models`，使用当前实例的 ID、支持模式、必需槽位和推荐参数。自定义方案通常为 `custom-*`，按 `workflow` 判断能力，不按名称猜测。详细媒体参数见 [H3 媒体契约](h3-advanced.md)，资源准备见 [模型与工作流接口](workflow-models.md)。
 

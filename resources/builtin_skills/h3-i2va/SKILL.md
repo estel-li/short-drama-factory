@@ -18,10 +18,12 @@ description: 官方完整首帧 I2VA；在短剧工厂 prompt 阶段使用真实
 
 ## H3 单镜头产物
 
-只返回 {"prompt":"完整提示词"}，不得返回 Markdown 或生成工具调用。
+返回本次请求末尾 schema 规定的命名字段，不要包装成单个 prompt 字符串，也不得返回 Markdown 或生成工具调用：
+T2VA/I2VA/FL2VA/L2VA 返回 integrated_multimodal_description、overall_soundscape、non_diegetic_music 三段；
+Ref2VA 返回 subject_definitions、summary、retention_analysis、detailed_description、overall_soundscape、non_diegetic_music 六段。
+由程序按官方顺序拼接并添加第一行对齐指令，正文中不要重复该对齐行。
 当前生成片段只使用 [Shot 1]；工作台分镜编号不是片段内的剪辑编号。
-实际时长来自 aligned_duration，尾帧对齐指令将该时长格式化为两位小数。
-严格使用官方三段/六段格式及对应模式的第一行对齐指令。不要给 [Shot 1] 添加切镜时间戳。
+严格使用官方对应模式的段落结构；不要给 [Shot 1] 添加切镜时间戳。
 画面、摄影和声音描述为英文；用户对白和必要画内文字保留原语言、原词与标点。
 每个真正发声者采用稳定 (S1) 等编号；声音身份描述放在 <d> 外，<d> 中只放 [语言] 原对白。
 旁白用 says in an off-screen voiceover，并在每个旁白块后说明画面人物 lips remain completely closed。
@@ -33,6 +35,17 @@ overall_soundscape 不重复对白，只交代环境和动作声音；全静音�
 将精确外观交给真实参考，描述目标动作和需保留的特征。
 自检：字段有序、素材定义一致、动作可生成、时长闭合、没有未绑定标签、对白完整、无额外水印字幕。
 
+## 首帧与尾帧对齐
+
+实际时长来自 aligned_duration；对齐行由程序按两位小数写好。
+首帧对齐由程序写在提示词第一行，正文不要重复：I2VA 从 "For the target video, at 0.00 seconds"
+开始，FL2VA 用 "How the reference pictures align" 并把 <Picture 2> 对齐到末尾时间，
+L2VA 用同一句式把 <Picture 1> 对齐到末尾时间。T2VA 与 Ref2VA 没有对齐行。
+首帧镜头先确立 Picture 1 中的风格、人物、构图与场景锚点，再描述后续动作；角色身份、服装、
+颜色、关键道具与空间关系必须与参考保持一致。首尾帧镜头写清主体如何移动、姿态与道具如何变化、
+构图与光线如何过渡到末帧。尾帧镜头从合理解释的更早状态出发，让动作与构图逐步落到尾帧。
+
+
 ## 工作台适配契约（本文件为本地适配层）
 
 这里执行短剧工厂的一个文字生成阶段。上游原文保留为真实参考；采用其创作与制作方法。
@@ -41,8 +54,9 @@ overall_soundscape 不重复对白，只交代环境和动作声音；全静音�
 检查模式的暂停由工作台控制；自动模式不额外提问或暂停。资料缺口采用与原意一致的保守选择。
 
 - 视觉风格：{{style}}；题材：{{genre}}；时长：{{duration}} 秒。
-- 对白语言：{{language}}；配乐说明：{{music}}；实际 H3 模式：{{mode}}。
+- 对白语言：{{language}}；配乐说明：{{music}}。
 - 不把示例中的人物、对白、画幅、分集数、九宫格、1080p 或 30fps 当成项目事实。
 - 不输出讲解、代码围栏、审批请求或脚本，只返回程序指定的 JSON。
 - 不改用户已确定的人物、主题、关键动作与结局；改编实现方式时保留戏剧结果。
-- 参考素材仅以 bindings 和 reference_labels 中的真实文件与编号为准。
+- 参考素材仅以真实绑定的文件与编号为准，不虚构素材。
+- 实际 H3 模式：{{mode}}（已由程序确定，不得根据参考图片数量更改）。

@@ -19,16 +19,6 @@
     {
       "repo": "MiniMax-AI/MiniMax-H3",
       "revision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
-      "path": "skills/h3-prompt-writing/references/base-en.txt",
-      "url": "https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/d21241f0a4b3acbb34c97dae47fa417b7065e438/skills/h3-prompt-writing/references/base-en.txt",
-      "sha256": "2cfebc096a6e08370f288d468d90b60f7f9bcb938f94bf090816e910e48e75fc",
-      "bytes": 15773,
-      "local_file": "references/minimax-h3/references/base-en.txt",
-      "license": "MiniMax H3 Community License Agreement"
-    },
-    {
-      "repo": "MiniMax-AI/MiniMax-H3",
-      "revision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
       "path": "skills/h3-prompt-writing/references/ref-en.txt",
       "url": "https://raw.githubusercontent.com/MiniMax-AI/MiniMax-H3/d21241f0a4b3acbb34c97dae47fa417b7065e438/skills/h3-prompt-writing/references/ref-en.txt",
       "sha256": "1e574f356716ad55612247ffb7bbccbcdb484ad96599d63c7dca1af186b1fab7",
@@ -60,7 +50,6 @@
   "license": "上游各自许可；详见 references/licenses",
   "context_references": [
     "references/minimax-h3/SKILL.md",
-    "references/minimax-h3/references/base-en.txt",
     "references/minimax-h3/references/ref-en.txt",
     "references/drama-skills/short-drama-video-prompts/references/generability.md",
     "references/drama-skills/short-drama-assets/references/voice-direction.md"
@@ -77,10 +66,9 @@
   "modes": [
     "Ref2VA"
   ],
-  "official_keyframe_prefix": true,
+  "official_keyframe_prefix": false,
   "references": [
     "references/minimax-h3/SKILL.md",
-    "references/minimax-h3/references/base-en.txt",
     "references/minimax-h3/references/ref-en.txt",
     "references/drama-skills/short-drama-video-prompts/references/generability.md",
     "references/drama-skills/short-drama-assets/references/voice-direction.md",

@@ -220,6 +220,7 @@ class Shot(BaseModel):
     id: int = 1
     uid: str = Field(default='', pattern=r'^[a-zA-Z0-9_-]{0,80}$')
     scene: str = ''
+    scene_id: str = Field(default='', max_length=120, description='对应 scenes 中场景的稳定 id；缺省时按 scene 名称匹配。')
     summary: str = ''
     camera: str = ''
     action: str = ''
@@ -231,7 +232,7 @@ class Shot(BaseModel):
     dialogue: list[Dialogue] = Field(default_factory=list)
     prompt: str = Field(default='', max_length=40000)
     locked: bool = False
-    mode: str = 'auto'
+    mode: Literal['auto', 'T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA'] = Field(default='auto', description='逐镜 H3 模式；auto 由程序按实际素材绑定推断。')
     bindings: dict = Field(default_factory=dict)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
 

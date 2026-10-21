@@ -4,7 +4,6 @@ from __future__ import annotations
 import copy
 import math
 import re
-import unicodedata
 from difflib import SequenceMatcher
 from .storage import digest
 
@@ -45,8 +44,22 @@ def script_dialogue(text):
     return result
 
 
+CJK = re.compile(r'[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]')
+# Natural English runs ~2.5 words/s; the rate is expressed in units/s at 5.6 (one unit per CJK
+# character), so one Latin word has to weigh about 5.6 / 2.5 to land on the same timeline.
+LATIN_WORD_UNITS = 2.2
+
+
 def spoken_units(text):
-    return sum(not c.isspace() and not unicodedata.category(c).startswith(('P', 'Z', 'C')) for c in text)
+    """Speech units: one per CJK character, LATIN_WORD_UNITS per Latin word.
+
+    Counting Latin letters individually made a 41-letter English line need 8.27 seconds and
+    blocked every English project, since dialogues language is a user-facing option.
+    """
+    cjk = len(CJK.findall(text))
+    latin = CJK.sub(' ', text)
+    words = [w for w in re.split(r'[\s\-\u2019\']+', latin) if any(c.isalnum() for c in w)]
+    return round(cjk + len(words) * LATIN_WORD_UNITS, 4)
 
 
 def dialogue_budget(dialogue, rate=5.6, lead=0.4, gap=0.3, tail=0.55):
@@ -110,7 +123,10 @@ def story_report(story, options):
         for line in shot.get('dialogue', []):
             speaker = line.get('speaker', '')
             cid = names.get(speaker, speaker if speaker in ids else None)
-            if cid and cid not in shot.get('characters', []) and not options.narration:
+            # Narration only excuses the lines it actually covers; a named, on-screen speaker
+            # stays checked even when the project has narration enabled.
+            narrated = line.get('narration') is True or (options.narration and not cid)
+            if cid and cid not in shot.get('characters', []) and not narrated:
                 issues.append({'kind': 'offscreen_speaker', 'severity': 'error', 'uid': shot.get('uid'), 'shot_id': shot['id'],
                                'message': f"镜头 {shot['id']} 的说话人 {speaker} 没有出场。请确认出场人物，画外音请显式开启旁白。"})
     return {'version': 1, 'issues': issues, 'shots': shots, 'ready': not any(i['severity'] == 'error' for i in issues),

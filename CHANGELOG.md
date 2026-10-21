@@ -1,5 +1,23 @@
 # 更新记录
 
+## 3.6.0 · Skill 契约整理
+
+- 审查 17 个内置 Skill 与程序运行时契约，修复提示词、字段与模式三处的结构性偏差；全部 Skill 通过统一渲染与回归校验。
+
+- 修复 5 个 H3 提示词 Skill 要求返回 `{"prompt": ...}`、与程序三段／六段 schema 冲突的问题；每镜不再先浪费一次失败的生成。
+- `h3-ref2va` 补齐 Ref2VA 专有的六段字段与保留标记（`fully_preserved` / `attribute_transfer` / `[unclear]` / 任务类型前缀），并去掉从首尾帧模式误抄的对齐指令与切镜时间戳说明。
+- `h3-ref2va` 改为只装载 `ref-en.txt`，不再同时装载 `base-en.txt`；渲染体积从 50,311 降到 35,262 字符。T2VA 与 Ref2VA 不再装载与自身无关的关键帧段落。
+- 从 `storyboard-fast` 移除 `ai-video-storyboard` 上游文档：它要求 Markdown 分镜、CTA、1080p/30fps，与本程序的单镜 JSON 契约直接冲突。
+- 首帧规则只保留代码一处（`app/continuity.py`），删除 4 个分镜 Skill 里逐字重复的副本。
+- 分镜 Skill 不再提示写入 `purpose`／`begin_state`／`end_state`／`source_fact`／`keyframe_description` 等程序不消费的字段；`scene_id` 升为 `Shot` 正式字段。
+- 整剧分集规划复用大纲阶段时，系统提示明确覆盖「单集短片」表述，并要求输出 `SeriesPlan` 与逐集 `number`／`hook`。
+- `enrich_builtin_skills.py` 重建时保留既有 Skill id；此前只写入 13 个受审档案，会让便携包丢失 4 个 `image-qwen-*` 图片提示词 Skill。
+- `Skills.save()` 增加渲染级 64K 校验，不再能保存出永远无法渲染的 Skill；单个损坏包也不会再让 Skill 管理页整体 500。
+- Skill 变量改为单遍替换，用户文本中的 `{{...}}` 不再被二次展开；front matter 不再发送给模型；非 prompt 阶段不再注入空串 H3 模式。
+- 对白预算按单词而非字母统计英文，修复英文台词被估算成超长、导致英文项目无法分镜的问题；旁白开关只豁免旁白行，不再全局关闭说话人出场检查。
+- 删除 5 个从未被引用的 `h3-*/references/example.md`；`skills/` 与 `resources/builtin_skills/` 逐字节对齐。
+- 新增 `tests/test_skill_contracts.py`（16 项），覆盖 live 与内置资源一致、渲染上限、占位符、模式取值、英文台词预算与「不可渲染即拒绝保存」。
+
 ## 3.5.0
 
 - 审查 3.2 / 3.3 的新增工作流并修复高级媒体节点与 Ref2VA 音频参考编号冲突，避免输入被覆盖或循环依赖。

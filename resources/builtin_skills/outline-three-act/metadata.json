@@ -48,8 +48,7 @@
     "genre",
     "duration",
     "language",
-    "music",
-    "mode"
+    "music"
   ],
   "source_url": "https://github.com/zenstory-ai/drama-skills",
   "references": [
