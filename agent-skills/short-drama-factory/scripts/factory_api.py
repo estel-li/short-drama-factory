@@ -23,7 +23,39 @@ from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_ope
 
 
 class APIError(RuntimeError):
-    pass
+    """A safe machine-readable error; raw HTTP bodies are never exposed."""
+
+    def __init__(self, message, *, http_status=None, payload=None):
+        super().__init__(message)
+        self.http_status = http_status
+        self.payload = {"error": message, "message": message, "retried": False}
+        if http_status is not None:
+            self.payload["http_status"] = http_status
+        if payload:
+            self.payload.update(payload)
+
+
+def safe_server_error(value):
+    """Accept our explicit error contract, never FastAPI's input/ctx/detail."""
+    if not isinstance(value, dict):
+        return {}
+    code, message = value.get("code"), value.get("message")
+    if (not isinstance(code, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", code)
+            or not isinstance(message, str)):
+        return {}
+    result = {"code": code, "message": message[:4000], "error": message[:4000]}
+    for name in ("field", "uid"):
+        if isinstance(value.get(name), str):
+            result[name] = value[name][:500]
+    if type(value.get("retryable")) is bool:
+        result["retryable"] = value["retryable"]
+    if isinstance(value.get("next_actions"), list):
+        result["next_actions"] = [v[:1000] for v in value["next_actions"][:30] if isinstance(v, str)]
+    if isinstance(value.get("details"), list):
+        result["details"] = [{k: row[k][:1000] for k in ("field", "type", "message")
+                              if isinstance(row.get(k), str)}
+                             for row in value["details"][:100] if isinstance(row, dict)]
+    return result
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -52,26 +84,38 @@ class Client:
             raise APIError("使用 /api/... 或 /media/... 相对接口路径，不接受外部 URL。")
         return self.base + quote(path, safe="/%?=&:+,~@")
 
-    def open(self, method, path, body=None, timeout=None):
+    def open(self, method, path, body=None, timeout=None, headers=None):
         payload = None if body is None else json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")
         if payload is not None and len(payload) > 12_000_000:
             raise APIError("JSON 请求超过工作台 12MB 上限。")
-        request = Request(self.url(path), data=payload, method=method,
-                          headers={"Content-Type": "application/json", "Accept": "application/json"})
+        request_headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        for name, value in (headers or {}).items():
+            if not isinstance(name, str) or not isinstance(value, str) or any(c in name + value for c in "\r\n"):
+                raise APIError("请求头必须是没有换行的字符串。")
+            request_headers[name] = value
+        request = Request(self.url(path), data=payload, method=method, headers=request_headers)
         try:
             return self.opener.open(request, timeout=timeout or self.timeout)
         except HTTPError as exc:
-            # Do not echo server validation bodies; they can contain user content or secrets.
             code = exc.code
-            exc.close()
-            raise APIError(f"HTTP {code}，请在工作台查看错误；未自动重试。") from None
+            safe = {}
+            try:
+                raw = exc.read(65537)
+                if len(raw) <= 65536 and "application/json" in exc.headers.get("Content-Type", ""):
+                    safe = safe_server_error(json.loads(raw))
+            except (OSError, HTTPException, ValueError):
+                pass
+            finally:
+                exc.close()
+            message = safe.get("message", f"HTTP {code}，接口未提供结构化错误；未自动重试。")
+            raise APIError(message, http_status=code, payload=safe) from None
         except (URLError, TimeoutError, OSError, HTTPException) as exc:
             detail = "写请求结果未知；先查询项目与任务，勿直接重发。" if method != "GET" else "查询失败，不代表后台任务停止。"
             raise APIError(f"无法连接或请求超时。{detail}") from exc
 
-    def request(self, method, path, body=None, timeout=None):
+    def request(self, method, path, body=None, timeout=None, headers=None):
         try:
-            with self.open(method, path, body, timeout) as response:
+            with self.open(method, path, body, timeout, headers=headers) as response:
                 if "application/json" not in response.headers.get("Content-Type", ""):
                     raise APIError("接口未返回 JSON；文件请使用 download 命令。")
                 return json.load(response)
@@ -194,29 +238,52 @@ def diagnose(client, project_id):
     return project_diagnostics(project, jobs, preflight)
 
 
+def get_job(client, job_id, timeout=None):
+    """Read an exact persisted job; old servers alone need the bounded fallback."""
+    try:
+        return client.request("GET", f"/api/jobs/{job_id}", timeout=timeout)
+    except APIError as exc:
+        if exc.http_status != 404:
+            raise
+        # A new API's explicit missing result must not be hidden by a legacy list.
+        if exc.payload.get("code") in ("job_not_found", "JOB_NOT_FOUND"):
+            return None
+        if exc.payload.get("code"):
+            raise
+        jobs = client.request("GET", "/api/jobs", timeout=timeout)
+        return next((job for job in jobs if job.get("id") == job_id), None)
+
+
 def watch(client, project_id, job_id, seconds=45, interval=5):
     if not (math.isfinite(seconds) and 0 < seconds <= 45 and math.isfinite(interval) and 1 <= interval <= 15):
         raise APIError("seconds 为 0～45 秒（不含 0）；interval 为 1～15 秒。")
     deadline = time.monotonic() + seconds
     while True:
         remaining = max(.1, deadline - time.monotonic())
-        jobs = client.request("GET", "/api/jobs", timeout=min(client.timeout, remaining))
+        job = get_job(client, job_id, timeout=min(client.timeout, remaining))
         remaining = max(.1, deadline - time.monotonic())
-        project = client.request("GET", f"/api/project/{project_id}", timeout=min(client.timeout, remaining))
-        job = next((j for j in jobs if j["id"] == job_id), None)
-        if job and job["project_id"] != project_id:
+        if job and project_id and job.get("project_id") != project_id:
             raise APIError("任务 ID 不属于指定项目。")
+        project = client.request("GET", f"/api/project/{project_id}", timeout=min(client.timeout, remaining)) if project_id else {}
         state = project.get("state") or {}
         status = job["status"] if job else "unknown"
-        emit({"project_id": project_id, "job_id": job_id, "job_status": status,
+        event = {"project_id": project_id or (job or {}).get("project_id"), "job_id": job_id, "job_status": status,
+                 "kind": job.get("kind") if job else None,
+                 "message": job.get("message", "") if job else "未找到此任务 ID；旧版服务的查询范围可能有限。"}
+        for name in ("terminal", "outcome", "next_actions"):
+            if job and name in job:
+                event[name] = job[name]
+        if project_id:
+            event.update({
               "busy": project.get("busy"), "project_status": state.get("status"),
-              "stage": state.get("current_stage"), "message": job.get("message", "") if job else "最近 100 条任务中未找到此 ID。",
+              "stage": state.get("current_stage"),
               "final": project.get("final", False), "subtitled": project.get("subtitled", False),
               "completed_shots": sum(s.get("status") == "done" for s in state.get("shots", {}).values()),
               "total_shots": state.get("total_shots")})
+        emit(event)
         if status == "done":
             return 0
-        if status in ("review", "paused", "error"):
+        if status in ("review", "paused", "error", "failed", "blocked", "cancelled"):
             return 2
         if status not in ("queued", "running"):
             return 4
@@ -274,7 +341,7 @@ def main(argv=None):
         return 0
     except (APIError, OSError, ValueError, HTTPException) as exc:
         message = f"JSON 格式错误：第 {exc.lineno} 行，第 {exc.colno} 列。" if isinstance(exc, json.JSONDecodeError) else str(exc)
-        emit({"error": message, "retried": False})
+        emit(exc.payload if isinstance(exc, APIError) else {"error": message, "retried": False})
         return 1
 
 

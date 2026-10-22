@@ -1,4 +1,4 @@
-﻿---
+---
 name: short-drama-factory
 license: MIT
 metadata:
@@ -19,6 +19,8 @@ description: 操作本地短剧工厂（Short Drama Factory），将灵感、大
 3. 读 `GET /api/config`、`/api/skills`、`/api/presets`，使用真实存在的提供商、质量预设和 Skill。健康检查不能证明所有 H3 模型就绪；渲染前还要读 `/api/environment/catalog` 的 `missing_nodes`、`configured_missing`、`cache_protocol`。连接失败时按 [故障恢复](references/recovery.md) 处理。
 4. 从请求确定输入类型、故事、风格、画幅、镜头数／时长、对白、参考素材和审核方式。普通缺省用 9:16、24 秒、6 镜、`draft`；16GB 显存先用 0.4MP / 4 步、每镜 4～8 秒。不要覆盖用户明确设置。先请求 `/api/duration-plan`，报告分配时长与帧对齐后的预计时长；对白和后期会进一步影响成片长度。
 5. 有对白时先确认采用哪一版原文；用户已指定定稿就直接沿用。H3 同时生成音画，改台词通常需要重生成对应镜头，不能只改字幕冒充配音已更新。明确哪些镜头保留画面、哪些按用户要求用于文字页；按 [实战制作与诊断](references/production-practice.md) 计算对白预算，只有影响制作决策的缺项才询问。
+
+无界面接入可先运行 `python scripts/sdf.py connect --app 应用目录`，再用 `doctor`、`capabilities`、`job get 任务ID`。连接和诊断不会启动服务或生成。
 
 命令相对技能目录运行；也可将脚本改为绝对路径。Windows 中文 JSON 使用 UTF-8 文件，避免把整段 JSON 塞进 shell 参数：
 
@@ -91,4 +93,4 @@ python scripts/factory_api.py download /media/PROJECT_ID/成片.mp4 --output 成
 - 修改／重生成限于用户指定项目；按用户授权范围调用文字 API 和 GPU，不因为“测试技能”而启动有费用的创作或大量 GPU 任务。默认不做环境重装、升级、模型下载或全局配置替换。
 - POST 超时可能已经成功。先查项目列表、队列和原任务，不自动重发创建／生成／导出请求。脚本不自动重试写操作；应用本身已有有限重试。
 - 优先用 HTTP API 保存和排队，保留版本、缓存与锁定语义。不要直接改 SQLite、`state.json`、`分镜.json` 或并发启动 `pipeline.py`。
-- 修复、停止、后期、素材和分集功能见 [API 操作表](references/api.md)；异常按 [故障恢复](references/recovery.md)。普通创作任务没有单任务查询端点（工作流环境准备可用 `/api/video/workflows/progress?job_id=...` 精确追踪），`/api/jobs` 仅返回最近 100 条，找不到旧 ID 时不能猜测成功或重新排队。
+- 修复、停止、后期、素材和分集功能见 [API 操作表](references/api.md)；异常按 [故障恢复](references/recovery.md)。使用 `/api/jobs/{id}` 精确查询原任务，`/api/jobs/page` 分页检索，`/api/jobs/{id}/events?after=0` 续读事件。旧 `/api/jobs` 仅返回最近 100 条；任务未知时不能猜测成功或重新排队。

@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
-from fastapi import FastAPI, Request, UploadFile, File
+from fastapi import FastAPI, Request, UploadFile, File, Query
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -25,6 +25,9 @@ from .image_schemas import ImageSettings, ImageModels, ImageRequest
 from .skills import Skills
 from .storage import ROOT, contained, now, read_json, write_json
 from .transfer import Transfer
+from .version import VERSION, PROTOCOL_VERSION
+from .contracts import (ContractError, CreateProjectRequest, SaveStoryRequest, ValidateStoryRequest,
+                        StageRequest, JobView, error_body, job_view, safe_message)
 
 config = ConfigStore()
 db = Database()
@@ -44,7 +47,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='3.6.6', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version=VERSION, lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -96,14 +99,28 @@ def validation_message(errors):
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_error(request, exc):
-    return JSONResponse({'error': validation_message(exc.errors())}, status_code=422)
+    details = [{'field': '.'.join(str(x) for x in e.get('loc', ())), 'type': e['type'],
+                'message': safe_message(validation_message([e]))} for e in exc.errors()[:20]]
+    legacy = getattr(request.scope.get('route'), 'name', '') in {
+        'project_create', 'project_settings', 'story_save', 'story_validate', 'run_stage'}
+    return JSONResponse(error_body('VALIDATION_ERROR', validation_message(exc.errors()), details=details,
+                                  next_actions=['correct_fields', 'retry_request']), status_code=400 if legacy else 422)
+
+
+@app.exception_handler(ContractError)
+async def contract_error(request, exc):
+    return JSONResponse(error_body(exc.code, str(exc), retryable=exc.retryable,
+                                  details=exc.details, next_actions=exc.next_actions), status_code=exc.status)
 
 
 @app.exception_handler(ValueError)
 @app.exception_handler(RuntimeError)
 async def value_error(request, exc):
     message = validation_message(exc.errors()) if isinstance(exc, ValidationError) else str(exc)[:2000]
-    return JSONResponse({'error': message}, status_code=400)
+    details = [{'field': '.'.join(str(x) for x in e.get('loc', ())), 'type': e['type'],
+                'message': safe_message(validation_message([e]))} for e in exc.errors()[:20]] if isinstance(exc, ValidationError) else []
+    return JSONResponse(error_body('VALIDATION_ERROR' if details else 'OPERATION_REJECTED', message,
+                                  details=details, next_actions=['inspect_request', 'inspect_project']), status_code=400)
 
 
 @app.get('/')
@@ -264,7 +281,8 @@ def project_get(pid: str):
 
 
 @app.post('/api/projects')
-def project_create(body: dict):
+def project_create(body: CreateProjectRequest):
+    body = body.model_dump(exclude_unset=True)
     project = projects.create(body.get('input', ''), body.get('options', {}), body.get('storyboard'))
     jid = worker.enqueue(project.name, 'all') if body.get('start', True) else None
     return {'id': project.name, 'job_id': jid}
@@ -280,17 +298,19 @@ def old_create(body: dict):
 
 
 @app.post('/api/projects/{pid}/settings')
-def project_settings(pid: str, body: dict):
-    return projects.save_options(pid, body)
+def project_settings(pid: str, body: Options):
+    return projects.save_options(pid, body.model_dump())
 
 
 @app.post('/api/story')
-def story_save(body: dict):
+def story_save(body: SaveStoryRequest):
+    body = body.model_dump()
     return projects.save_story(body['id'], body['story'])
 
 
 @app.post('/api/projects/{pid}/validate-story')
-def story_validate(pid: str, body: dict):
+def story_validate(pid: str, body: ValidateStoryRequest):
+    body = body.model_dump()
     projects.path(pid)
     return projects.normalize(pid, body.get('story'))
 
@@ -319,7 +339,8 @@ def outline_save(pid: str, body: dict):
 
 
 @app.post('/api/projects/{pid}/stage/{stage}', status_code=202)
-def run_stage(pid: str, stage: str, body: dict):
+def run_stage(pid: str, stage: str, body: StageRequest):
+    body = body.model_dump(exclude_unset=True, exclude_none=True)
     if stage not in ('outline', 'storyboard', 'prompt', 'plan', 'render', 'all'):
         raise ValueError('未知阶段。')
     if body.get('limit') is not None and (type(body['limit']) is not int or not 1 <= body['limit'] <= 150 or stage not in ('all','render')):
@@ -431,6 +452,34 @@ def add_asset(pid: str, body: dict):
 @app.get('/api/jobs')
 def jobs():
     return db.jobs()
+
+
+@app.get('/api/jobs/page')
+def jobs_page(limit: int = Query(100, ge=1, le=200), before: int | None = Query(None, ge=1),
+              project_id: str | None = None, status: str | None = None):
+    page = db.jobs_page(limit=limit, before=before, project_id=project_id, status=status)
+    return {**page, 'items': [job_view(row) for row in page['items']]}
+
+
+@app.get('/api/jobs/{jid}', response_model=JobView)
+def job_get(jid: str):
+    row = db.job(jid)
+    if row is None:
+        raise ContractError('JOB_NOT_FOUND', '任务不存在；不要据此重复提交生成。', status=404,
+                            next_actions=['inspect_request_receipt'])
+    return job_view(row)
+
+
+@app.get('/api/jobs/{jid}/events')
+def job_events(jid: str, after: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=200)):
+    job_get(jid)
+    result = db.job_events(jid, after=after, limit=limit)
+    allowed = {'message', 'status', 'current_stage', 'current_shot', 'total_shots', 'progress',
+               'file', 'bytes', 'total', 'phase', 'frames', 'seconds', 'kind'}
+    for item in result['items']:
+        item['data'] = {key: safe_message(value) if isinstance(value, str) else value
+                        for key, value in item['data'].items() if key in allowed and not isinstance(value, (dict, list))}
+    return result
 
 
 @app.get('/api/images/environment')
@@ -657,7 +706,45 @@ def health():
         healthy = response.is_success
     except (httpx.HTTPError, KeyError):
         healthy = False
-    return {'comfy': healthy, 'active_project': worker.active['project_id'] if worker.active else None, 'version': app.version, 'application_root': str(ROOT)}
+    return {'comfy': healthy, 'active_project': worker.active['project_id'] if worker.active else None,
+            'version': app.version, 'application_root': str(ROOT), 'protocol_version': PROTOCOL_VERSION}
+
+
+@app.get('/api/capabilities')
+def capabilities():
+    return {'protocol_version': PROTOCOL_VERSION, 'application_version': VERSION,
+            'features': {'exact_jobs': True, 'job_events': True, 'structured_errors': True,
+                         'execution_plans': False, 'idempotency': False, 'revisioned_edits': False},
+            'video': video_workflow_catalog(), 'images': image_model_catalog(),
+            'schemas': '/openapi.json',
+            'effects': {'/api/environment/verify': ['creates_project', 'gpu_render'],
+                        '/api/projects': ['creates_project', 'starts_unless_start_false'],
+                        '/api/projects/{id}/stage/render': ['may_call_text_provider', 'gpu_render']}}
+
+
+@app.get('/api/doctor')
+def doctor():
+    """Read-only probes; never starts engines, downloads, or calls a text model."""
+    status = health()
+    checks = [{'code': 'API_CONNECTED', 'status': 'passed', 'message': '生产服务可访问。'}]
+    if not status['comfy']:
+        checks.append({'code': 'ENGINE_UNAVAILABLE', 'status': 'blocked',
+                       'message': '视频引擎不可访问；可以继续编辑分镜，生成前需准备引擎。',
+                       'next_actions': ['inspect_environment', 'prepare_environment']})
+    else:
+        try:
+            info = environment_catalog()
+            missing = info.get('missing_nodes', []) + info.get('configured_missing', [])
+            checks.append({'code': 'VIDEO_ENVIRONMENT', 'status': 'blocked' if missing or info.get('cache_protocol', 0) < 2 else 'passed',
+                           'missing': missing, 'cache_protocol': info.get('cache_protocol'),
+                           'message': '检查视频节点、已配置模型与缓存协议。'})
+        except (ValueError, RuntimeError) as exc:
+            checks.append({'code': 'ENVIRONMENT_UNKNOWN', 'status': 'unknown', 'message': safe_message(exc)})
+    providers = [{'id': p['id'], 'local': p.get('local', False), 'key_configured': p.get('key_configured', False)}
+                 for p in config.public()['providers']]
+    return {'protocol_version': PROTOCOL_VERSION, 'instance': status, 'read_only': True,
+            'ready': all(c['status'] == 'passed' for c in checks), 'checks': checks,
+            'providers': providers, 'limits': ['不执行推理；图片模型与特定工作流还需对应环境计划检查。']}
 
 
 @app.get('/api/environment/catalog')

@@ -1,4 +1,4 @@
-﻿# API 操作表（3.6.6）
+# API 操作表（3.6.6）
 
 基址默认 `http://127.0.0.1:8765`，不是 ComfyUI 的 8188。工作台校验 Host 与浏览器 Origin；本地脚本不需要伪造 Origin。下列路径由 `app/api.py` 核对，升级后先比对本机 `/openapi.json` 与实际返回；多数请求体是普通 dict，OpenAPI 不会列出所有字段。
 
@@ -17,7 +17,7 @@ CLI：`python scripts/factory_api.py post 路径 --json 请求文件.json`；没
 | GET `/api/skills`、`/api/presets` | 实际可用 Skill 和选项预设 |
 | GET `/api/environment/catalog` | 模型列表、缺失节点／模型、缓存协议 |
 | GET `/api/environment` | GPU、显存、磁盘和安装状态；不启动生成 |
-| GET `/api/environment/progress?job_id=ID` | 跟踪环境准备任务；准备用 POST `/api/environment/prepare` 或 `/install`，停止用 `/stop`，校验用 `/verify` |
+| GET `/api/environment/progress` | 最近环境安装进度；精确任务用 `/api/jobs/{id}`。准备用 POST `/api/environment/install`，停止用 `/api/environment/stop`；`/api/environment/verify` 会创建项目并执行 GPU 生成测试 |
 | POST `/api/duration-plan` | 完整或部分 Options 对象，**没有 options 包装层**；只计算时长 |
 | GET `/api/projects` | 项目列表，用真实 ID 选择已有项目 |
 | POST `/api/projects` | `{"input":"故事正文","options":{...},"start":false}`；外部 AI 分镜加 `"storyboard":{...}` |
@@ -28,7 +28,11 @@ CLI：`python scripts/factory_api.py post 路径 --json 请求文件.json`；没
 | POST `/api/story` | `{"id":"项目ID","story":完整分镜对象}`；保存并记录版本 |
 | POST `/api/projects/{id}/stage/{stage}` | stage 为 `outline/storyboard/prompt/plan/render/all`，通常 `{}`；返回 `job_id` |
 | GET `/api/projects/{id}/preflight` | 对白／身份预算，查看 `ready` 和各项 `severity` |
-| GET `/api/jobs` | 最近 100 条任务（数组），按 `id` 和 `project_id` 过滤；没有 GET `/api/jobs/{id}` |
+| GET `/api/jobs/{id}` | 精确持久任务；阶段完成不是成片完成 |
+| GET `/api/jobs/page` | 分页：limit、before、project_id、status；返回 items、next_cursor |
+| GET `/api/jobs/{id}/events` | 事件游标：after、limit；返回 items、next_cursor |
+| GET `/api/jobs` | 旧客户端兼容接口，仅最近 100 条 |
+| GET `/api/doctor`、`/api/capabilities` | 只读诊断与当前能力契约，不执行生成 |
 | GET `/api/projects/{id}/quality` | `preflight`、`report`、`finishing`、`versions`、`current_edit` |
 | GET `/api/projects/{id}/records` | 请求记录索引、渲染快照和媒体验收 |
 | GET `/api/projects/{id}/requests/{name}` | 按 records 返回的文件名读取诊断，避免转贴私人剧本 |

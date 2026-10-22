@@ -17,7 +17,7 @@
 | job=review | 检查 `state.current_stage`、message、preflight。审核停点或预检失败，处理后继续，不是网络故障 |
 | job=paused | 可能是用户停止或试镜 limit 到达。确认用户意图、已完成镜头与队列空闲，再 resume/render |
 | job=done 但 final=false | 可能只是 plan 或阶段完成。检查 kind、state、缺失镜头，再按请求继续渲染 |
-| job ID 不在最近 100 条 | CLI 返回 unknown。读项目 current state／job_id 和实际产物；若无法确认原任务终态，报告未知，不能直接重排 |
+| job ID 不在最近 100 条 | 使用 `/api/jobs/{id}` 精确查询。只有旧版本才需回退最近列表；新接口返回 JOB_NOT_FOUND 时核对实例与提交回执，不直接重排 |
 | GPU 显存不足／显卡掉线 | 先确认当前任务终态。检查 GPU 是否仍被系统识别、ComfyUI 是否恢复；16GB 配置优先 draft、4秒，避免并行占显存。显卡坞掉线先处理硬件连接，不能靠无穷重试恢复 |
 | busy=true 无法保存 | 可能正在排队；按原任务等待。若用户要修改，调用 stop 并等 queued/running 退出后保存完整 story/settings |
 | 同一 UID 锁定 | 按用户意图解锁目标镜头，保留其他锁；首帧链可能要求相邻依赖解锁 |

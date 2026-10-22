@@ -1,5 +1,5 @@
-﻿import { api, el, field, select, download } from "./api.js?v=3.6.6";
-import { optionsEditor, MODES } from "./options.js?v=3.6.6";
+import { api, el, field, select, download } from "./api.js?v=3.7.0";
+import { optionsEditor, MODES } from "./options.js?v=3.7.0";
 import {
   ProjectDraft,
   STAGES,
@@ -11,10 +11,10 @@ import {
   updateShotScene,
   formatDialogue,
   parseDialogue,
-} from "./state.js?v=3.6.6";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.6.6";
-import { renderQuality } from "./quality.js?v=3.6.6";
-import { renderReferenceImages } from "./images.js?v=3.6.6";
+} from "./state.js?v=3.7.0";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.7.0";
+import { renderQuality } from "./quality.js?v=3.7.0";
+import { renderReferenceImages } from "./images.js?v=3.7.0";
 
 const SCOPES = {
   story: "分镜",
