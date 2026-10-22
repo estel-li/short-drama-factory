@@ -102,42 +102,55 @@ class Worker:
                 with self.execution_lock:
                     result = self.execute(job)
                 self.db.update(job['id'], result or 'done', '任务阶段已完成。')
-            except Cancelled as exc:
-                self.db.update(job['id'], 'paused', str(exc))
-                self.image_failure(job, 'paused', str(exc))
-                if job['project_id'] == '__environment':
-                    write_json(ROOT / 'data/installation_progress.json', {'status': 'paused', 'message': str(exc)})
-                elif job['project_id'].startswith(('__series_', '__image_', '__video_')):
-                    pass  # Durable job and partial series plans are the recovery source.
-                else:
-                    path = self.projects.path(job['project_id']) / 'state.json'
-                    state = read_json(path, {})
-                    state.update(status='paused', message=str(exc), updated_at=now())
-                    write_json(path, state)
             except Exception as exc:
-                was_cancelled = self.db.cancelled(job['id'])
-                message = '任务已停止，成果已保留。' if was_cancelled else str(exc)[:2000]
-                self.db.update(job['id'], 'paused' if was_cancelled else 'error', message)
-                self.image_failure(job, 'paused' if was_cancelled else 'error', message)
-                if job['project_id'] == '__environment':
-                    write_json(ROOT / 'data/installation_progress.json', {'status': 'error', 'message': str(exc)[:2000]})
-                elif job['project_id'].startswith(('__series_', '__image_', '__video_')):
-                    pass
-                else:
-                    project = self.projects.path(job['project_id'])
-                    state = read_json(project / 'state.json', {})
-                    state.update(status='paused' if was_cancelled else 'error', message=message, updated_at=now())
-                    write_json(project / 'state.json', state)
-                payload = json.loads(job['payload'])
-                if payload.get('series_id') and payload.get('fail_policy') == 'stop' and not was_cancelled:
-                    paused = self.db.cancel_series(payload['series_id'], queued_only=True, batch_id=payload.get('series_batch'))
-                    self.series.mark_paused(paused)
-                (ROOT / 'logs').mkdir(exist_ok=True)
-                with (ROOT / 'logs' / 'worker.log').open('a', encoding='utf-8') as log:
-                    traceback.print_exc(file=log)
+                self.record_failure(job, exc)
             finally:
                 self.active = None
         self.instance_lock.release()
+
+    def log_failure(self, exc):
+        # A disconnected/full project disk or an unwritable log must not stop the queue.
+        try:
+            folder = self.config.root / 'logs'
+            folder.mkdir(parents=True, exist_ok=True)
+            with (folder / 'worker.log').open('a', encoding='utf-8') as log:
+                traceback.print_exception(type(exc), exc, exc.__traceback__, file=log)
+        except Exception:
+            pass
+
+    def record_failure(self, job, exc):
+        was_cancelled = isinstance(exc, Cancelled)
+        try:
+            was_cancelled = was_cancelled or self.db.cancelled(job['id'])
+        except Exception as failure:
+            self.log_failure(failure)
+        status = 'paused' if was_cancelled else 'error'
+        message = str(exc)[:2000] if isinstance(exc, Cancelled) or not was_cancelled else '任务已停止，成果已保留。'
+
+        def project_state():
+            if job['project_id'] == '__environment':
+                write_json(self.config.root / 'data/installation_progress.json', {'status': status, 'message': message})
+            elif not job['project_id'].startswith(('__series_', '__image_', '__video_')):
+                path = self.projects.path(job['project_id']) / 'state.json'
+                state = read_json(path, {})
+                state.update(status=status, message=message, updated_at=now())
+                write_json(path, state)
+
+        def series_policy():
+            payload = json.loads(job['payload'])
+            if payload.get('series_id') and payload.get('fail_policy') == 'stop' and not was_cancelled:
+                paused = self.db.cancel_series(payload['series_id'], queued_only=True, batch_id=payload.get('series_batch'))
+                self.series.mark_paused(paused)
+
+        # Persist the durable result first; ancillary state files fail independently.
+        for save in (lambda: self.db.update(job['id'], status, message),
+                     lambda: self.image_failure(job, status, message), project_state, series_policy):
+            try:
+                save()
+            except Exception as failure:
+                self.log_failure(failure)
+        if not isinstance(exc, Cancelled):
+            self.log_failure(exc)
 
     def image_failure(self, job, status, message):
         payload = json.loads(job['payload'])

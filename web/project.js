@@ -1,5 +1,5 @@
-﻿import { api, el, field, select, download } from "./api.js?v=3.6.0";
-import { optionsEditor, MODES } from "./options.js?v=3.6.0";
+﻿import { api, el, field, select, download } from "./api.js?v=3.6.6";
+import { optionsEditor, MODES } from "./options.js?v=3.6.6";
 import {
   ProjectDraft,
   STAGES,
@@ -8,10 +8,13 @@ import {
   shotRecord,
   continuationIssue,
   finishingPayload,
-} from "./state.js?v=3.6.0";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.6.0";
-import { renderQuality } from "./quality.js?v=3.6.0";
-import { renderReferenceImages } from "./images.js?v=3.6.0";
+  updateShotScene,
+  formatDialogue,
+  parseDialogue,
+} from "./state.js?v=3.6.6";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.6.6";
+import { renderQuality } from "./quality.js?v=3.6.6";
+import { renderReferenceImages } from "./images.js?v=3.6.6";
 
 const SCOPES = {
   story: "分镜",
@@ -689,7 +692,8 @@ export class Workspace {
           value: shot[key] || "",
           disabled: readOnly,
           oninput: (event) => {
-            shot[key] = event.target.value;
+            if (key === "scene") updateShotScene(shot, event.target.value, story.scenes);
+            else shot[key] = event.target.value;
             mark();
             if (key === "scene" || key === "continuity_group") updateFrame();
           },
@@ -812,19 +816,10 @@ export class Workspace {
     const dialogue = el("textarea", {
       rows: 3,
       disabled: readOnly,
-      value: shot.dialogue.map((l) => `${l.speaker}: ${l.text}`).join("\n"),
-      placeholder: "人物名：一句对白\n没有对白可以留空",
+      value: formatDialogue(shot.dialogue),
+      placeholder: "人物名：一句对白\n[旁白] 人物名：一句画外音",
       oninput: (event) => {
-        shot.dialogue = event.target.value
-          .split("\n")
-          .filter((s) => s.trim())
-          .map((line) => {
-            const n = line.search(/[:：]/);
-            return {
-              speaker: n < 0 ? "" : line.slice(0, n).trim(),
-              text: n < 0 ? line : line.slice(n + 1).trim(),
-            };
-          });
+        shot.dialogue = parseDialogue(event.target.value);
         mark();
       },
     });
@@ -839,7 +834,7 @@ export class Workspace {
             ? "可多选，仅选择本镜出现的人物。"
             : "人物设定可在“素材”或完整分镜 JSON 中补充。",
         ),
-        field("对白", dialogue),
+        field("对白", dialogue, "每行一句；画外音在行首加 [旁白]，并开启项目的“采用画外旁白”。"),
       ),
     );
     const selectedPreset = this.services.config().profiles[this.draft.data.settings.profile] || {};

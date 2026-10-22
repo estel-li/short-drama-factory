@@ -6,9 +6,31 @@ import {
   isBusy,
   continuationIssue,
   finishingPayload,
+  updateShotScene,
+  formatDialogue,
+  parseDialogue,
 } from "../web/state.js";
 import { api, ApiError, el } from "../web/api.js";
 import {parameterSpecs, formatSize} from "../web/video-workflows.js";
+
+test("changing a scene updates its identity before validating continuation", () => {
+  const scenes = [{id: "room", name: "室内"}, {id: "street", name: "街道"}];
+  const shots = [{scene: "室内", scene_id: "room"}, {scene: "室内", scene_id: "room", use_previous_last_frame: true}];
+  updateShotScene(shots[1], "街道", scenes);
+  assert.equal(shots[1].scene_id, "street");
+  assert.match(continuationIssue(shots, 1), /场景不同/);
+  updateShotScene(shots[1], "新场景", scenes);
+  assert.equal(shots[1].scene_id, "");
+  assert.match(continuationIssue(shots, 1), /场景不同/);
+});
+
+test("dialogue editing preserves per-line voiceover without marking ordinary speech", () => {
+  const dialogue = [{speaker: "小雨", text: "你好。"}, {speaker: "小雨", text: "那是去年。", narration: true}];
+  assert.deepEqual(parseDialogue(formatDialogue(dialogue)), dialogue);
+  assert.deepEqual(parseDialogue("[旁白] 小雨：记忆\n小雨：现在"), [
+    {speaker: "小雨", text: "记忆", narration: true}, {speaker: "小雨", text: "现在"},
+  ]);
+});
 
 test("workflow form offers only trained step grids and explicit context choices", () => {
   assert.deepEqual(parameterSpecs({workflow:"pdd-8"}).find(x=>x.key==="steps").choices,[4,6,8]);

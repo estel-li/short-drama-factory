@@ -1,9 +1,9 @@
-﻿import { api, el, field, select, download } from "./api.js?v=3.6.0";
-import { optionsEditor } from "./options.js?v=3.6.0";
-import { Workspace } from "./project.js?v=3.6.0";
-import { STAGES, isBusy, projectStatus } from "./state.js?v=3.6.0";
-import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.6.0";
-import { ImageWorkspace } from "./images.js?v=3.6.0";
+﻿import { api, el, field, select, download } from "./api.js?v=3.6.6";
+import { optionsEditor } from "./options.js?v=3.6.6";
+import { Workspace } from "./project.js?v=3.6.6";
+import { STAGES, isBusy, projectStatus } from "./state.js?v=3.6.6";
+import { badge, dialog, empty, icon, tabs } from "./ui.js?v=3.6.6";
+import { ImageWorkspace } from "./images.js?v=3.6.6";
 const $ = (id) => document.getElementById(id);
 let config,
   presets,

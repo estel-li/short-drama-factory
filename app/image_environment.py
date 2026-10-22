@@ -171,8 +171,17 @@ class ImageEnvironment:
                                    if (name.replace('\\', '/') == chosen if chosen else name.replace('\\', '/').split('/')[-1] == model['name'].rsplit('/', 1)[-1])), None)
             target = contained(model_root, model['category'] + '/' + model['name'])
             state = Downloader.verification_status(target, model['size'], model.get('sha256')) if local_files and not model.get('custom') else 'invalid'
+            # ComfyUI enumerates filenames without checking their contents.
+            if missing:
+                action = 'missing'
+            elif local_files and not model.get('custom') and (target.is_file() or not available_name):
+                action = 'download' if state == 'invalid' else 'verify' if state == 'unknown' else 'available' if available_name else 'verified'
+            else:
+                # Shared engines may expose files through their own extra_model_paths.
+                # A missing local counterpart is not evidence that that remote mapping is corrupt.
+                action = 'available' if available_name else 'local' if model.get('custom') else 'download'
             rows.append({**model, 'role': role, 'target': str(target), 'comfy_name': available_name,
-                         'action': 'missing' if missing else 'available' if available_name else 'local' if model.get('custom') else 'verified' if state == 'verified' else 'verify' if state == 'unknown' else 'download'})
+                         'action': action})
         disk = model_root
         while not disk.exists():
             disk = disk.parent
@@ -183,7 +192,7 @@ class ImageEnvironment:
         runtime_bytes = self.manifest['bootstrap']['size'] if bootstrap_needed else 0
         source_needed = managed and not current['connected'] and (not (source / 'main.py').is_file() or read_json(engine_root / 'source-ready.json', {}).get('revision') != self.manifest['comfyui']['revision'])
         source_bytes = self.manifest['comfyui']['size'] if source_needed else 0
-        ready = current['connected'] and not current['missing_nodes'] and all(m['comfy_name'] for m in rows)
+        ready = current['connected'] and not current['missing_nodes'] and not selection_errors and all(m['comfy_name'] and m['action'] == 'available' for m in rows)
         requires_confirmation = not ready and (model_bytes > 0 or bootstrap_needed or source_needed)
         token = digest({'url': url, 'variant': selected, 'directory': str(model_root), 'revision': self.manifest['comfyui']['revision'],
                         'models': [{k: m.get(k) for k in ('name', 'category', 'sha256', 'size')} for m in rows],

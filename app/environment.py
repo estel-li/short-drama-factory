@@ -151,11 +151,6 @@ class Installer:
         manifest = self.manifest(options.get('manifest', 'h3-5060ti-16g'))
         env = self.config.renderer_config()
         env.update({key: options[key] for key in ('comfy_dir', 'python', 'comfy_url') if options.get(key)})
-        process_env = os.environ.copy()
-        install_temp = self.config.root / 'data/install-temp'
-        install_temp.mkdir(parents=True, exist_ok=True)
-        for name in ('TEMP', 'TMP', 'TMPDIR'):process_env[name] = str(install_temp)
-        process_env['PIP_CACHE_DIR'] = str(self.config.root / 'data/pip-cache')
         mode = options.get('mode', env.get('mode', 'existing'))
         if mode not in ('existing', 'fresh', 'remote'):
             raise ValueError('安装方式不支持。')
@@ -224,6 +219,12 @@ class Installer:
                        comfy_url=options.get('comfy_url') or 'http://127.0.0.1:8188', mode='existing',
                        **self.manifest(plan['manifest']).get('startup', {}))
             if plan['runtime_wheels']:
+                process_env = os.environ.copy()
+                install_temp = self.config.root / 'data/install-temp'
+                install_temp.mkdir(parents=True, exist_ok=True)
+                for name in ('TEMP', 'TMP', 'TMPDIR'):
+                    process_env[name] = str(install_temp)
+                process_env['PIP_CACHE_DIR'] = str(self.config.root / 'data/pip-cache')
                 packages = {w['package']: w['version'] for w in plan['runtime_wheels']}
                 check = subprocess.run([env['python'], '-c', 'import importlib.metadata as m,json; print(json.dumps({n:m.version(n) for n in '+repr(list(packages))+'}))'],
                     capture_output=True, text=True, timeout=30, creationflags=0x08000000, env=process_env)

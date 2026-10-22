@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .schemas import Options, Story, durations
 from .continuity import validate_links
-from .quality import POST_FIELDS, story_report
+from .quality import POST_FIELDS, render_contract, render_contract_matches, shot_dependencies, story_report
 from .storage import ROOT, digest, identifier, now, read_json, write_json
 
 
@@ -151,9 +151,10 @@ class Projects:
         project = self.path(pid)
         story = self.normalize(pid, value)
         old = read_json(project / '分镜.json')
-        if old and old != story:
+        old_normalized = self.normalize(pid, old) if old else None
+        if old and old_normalized != story:
             self.version(project, 'storyboard-before-edit', old)
-        old_by_uid = {s['uid']: s for s in self.normalize(pid, old)['shots']} if old else {}
+        old_by_uid = {s['uid']: s for s in old_normalized['shots']} if old else {}
         old_cast = {c['id']: c for c in (old or {}).get('characters', [])}
         new_cast = {c['id']: c for c in story.get('characters', [])}
         changed_cast = {cid for cid in old_cast.keys() | new_cast.keys() if old_cast.get(cid) != new_cast.get(cid)} if old else set()
@@ -165,7 +166,8 @@ class Projects:
                 for field in ('id', 'locked'):
                     left.pop(field, None)
                     right.pop(field, None)
-                identity_changed = bool(set(shot['characters']) & changed_cast)
+                identity_changed = (bool(set(shot['characters']) & changed_cast)
+                                    or shot_dependencies(old_normalized, before) != shot_dependencies(story, shot))
                 if left != right or identity_changed:
                     native_left={k:v for k,v in left.items() if k not in POST_FIELDS}
                     native_right={k:v for k,v in right.items() if k not in POST_FIELDS}
@@ -189,7 +191,7 @@ class Projects:
                 shot['prompt_manual'] = True
         write_json(project / '分镜.json', story)
         write_json(project / '出片预检.json', story_report(story, self.options(project)))
-        if old != story:
+        if old_normalized != story:
             for path in project.glob('成片*.mp4'):
                 history = project / 'takes' / ('final_' + uuid.uuid4().hex[:8])
                 history.mkdir(parents=True, exist_ok=True)
@@ -197,6 +199,15 @@ class Projects:
             (project / '字幕.srt').unlink(missing_ok=True)
         self.version(project, 'storyboard' if not generated else 'generated-storyboard', story, snapshot)
         state = read_json(project / 'state.json', {})
+        # Freeze the old definitions into legacy receipts before an edit can replace them.
+        # Otherwise a subsequent save could clear changed_shots and accept an old scene again.
+        if old_normalized:
+            for before in old_normalized['shots']:
+                for collection, key in (('shots', str(before['id'])), ('shots_by_uid', before['uid'])):
+                    record = state.get(collection, {}).get(key, {})
+                    contract = record.get('render_contract')
+                    if isinstance(contract, str) and not contract.startswith('v2:') and render_contract_matches(contract, old_normalized, before):
+                        record['render_contract'] = render_contract(old_normalized, before)
         if old and not state.get('shots_by_uid'):
             state['shots_by_uid'] = {s['uid']: state.get('shots', {}).get(str(s['id']), {}) for s in self.normalize(pid, old)['shots']}
             refs = read_json(project / 'references.json', {})

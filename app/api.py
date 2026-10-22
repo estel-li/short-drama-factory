@@ -44,7 +44,7 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version='3.6.0', lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version='3.6.6', lifespan=lifespan)
 
 
 @app.middleware('http')
@@ -587,9 +587,10 @@ def image_regenerate(iid: str, body: dict):
         projects.assert_idle(previous['project_id'])
         if previous['target']:
             worker.images.reference_request(previous['project_id'], previous['target'])
-    request = {**ImageRequest.model_validate(previous['request']).model_dump(), 'seed': None, 'optimized_prompt': previous.get('optimized_prompt', '')}
+    request = ImageRequest.model_validate(previous['request']).model_dump()
+    request.update(seed=None, optimized_prompt=request['optimized_prompt'] or previous.get('optimized_prompt', ''))
     changes = body.get('request', {})
-    if any(key in changes and changes[key] != request.get(key) for key in ('prompt', 'purpose', 'style', 'ratio', 'transparent', 'reference_images', 'reference_mode')):
+    if changes.get('optimize') is False or any(key in changes and changes[key] != request.get(key) for key in ('prompt', 'purpose', 'style', 'ratio', 'transparent', 'reference_images', 'reference_mode', 'image_model')):
         request['optimized_prompt'] = ''
     request.update(changes)
     image = worker.images.create(request, previous['project_id'], previous['target'], parent_id=iid,

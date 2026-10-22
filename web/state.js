@@ -167,6 +167,30 @@ export function finishingPayload(draft) {
   };
 }
 
+export function updateShotScene(shot, scene, scenes = []) {
+  if (shot.scene === scene) return;
+  shot.scene = scene;
+  const matches = scenes.filter((item) => String(item.name || "").trim() === scene.trim());
+  shot.scene_id = matches.length === 1 ? String(matches[0].id || "") : "";
+}
+
+export function formatDialogue(lines) {
+  return lines.map((line) => `${line.narration === true ? "[旁白] " : ""}${line.speaker}: ${line.text}`).join("\n");
+}
+
+export function parseDialogue(text) {
+  return text.split("\n").filter((line) => line.trim()).map((raw) => {
+    const narration = /^\s*\[旁白\]\s*/.test(raw);
+    const line = raw.replace(/^\s*\[旁白\]\s*/, "");
+    const colon = line.search(/[:：]/);
+    return {
+      speaker: colon < 0 ? "" : line.slice(0, colon).trim(),
+      text: colon < 0 ? line : line.slice(colon + 1).trim(),
+      ...(narration ? { narration: true } : {}),
+    };
+  });
+}
+
 export function continuationIssue(shots, index) {
   if (!index) return "第一镜没有上一分镜，无法接续。";
   const current = shots[index],

@@ -1,4 +1,4 @@
-﻿# API 操作表（3.6.0）
+﻿# API 操作表（3.6.6）
 
 基址默认 `http://127.0.0.1:8765`，不是 ComfyUI 的 8188。工作台校验 Host 与浏览器 Origin；本地脚本不需要伪造 Origin。下列路径由 `app/api.py` 核对，升级后先比对本机 `/openapi.json` 与实际返回；多数请求体是普通 dict，OpenAPI 不会列出所有字段。
 
@@ -40,6 +40,10 @@ CLI：`python scripts/factory_api.py post 路径 --json 请求文件.json`；没
 `stage/all` 或 `stage/plan` 可用 `{"execution_mode":"auto"}` 仅覆盖该次任务的审核策略；不要在用户要求审核时这样跳过。`{"limit":1}` 仅对 all/render 有效，表示新生成数量上限，不能当作指定第 1 镜。
 
 ## 素材与单镜
+
+3.6.6 起，逐句画外音使用 `dialogue` 条目的 `narration:true`，同时将项目 `options.narration` 设为 `true`。`speaker` 保留真实说话人，画外音角色不必列入本镜可见 `characters`；普通对白不设置此标记。可视化对白编辑器以 `[旁白] 人物名：台词` 表达同一字段。
+
+修改场景名称时同步更新 `scene_id`（无法确定则清空），随后重新检查首帧接续。修改被镜头引用的场景／道具定义或旁白声线会使原片失效；锁定镜头应先解锁，不能仅通过后期合成冒充已经更新的画面或声音。
 
 上传不等于绑定。CLI 上传后读取返回 `id`，填进对应镜头的 `bindings`，再保存完整 story：
 
@@ -88,6 +92,7 @@ python scripts/factory_api.py asset --project PROJECT_ID --file 角色.png --kin
 - 可用 `download` 保存；CLI 流式处理、输出 SHA-256，拒绝覆盖已有文件。输出存在时换文件名。
 - 项目迁移：`POST /api/export`，`{"projects":["项目ID"],"include_videos":true}`，返回 `url` 和 `size`。用 `download 返回的url --output 项目.zip`。执行前先确保目标项目空闲。
 - 反向导入：`POST /api/import`，请求体是 multipart 的**导出 zip 文件本身**（字段名 `file`），不是 JSON 摘要。导入会在当前任务空闲时把项目与 Skill 并回本机；冲突时按返回的 `projects`／`skills` 分别核对，不要假设原项目 ID 不变。
+- 3.6.6 起迁移包携带项目和个人预设引用的视频质量／工作流方案；目标目录同名方案参数不同会另存并映射 `profile`。模型文件、环境路径和认证信息仍需在目标环境配置。
 - 已命名导出物可用 GET `/api/exports/{name}` 读取，`name` 来自导出响应，不接受自行拼造的路径。
 - HTTP 媒体链接需要应用运行；用户要离线文件时下载，并返回实际绝对路径。不要把本机链接称为公开链接。
 

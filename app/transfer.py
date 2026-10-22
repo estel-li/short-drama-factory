@@ -9,7 +9,7 @@ import uuid
 import zipfile
 from pathlib import Path
 
-from .schemas import Options, Provider
+from .schemas import Options, Provider, Quality
 from .storage import ROOT, contained, identifier, read_json, write_json
 
 TEXT_SUFFIXES = {'.json', '.txt', '.md', '.srt', '.ass'}
@@ -53,7 +53,19 @@ class Transfer:
         packages = [{k: v for k, v in self.skills.get(s['id']).items() if k != 'content_hash'} for s in self.skills.list()]
         manifest = {'kind': 'drama-factory-transfer', 'version': 2, 'skills': self.redact(packages),
                     'providers': self.redact(self.config.get()['providers']),
-                    'presets': self.redact(read_json(self.root / 'presets/personal.json', {})), 'projects': {}, 'files': {}}
+                    'presets': self.redact(read_json(self.root / 'presets/personal.json', {})),
+                    'profiles': {}, 'projects': {}, 'files': {}}
+        profiles = self.config.renderer_config().get('profiles', {})
+
+        def include_profile(options):
+            name = Options.model_validate(options).profile
+            if name not in profiles:
+                return  # Legacy projects with a removed profile must still be exportable.
+            # Only portable sampling/workflow settings; never environment paths or credentials.
+            manifest['profiles'][name] = self.redact(Quality.model_validate(profiles[name]).model_dump())
+
+        for preset in manifest['presets'].values():
+            include_profile(preset['options'])
         folder = self.root / 'data/exports'
         folder.mkdir(parents=True, exist_ok=True)
         target = folder / ('迁移包_' + time.strftime('%Y%m%d_%H%M%S') + '_' + uuid.uuid4().hex[:6] + '.zip')
@@ -61,6 +73,7 @@ class Transfer:
             for pid in pids:
                 self.projects.assert_idle(pid)
                 project = self.projects.path(pid)
+                include_profile(read_json(project / 'settings.json'))
                 state = copy.deepcopy(read_json(project / 'state.json', {}))
                 for collection in ('shots', 'shots_by_uid'):
                     for record in state.get(collection, {}).values():
@@ -182,6 +195,10 @@ class Transfer:
         for key, preset in manifest.get('presets', {}).items():
             identifier(key)
             Options.model_validate(preset['options'])
+        profiles = manifest.get('profiles', {})
+        if not isinstance(profiles, dict):
+            raise ValueError('迁移包工作流配置必须为对象。')
+        profiles = {identifier(key): Quality.model_validate(value).model_dump() for key, value in profiles.items()}
         imported_skills, skill_mapping = [], {}
         for value in manifest.get('skills', []):
             sid = identifier(value['id'])
@@ -195,6 +212,19 @@ class Transfer:
             skill_mapping[value['id']] = sid
             imported_skills.append(sid)
         config = self.config.get()
+        profile_mapping = {}
+        existing_profiles = {key: Quality.model_validate(value).model_dump()
+                             for key, value in self.config.renderer_config().get('profiles', {}).items()}
+        for original, profile in profiles.items():
+            name = original
+            if name in existing_profiles and existing_profiles[name] != profile:
+                name = 'import-' + uuid.uuid4().hex[:12]
+                while name in existing_profiles or name in profiles:
+                    name = 'import-' + uuid.uuid4().hex[:12]
+            profile_mapping[original] = name
+            if name not in existing_profiles:
+                config['environment'].setdefault('profiles', {})[name] = profile
+                existing_profiles[name] = profile
         provider_mapping = {}
         existing = {p['id']: p for p in config['providers']}
         for provider in manifest.get('providers', []):
@@ -220,6 +250,9 @@ class Transfer:
             source = contained(stage, 'projects/' + old_id)
             shutil.copytree(source, target)
             settings = read_json(target / 'settings.json')
+            profile = Options.model_validate(settings).profile
+            if profile in profile_mapping:
+                settings['profile'] = profile_mapping[profile]
             for choice in settings.get('stages', {}).values():
                 choice['skill'] = skill_mapping.get(choice.get('skill'), choice.get('skill', ''))
                 choice['provider'] = provider_mapping.get(choice.get('provider'), choice.get('provider', 'deepseek'))
@@ -240,7 +273,9 @@ class Transfer:
             imported.append(pid)
         personal = read_json(self.root / 'presets/personal.json', {})
         for key, preset in manifest.get('presets', {}).items():
-            Options.model_validate(preset['options'])
+            profile = Options.model_validate(preset['options']).profile
+            if profile in profile_mapping:
+                preset['options']['profile'] = profile_mapping[profile]
             for choice in preset['options'].get('stages', {}).values():
                 choice['skill'] = skill_mapping.get(choice.get('skill'), choice.get('skill', ''))
                 choice['provider'] = provider_mapping.get(choice.get('provider'), choice.get('provider', 'deepseek'))

@@ -42,8 +42,9 @@ def ensure_comfy(status=None, profile=None, cancel=lambda: False):
         if plan.get('restart_required'):
             from app.processes import stop_owned_comfy
             stop_owned_comfy(CONFIG, task_root / 'data/comfy-runtime')
+    headers = {'Authorization': 'Bearer ' + CONFIG['comfy_auth_token']} if CONFIG.get('comfy_auth_token') else {}
     try:
-        requests.get(CONFIG['comfy_url'] + '/system_stats', timeout=3).raise_for_status()
+        requests.get(CONFIG['comfy_url'] + '/system_stats', timeout=3, headers=headers).raise_for_status()
         return
     except requests.RequestException:
         pass
@@ -126,7 +127,7 @@ def ensure_comfy(status=None, profile=None, cancel=lambda: False):
         if process.poll() is not None:
             raise RuntimeError(f'ComfyUI 启动失败，请查看 logs/comfy_{stamp}.stderr.log。')
         try:
-            requests.get(CONFIG['comfy_url'] + '/system_stats', timeout=2).raise_for_status()
+            requests.get(CONFIG['comfy_url'] + '/system_stats', timeout=2, headers=headers).raise_for_status()
             if workflow_environment:
                 plan = workflow_environment.plan(profile)
                 if not plan['ready']:
@@ -554,7 +555,8 @@ class Runner:
             queue = api('/queue')
             known = {q[1] for key in ('queue_running', 'queue_pending') for q in queue.get(key, [])}
             history = api('/history/' + prompt_id).get(prompt_id) if prompt_id else None
-            if history and history.get('status', {}).get('status_str') == 'error':
+            if prompt_id not in known and history and (history.get('status', {}).get('completed')
+                    or history.get('status', {}).get('status_str') == 'error'):
                 prompt_id = None
             if not prompt_id or (prompt_id not in known and not history):
                 prompt_id = api('/prompt', {'prompt': encoding, 'client_id': self.client})['prompt_id']
@@ -592,7 +594,8 @@ class Runner:
             queue = api('/queue')
             known = {q[1] for key in ('queue_running', 'queue_pending') for q in queue.get(key, [])}
             history = api('/history/' + prompt_id).get(prompt_id) if prompt_id else None
-            if history and history.get('status', {}).get('status_str') == 'error':
+            if prompt_id not in known and history and (history.get('status', {}).get('completed')
+                    or history.get('status', {}).get('status_str') == 'error'):
                 prompt_id = None
             if not prompt_id or (prompt_id not in known and not history):
                 prompt_id = api('/prompt', {'prompt': sampling, 'client_id': self.client})['prompt_id']

@@ -11,7 +11,7 @@ from .providers import Cancelled, LLMClient, ProviderError
 from .schemas import Outline, Story, durations
 from .storage import digest, now, read_json, write_json
 from .continuity import FIRST_FRAME_RULES, enabled, predecessor, validate_links
-from .quality import POST_FIELDS, dialogue_budget, fitted_duration, pack_dialogue, prompt_cast_valid, script_dialogue, story_report
+from .quality import POST_FIELDS, dialogue_budget, fitted_duration, pack_dialogue, prompt_cast_valid, script_dialogue, shot_dependencies, story_report
 
 BASE_FIELDS = ['integrated_multimodal_description', 'overall_soundscape', 'non_diegetic_music']
 REF_FIELDS = ['subject_definitions', 'summary', 'retention_analysis', 'detailed_description', 'overall_soundscape', 'non_diegetic_music']
@@ -54,6 +54,28 @@ def prompt_settings_hash(options):
     return digest({'style': options.style, 'genre': options.genre, 'h3_mode': options.h3_mode,
         'missing_reference': options.missing_reference, 'language': options.dialogue_language,
         'narration': options.narration, 'music': options.music, 'choice': options.stages['prompt'].model_dump()})
+
+
+def compatible_prompt_hashes(data):
+    """Schema-only defaults must not recompile unchanged legacy shots."""
+    hashes = {digest(data)}
+    legacy = copy.deepcopy(data)
+    for line in legacy.get('shot', {}).get('dialogue', []):
+        if line.get('narration') is False:
+            line.pop('narration')
+    hashes.add(digest(legacy))
+    candidates = [legacy]
+    if not legacy.get('shot', {}).get('scene_id'):
+        without_scene = copy.deepcopy(legacy)
+        without_scene.get('shot', {}).pop('scene_id', None)
+        candidates.append(without_scene)
+    for candidate in candidates:
+        hashes.add(digest(candidate))
+        previous = candidate.get('first_frame_continuity', {}).get('previous_shot')
+        if previous is not None and not previous.get('scene_id'):
+            previous['scene_id'] = None
+            hashes.add(digest(candidate))
+    return hashes
 
 
 def json_text(text):
@@ -153,10 +175,14 @@ class Content:
                        '每个 episode 必须含 number（与 required_numbers 逐一对应、按顺序）、title、premise、beats、ending、hook。')
         if stage == 'storyboard':
             system += '\n' + FIRST_FRAME_RULES
+            system += ('\n项目允许画外旁白：' + str(options.narration).lower()
+                       + '。dialogue 的 narration=true 表示本句画外旁白，speaker 仍写真实说话人；普通对白为 false。'
+                         '只有项目允许时才能标为 true；画外旁白的角色不必放入本镜可见 characters。')
         if stage == 'prompt':
             fields = REF_FIELDS if mode == 'Ref2VA' else BASE_FIELDS
             system += f'\n本次生成模式已由程序确定为 {mode}，禁止根据参考图片数量改成其他模式。'
             system += '\n每句 dialogue 原文各使用一个 <d>[语言] 台词</d>，严格保持次序、数量与字词。不得额外生成台词。人物 Subject 仅定义本镜 characters 中实际出场的人，保留其原名或 id；场景与道具 Subject 使用真实参考。场景参考里的其他人物不出场，不能对其写 fully_preserved。画外旁白仅在 narration=true 时使用。参考编号与角色身份不可借用其他镜头的模板。'
+            system += '\nshot.dialogue 中 narration=true 的句子使用画外音；voiceover_characters 仅提供旁白声线，不能据此让角色出现在画面或 Subject 定义中。普通对白保持由可见说话人发声。'
             system += f'\n对白采用自然连续的说话节奏，目标约 {options.speech_rate} 字/秒；起手约 {options.speech_lead} 秒、句间约 {options.speech_gap} 秒、收尾至少 {options.speech_tail} 秒。在实际镜长内按原句顺序调度，不能靠急促快读填入超量台词。'
             if 'prompt' not in schema.get('properties', {}):
                 system += '\n本次 JSON 结构覆盖参考文档中单个 prompt 字符串的封装示例：直接返回以下字段，每个值只写该段正文，由程序添加英文标题、顺序和首尾帧对齐行：' + ', '.join(fields)
@@ -402,14 +428,11 @@ class Content:
         if enabled(shot):
             # The compiler can run before rendering; pixels belong in the render cache signature.
             public_bindings = {'first_frame': {k: bindings['first_frame'][k] for k in ('id', 'type', 'name') if k in bindings['first_frame']}}
-        scenes = [s for s in story.get('scenes', []) if s.get('id') in (shot.get('scene_id'), shot.get('continuity_group')) or s.get('name') == shot.get('scene')]
-        if not scenes:
-            scenes = story.get('scenes', [])
-        props = [p for p in story.get('props', []) if p.get('id') in shot.get('props', []) or p.get('name') and p['name'] in (shot.get('action', '') + shot.get('summary', ''))]
+        definitions = shot_dependencies(story, shot)
         data = {'mode': mode, 'shot': {k: v for k, v in shot.items() if k not in ('id', 'seed', 'prompt', 'prompt_snapshot', 'prompt_manual', 'compiled_mode', 'compiled_bindings', 'locked') and k not in POST_FIELDS},
                 'duration': shot['duration'], 'aligned_duration': (int(__import__('pipeline').frames(shot['duration'])) / 24),
                 'characters': [c for c in story['characters'] if c['id'] in shot['characters']],
-                'scenes': scenes, 'props': props, 'bindings': public_bindings,
+                **definitions, 'bindings': public_bindings,
                 'narration': options.narration, 'language': options.dialogue_language, 'music': options.music}
         if enabled(shot):
             previous = predecessor(shot, story)
@@ -440,7 +463,6 @@ class Content:
         if template:
             data['approved_template']={'mode':template['mode'],'sections':template['sections'],
                 'instructions':'使用已验收样板的视觉、声景和参考关系；只按当前镜头重写调度、动作、摘要与原句对白，不能复制旧台词或旧时轴。'}
-        input_hash = digest(data)
         snapshot = shot.get('prompt_snapshot', {})
         if shot.get('prompt_manual') and shot.get('prompt'):
             if enabled(shot):
@@ -457,7 +479,7 @@ class Content:
         if skill_meta.get('modes') and mode not in skill_meta['modes']:
             raise ValueError('当前 Skill 不支持实际 H3 模式 ' + mode + '，请选择兼容 Skill 或调整镜头模式。')
         skill_unchanged = snapshot.get('skill', {}).get('content_hash') == skill_meta['content_hash']
-        if shot.get('prompt') and skill_unchanged and snapshot.get('input_hash') == input_hash and snapshot.get('settings_hash') == prompt_settings_hash(options):
+        if shot.get('prompt') and skill_unchanged and snapshot.get('input_hash') in compatible_prompt_hashes(data) and snapshot.get('settings_hash') == prompt_settings_hash(options):
             try:
                 prompt_valid(shot['prompt'], mode, bindings, shot.get('dialogue'))
                 prompt_cast_valid(shot['prompt'], story, shot, bindings, mode)

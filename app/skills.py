@@ -68,8 +68,7 @@ class Skills:
         missing = sorted(placeholders - set(variables))
         if missing:
             raise ValueError('Skill 未提供变量：' + ', '.join(missing))
-        for name in placeholders:
-            text = text.replace('{{' + name + '}}', str(variables[name]))
+        text = re.sub(r'\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}', lambda match: str(variables[match[1]]), text)
         if len(text) > MAX_SKILL_TEXT:
             raise ValueError('Skill 内容过长，请减少参考内容。')
         snapshot = {k: v for k, v in value.items() if k != 'files'}
@@ -94,7 +93,7 @@ class Skills:
         value['id'] = sid
         value['references'] = [r for r in files if r != 'SKILL.md']
         selected = value.get('context_references')
-        if selected is not None and (not isinstance(selected, list) or any(path not in value['references'] for path in selected)):
+        if 'context_references' in value and (not isinstance(selected, list) or any(path not in value['references'] for path in selected)):
             raise ValueError('上下文参考必须属于此 Skill 的参考文件。')
         value.setdefault('version', '1.0')
         value.setdefault('variables', ['style', 'genre', 'duration', 'language', 'music'])
@@ -103,7 +102,7 @@ class Skills:
         stripped = {relative: (strip_front_matter(content) if relative == 'SKILL.md' else content)
                     for relative, content in files.items()}
         rich = 'context_references' in value
-        order = [*value['references'], 'SKILL.md'] if rich else ['SKILL.md', *value['references']]
+        order = [*selected, 'SKILL.md'] if rich else ['SKILL.md', *value['references']]
         joined = '\n\n'.join(
             ('## 文件：' + relative + '\n\n' if rich else '') + stripped[relative] for relative in order
         )

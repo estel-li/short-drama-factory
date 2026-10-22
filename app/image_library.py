@@ -48,8 +48,13 @@ def library_plan(environment, model_id, models=None):
         target = contained(model_root,category+'/'+chosen)
         comfy_name = next((n for n in current['choices'].get(category,[]) if n.replace('\\','/')==chosen),None)
         state = Downloader.verification_status(target,f['size'],f['sha256']) if known and local_files else 'invalid'
+        # A service filename is not proof that a locally managed weight is intact.
+        if known and local_files and (target.is_file() or not comfy_name):
+            action = 'download' if state == 'invalid' else 'verify' if state == 'unknown' else 'available' if comfy_name else 'verified'
+        else:
+            action = 'available' if comfy_name else 'download' if known else 'local' if target.is_file() else 'missing'
         row = {**f,'name':chosen,'target':str(target),'comfy_name':comfy_name,'custom':not known,
-               'action':'available' if comfy_name else ('verified' if state=='verified' else 'verify' if state=='unknown' else 'download') if known else 'local' if target.is_file() else 'missing'}
+               'action':action}
         if not known:
             row.update(size=target.stat().st_size if target.is_file() else 0,sha256=None,url=None)
         rows.append(row)
@@ -63,7 +68,7 @@ def library_plan(environment, model_id, models=None):
     source_bytes=environment.manifest['comfyui']['size'] if source_needed else 0
     disk=model_root
     while not disk.exists():disk=disk.parent
-    ready=current['connected'] and not missing and not errors and all(m['comfy_name'] for m in rows)
+    ready=current['connected'] and not missing and not errors and all(m['comfy_name'] and m['action']=='available' for m in rows)
     return {'image_model':model_id,'architecture':spec['architecture'],'model_spec':spec,
             'engine':'managed' if managed else 'shared','comfy_url':url,'connected':current['connected'],'missing_nodes':missing,
             'reference_support':not bool({'LoadImage','VAEEncode'}-set(current.get('node_types',[]))),

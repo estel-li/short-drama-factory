@@ -213,6 +213,7 @@ class Character(BaseModel):
 class Dialogue(BaseModel):
     speaker: str = ''
     text: str = Field(max_length=2000)
+    narration: bool = Field(default=False, strict=True, description='本句为画外旁白；需同时开启项目 narration。')
 
 
 class Shot(BaseModel):

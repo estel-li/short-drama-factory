@@ -17,21 +17,56 @@ def _render_data(story, shot):
             'characters':[c for c in story.get('characters',[]) if c['id'] in shot.get('characters',[])]}
 
 
+def shot_dependencies(story, shot):
+    """Definitions actually supplied to the prompt compiler for this shot."""
+    scenes = [s for s in story.get('scenes', [])
+              if s.get('id') in (shot.get('scene_id'), shot.get('continuity_group'))
+              or s.get('name') == shot.get('scene')]
+    props = [p for p in story.get('props', []) if p.get('id') in shot.get('props', [])
+             or p.get('name') and p['name'] in (shot.get('action', '') + shot.get('summary', ''))]
+    result = {'scenes': scenes or story.get('scenes', []), 'props': props}
+    narrators = {line.get('speaker') for line in shot.get('dialogue', []) if line.get('narration') is True}
+    if narrators:
+        result['voiceover_characters'] = [{k: c[k] for k in ('id', 'name', 'voice_description') if k in c}
+                                          for c in story.get('characters', []) if c['id'] in narrators or c['name'] in narrators]
+    return result
+
+
+def _canonical_render_data(story, shot):
+    value = copy.deepcopy(_render_data(story, shot))
+    value['shot']['scene_id'] = value['shot']['scene_id'] or None
+    if value['shot']['dialogue'] is not None:
+        for line in value['shot']['dialogue']:
+            if line.get('narration') is False:
+                line.pop('narration')
+    return value
+
+
 def render_contract(story, shot):
-    value = _render_data(story, shot)
+    value = _canonical_render_data(story, shot)
     if value['shot']['duration'] is not None:
         value['shot']['duration'] = float(value['shot']['duration'])
-    return digest(value)
+    value['definitions'] = shot_dependencies(story, shot)
+    return 'v2:' + digest(value)
 
 
 def render_contract_matches(expected, story, shot):
     if expected == render_contract(story, shot):return True
-    # 2.4 recorded default durations as integers before the next Pydantic read.
-    value = _render_data(story, shot)
+    if not isinstance(expected, str) or expected.startswith('v2:'):
+        return False
+    # Legacy contracts predate definition tracking, scene_id defaults and per-line narration.
+    # Projects.save_story upgrades matching old records before applying definition edits.
+    value = _canonical_render_data(story, shot)
     duration = value['shot']['duration']
+    durations = [duration]
     if isinstance(duration, (int, float)) and float(duration).is_integer():
-        value['shot']['duration'] = int(duration)
-        return expected == digest(value)
+        durations = [float(duration), int(duration)]
+    scene_ids = [value['shot']['scene_id']] if value['shot']['scene_id'] else [None, '']
+    for seconds in durations:
+        for scene_id in scene_ids:
+            value['shot'].update(duration=seconds, scene_id=scene_id)
+            if expected == digest(value):
+                return True
     return False
 
 
@@ -125,10 +160,13 @@ def story_report(story, options):
             cid = names.get(speaker, speaker if speaker in ids else None)
             # Narration only excuses the lines it actually covers; a named, on-screen speaker
             # stays checked even when the project has narration enabled.
-            narrated = line.get('narration') is True or (options.narration and not cid)
+            if line.get('narration') is True and not options.narration:
+                issues.append({'kind': 'narration_disabled', 'severity': 'error', 'uid': shot.get('uid'), 'shot_id': shot['id'],
+                               'message': f"镜头 {shot['id']} 包含画外旁白，请先开启项目的“采用画外旁白”。"})
+            narrated = options.narration and (line.get('narration') is True or not cid)
             if cid and cid not in shot.get('characters', []) and not narrated:
                 issues.append({'kind': 'offscreen_speaker', 'severity': 'error', 'uid': shot.get('uid'), 'shot_id': shot['id'],
-                               'message': f"镜头 {shot['id']} 的说话人 {speaker} 没有出场。请确认出场人物，画外音请显式开启旁白。"})
+                               'message': f"镜头 {shot['id']} 的说话人 {speaker} 没有出场。请确认出场人物；画外音需开启项目旁白并将本句 narration 设为 true。"})
     return {'version': 1, 'issues': issues, 'shots': shots, 'ready': not any(i['severity'] == 'error' for i in issues),
             'measurement': '对白字数与目标语速的预算；实际语速以生成音频检测为准。'}
 

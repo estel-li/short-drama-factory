@@ -123,6 +123,11 @@ class DramaSaveConditioning:
     CATEGORY = '短剧工厂/内存优化'
     OUTPUT_NODE = True
 
+    @classmethod
+    def IS_CHANGED(cls, filename, **kwargs):
+        # A cached node result cannot replace a deleted on-disk artifact.
+        return False if cache_path(filename).is_file() else float('nan')
+
     def save(self, conditioning, filename):
         tensors = {}
 
@@ -197,6 +202,10 @@ class DramaSaveLatent:
     FUNCTION = 'save'
     CATEGORY = '短剧工厂/内存优化'
     OUTPUT_NODE = True
+
+    @classmethod
+    def IS_CHANGED(cls, filename, **kwargs):
+        return False if latent_path(filename).is_file() else float('nan')
 
     def save(self, samples, filename):
         video, audio = samples['samples'].unbind()
