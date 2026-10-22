@@ -75,6 +75,8 @@ class Database:
                     operation_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK(status IN ('pending','completed')),
                     result TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
             ''')
+            if 'failure' not in {row[1] for row in db.execute('PRAGMA table_info(jobs)')}:
+                db.execute("ALTER TABLE jobs ADD COLUMN failure TEXT NOT NULL DEFAULT '{}'")
 
     @contextmanager
     def connect(self):
@@ -158,7 +160,7 @@ class Database:
             db.execute('BEGIN IMMEDIATE')
             return self._save_operation(db, key, result, complete=True)
 
-    def enqueue_operation(self, key, scope, request_payload, project_id, kind, job_payload=None):
+    def enqueue_operation(self, key, scope, request_payload, project_id, kind, job_payload=None, result_fields=None):
         """A receipt and its queued job commit together, or neither commits."""
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -173,6 +175,8 @@ class Database:
                        (jid, project_id, kind, _canonical_json(job_payload or {}), 'queued', timestamp, timestamp))
             self._event(db, jid, {'type': 'status_changed', 'status': 'queued', 'previous_status': None}, timestamp)
             result = {'job_id': jid, 'id': project_id, 'operation_id': receipt['operation_id'], 'request_key': key}
+            if result_fields:
+                result.update(result_fields)
             self._save_operation(db, key, result, complete=True)
             return result
 
@@ -187,7 +191,7 @@ class Database:
             raise ContractError('PROJECT_BUSY', '此项目已有排队或执行中的任务。', status=409,
                                 retryable=True, next_actions=['watch', 'stop'])
         timestamp = now()
-        db.execute("UPDATE jobs SET rowid=(SELECT COALESCE(MAX(rowid),0)+1 FROM jobs),status='queued',cancel_requested=0,message='继续原任务',created_at=?,updated_at=? WHERE id=?",
+        db.execute("UPDATE jobs SET rowid=(SELECT COALESCE(MAX(rowid),0)+1 FROM jobs),status='queued',cancel_requested=0,failure='{}',message='继续原任务',created_at=?,updated_at=? WHERE id=?",
                    (timestamp, timestamp, jid))
         self._event(db, jid, {'type': 'status_changed', 'status': 'queued', 'previous_status': row['status'],
                               'message': '继续原任务'}, timestamp)
@@ -283,7 +287,7 @@ class Database:
             self._event(db, row['id'], {'type': 'status_changed', 'status': 'running', 'previous_status': 'queued'})
             return dict(row)
 
-    def update(self, jid, status=None, message='', event=None):
+    def update(self, jid, status=None, message='', event=None, failure=None):
         if status is not None and (not isinstance(status, str) or status not in JOB_STATUSES):
             raise ValueError('未知任务状态。')
         with self.connect() as db:
@@ -293,6 +297,10 @@ class Database:
                 return
             timestamp = now()
             db.execute('UPDATE jobs SET status=COALESCE(?,status),message=?,updated_at=? WHERE id=?', (status, message, timestamp, jid))
+            if failure is not None:
+                db.execute('UPDATE jobs SET failure=? WHERE id=?', (_canonical_json(failure), jid))
+            elif status is not None and status not in ('error', 'paused'):
+                db.execute("UPDATE jobs SET failure='{}' WHERE id=?", (jid,))
             changed = status is not None and status != row['status']
             if event is not None or changed:
                 data = _event_data(event)

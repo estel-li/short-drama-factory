@@ -1,4 +1,4 @@
 interface:
-  display_name: "短剧工厂视频制作"
-  short_description: "让外部 AI 通过本地接口完成分镜、H3 生成、续跑和成片验收"
-  default_prompt: "使用 $short-drama-factory，根据我的大纲操作短剧工厂，生成并检查视频。"
+  display_name: "短剧工厂 · AI 制作"
+  short_description: "由当前 AI 编写分镜，通过命令行完成视频制作、局部修复与交付检查"
+  default_prompt: "使用 $short-drama-factory，根据我的需求编写分镜，连接本地工厂生成视频并交付验收结果。"

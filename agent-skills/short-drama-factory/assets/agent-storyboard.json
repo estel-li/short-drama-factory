@@ -1,0 +1,56 @@
+{
+  "input": "外部 AI 编写的两镜无对白短片：雨中窗边与雨后水洼。",
+  "options": {
+    "input_mode": "storyboard",
+    "execution_mode": "auto",
+    "duration_rule": "count",
+    "total_seconds": 8,
+    "shot_count": 2,
+    "shot_seconds": 4,
+    "style": "温暖的二维动漫，细腻手绘背景",
+    "genre": "治愈",
+    "ratio": "9:16",
+    "profile": "draft",
+    "auto_reference": false,
+    "subtitles": false,
+    "render_retries": 0,
+    "h3_mode": "T2VA",
+    "music": "N/A"
+  },
+  "storyboard": {
+    "title": "雨后的光",
+    "style": "温暖的二维动漫，细腻手绘背景",
+    "aspect_ratio": "9:16",
+    "characters": [],
+    "shots": [
+      {
+        "id": 1,
+        "scene": "室内窗边",
+        "summary": "雨滴滑过玻璃，杯口散出热气。",
+        "camera": "固定中近景",
+        "action": "雨滴缓慢下滑，茶杯热气上升。",
+        "duration": 4,
+        "characters": [],
+        "dialogue": [],
+        "mode": "T2VA",
+        "bindings": {},
+        "use_previous_last_frame": false,
+        "prompt": "integrated_multimodal_description:\n[Shot 1] 0.0-4.46s. Warm hand-drawn 2D animation, vertical composition. A white ceramic cup rests on a wooden windowsill. Steam rises gently while rain droplets slide down the glass. Locked medium close-up, soft overcast light, calm motion. No people, no captions or watermark.\n\noverall_soundscape:\nSoft rain against the window, quiet indoor ambience. No dialogue.\n\nnon_diegetic_music:\nN/A"
+      },
+      {
+        "id": 2,
+        "scene": "雨后小巷",
+        "summary": "阳光出现在水洼倒影中。",
+        "camera": "固定低机位近景",
+        "action": "最后一滴雨水形成涟漪，暖光落在石板路上。",
+        "duration": 4,
+        "characters": [],
+        "dialogue": [],
+        "mode": "T2VA",
+        "bindings": {},
+        "use_previous_last_frame": false,
+        "prompt": "integrated_multimodal_description:\n[Shot 1] 0.0-4.46s. Warm hand-drawn 2D animation, vertical composition. A shallow puddle reflects a quiet stone alley after rain. One final droplet forms gentle ripples as warm sunlight touches the wet stones. Locked low-angle close-up, delicate reflections, calm motion. No people, no captions or watermark.\n\noverall_soundscape:\nOne light water drop, distant birds and a soft breeze. No dialogue.\n\nnon_diegetic_music:\nN/A"
+      }
+    ]
+  }
+}

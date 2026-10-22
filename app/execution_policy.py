@@ -139,4 +139,3 @@ def validate_external_story(story, options, resolve_bindings, mode_resolver, *, 
             status=409, details=issues,
             next_actions=['supply_external_content', 'create_execution_plan'],
         )
-

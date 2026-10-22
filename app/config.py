@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from .schemas import Provider, Quality
 from .image_schemas import ImageSettings
-from .storage import ROOT, identifier, read_json, write_json
+from .storage import ROOT, identifier, read_json, write_json, digest
 
 
 class ConfigStore:
@@ -45,15 +45,19 @@ class ConfigStore:
 
     def public(self):
         value = self.get()
+        value.pop('_agent_receipts', None)
         value['image_generation'] = ImageSettings.model_validate(value.get('image_generation', {})).model_dump()
         for p in value['providers']:
             p['key_configured'] = bool(self.key(p['id']))
         return value
 
-    def save(self, value):
+    def save(self, value, operation=None):
         with self.lock:
-            previous_images = self.get().get('image_generation', {})
-            value = {k: copy.deepcopy(value[k]) for k in ('version', 'projects_dir', 'environment', 'providers', 'proxy', 'setup_complete', 'retry_policy_version', 'image_generation') if k in value}
+            previous = self.get()
+            previous_images = previous.get('image_generation', {})
+            managed = ('version', 'projects_dir', 'environment', 'providers', 'proxy', 'setup_complete', 'retry_policy_version', 'image_generation')
+            value = {**{k: copy.deepcopy(v) for k, v in previous.items() if k not in managed},
+                     **{k: copy.deepcopy(value[k]) for k in managed if k in value}}
             value['image_generation'] = ImageSettings.model_validate(value.get('image_generation', previous_images)).model_dump()
             value['retry_policy_version'] = 1
             providers = []
@@ -80,6 +84,11 @@ class ConfigStore:
                 raise ValueError('至少需要一个生成质量预设。')
             value['environment']['profiles'] = {identifier(name): Quality.model_validate(p).model_dump() for name, p in profiles.items()}
             value['version'] = 2
+            if operation:
+                result = {'revision': digest({k: v for k, v in value.items() if k != '_agent_receipts'}),
+                          'request_key': operation['key']}
+                value.setdefault('_agent_receipts', {})[operation['key']] = {
+                    'request_hash': operation['request_hash'], 'result': result}
             write_json(self.path, value)
             return self.public()
 

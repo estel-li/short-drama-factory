@@ -1,5 +1,5 @@
-import {api, el, field, select} from "./api.js?v=3.8.0";
-import {dialog} from "./ui.js?v=3.8.0";
+import {api, el, field, select} from "./api.js?v=3.9.0";
+import {dialog} from "./ui.js?v=3.9.0";
 
 export const slotNames = {source_audio: "驱动原声", source_video: "工作流源视频", guide_image: "中段引导图"};
 export const formatSize = v => v < 1024 ** 3 ? `${(v / 1024 ** 2).toFixed(1)} MB` : `${(v / 1024 ** 3).toFixed(2)} GB`;

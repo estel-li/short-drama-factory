@@ -127,7 +127,7 @@ def build():
     write_json(package / 'package.json', {'version': VERSION, 'python': PYTHON_VERSION, 'python_sha256': checksum,
         'created_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'platform': 'Windows x64', 'models_included': False,
         'credentials_included': False})
-    (package / 'README.md').write_text('# 短剧工厂便携版\n\n> **AI 操作入口：[AGENTS.md](AGENTS.md) → [视频制作 Skill](agent-skills/short-drama-factory/SKILL.md)。**\n\n解压到可写目录，双击“启动短剧工厂.cmd”。首次打开“模型与环境”：复用已有 ComfyUI，或选择从零安装。目标电脑需要可用的 NVIDIA 驱动，也可以连接远程服务。模型下载清单固定版本且可恢复。API key 和 HF token 在本机重新填写，标准包不包含模型和私人配置。详细步骤见“使用说明.md”。\n', encoding='utf-8')
+    (package / 'README.md').write_text('# 短剧工厂便携版\n\n> **AI 操作入口：[AGENTS.md](AGENTS.md) → [操作技能](agent-skills/short-drama-factory/SKILL.md)。**\n\n解压到可写目录后，让本机 AI 读取技能。可用 `runtime/python.exe agent-skills/short-drama-factory/scripts/sdf.py start --app .` 启动仅提供 API 的服务，再用 doctor 检查环境。图形工作台可通过“启动短剧工厂.cmd”打开；普通启动会恢复旧队列。模型、ComfyUI、API key 和 HF token 单独配置，标准包不含模型、凭证或私人项目。详见技能中的连接、资源准备与制作说明。\n', encoding='utf-8')
     subprocess.run([str(runtime / 'python.exe'), '-c', 'import fastapi,uvicorn,av,httpx,psutil,numpy,onnxruntime; import app.api; print("portable imports passed")'], cwd=package, check=True, env=build_env)
     output = dist / (f'短剧工厂-v{VERSION}-Windows-x64-' + time.strftime('%Y%m%d_%H%M%S') + '.zip')
     with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=5) as archive:

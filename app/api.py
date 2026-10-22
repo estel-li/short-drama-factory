@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .assets import Assets
 from .config import ConfigStore
@@ -31,7 +32,7 @@ from .storage import ROOT, contained, now, read_json, write_json
 from .transfer import Transfer
 from .version import VERSION, PROTOCOL_VERSION
 from .contracts import (ContractError, CreateProjectRequest, SaveStoryRequest, ValidateStoryRequest,
-                        StageRequest, JobView, error_body, job_view, safe_message)
+                        StageRequest, JobView, ErrorView, error_body, job_view, safe_message)
 from .project_locks import project_lock
 
 config = ConfigStore()
@@ -53,7 +54,8 @@ async def lifespan(app):
     worker.wake.set()
 
 
-app = FastAPI(title='短剧工厂', version=VERSION, lifespan=lifespan)
+app = FastAPI(title='短剧工厂', version=VERSION, lifespan=lifespan,
+              responses={status: {'model': ErrorView} for status in (400, 403, 404, 409, 413, 422)})
 
 
 def project_mutation(function):
@@ -80,15 +82,15 @@ async def local_origin(request: Request, call_next):
     except ValueError:
         hostname = None
     if hostname not in ('127.0.0.1', 'localhost', '::1'):
-        return JSONResponse({'error': '工作台仅接受本机地址，请使用 127.0.0.1 或 localhost。'}, status_code=403)
+        return JSONResponse(error_body('LOCAL_ADDRESS_REQUIRED', '工作台仅接受本机地址，请使用 127.0.0.1 或 localhost。'), status_code=403)
     if request.method not in ('GET', 'HEAD') and origin and origin not in ('http://' + host, 'https://' + host):
-        return JSONResponse({'error': '请求来源不允许。'}, status_code=403)
+        return JSONResponse(error_body('ORIGIN_REJECTED', '请求来源不允许。'), status_code=403)
     try:
         size = int(request.headers.get('content-length', '0'))
     except ValueError:
-        return JSONResponse({'error': '无效请求长度。'}, status_code=400)
+        return JSONResponse(error_body('INVALID_REQUEST_LENGTH', '无效请求长度。'), status_code=400)
     if size > (2 * 1024**3 if request.url.path == '/api/import' else 12_000_000):
-        return JSONResponse({'error': '请求体上限 12MB。'}, status_code=413)
+        return JSONResponse(error_body('REQUEST_TOO_LARGE', '请求体超过接口允许大小。'), status_code=413)
     response = await call_next(request)
     if request.url.path.startswith('/api') or request.url.path == '/' or request.url.path.startswith('/web/'):
         response.headers['Cache-Control'] = 'no-store'
@@ -132,6 +134,13 @@ async def request_validation_error(request, exc):
 async def contract_error(request, exc):
     return JSONResponse(error_body(exc.code, str(exc), retryable=exc.retryable,
                                   details=exc.details, next_actions=exc.next_actions), status_code=exc.status)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_error(request, exc):
+    message = '接口或文件不存在。' if exc.status_code == 404 else 'HTTP 请求无法完成，请检查路径和方法。'
+    return JSONResponse(error_body('HTTP_ERROR', message, next_actions=['inspect_capabilities']),
+                        status_code=exc.status_code, headers=exc.headers)
 
 
 @app.exception_handler(ValueError)
@@ -753,7 +762,8 @@ def capabilities():
     return {'protocol_version': PROTOCOL_VERSION, 'application_version': VERSION,
             'features': {'exact_jobs': True, 'job_events': True, 'structured_errors': True,
                          'execution_plans': True, 'idempotency': True, 'revisioned_edits': True,
-                         'strict_render': True, 'serve_only': True},
+                         'strict_render': True, 'serve_only': True, 'typed_images': True,
+                         'configuration_patch': True, 'speech_prepare': True, 'prompt_compile': True},
             'video': video_workflow_catalog(), 'images': image_model_catalog(),
             'schemas': '/openapi.json',
             'effects': {'/api/environment/verify': ['creates_project', 'gpu_render'],
@@ -956,6 +966,15 @@ def media(pid: str, relative: str):
 from .agent_api import install_agent_routes
 install_agent_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
                                                   assets=assets, content=content, worker=worker))
+from .agent_environment import install_environment_routes
+install_environment_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
+                                                        assets=assets, content=content, worker=worker))
+from .agent_media import install_media_routes
+install_media_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
+                                                  assets=assets, content=content, worker=worker))
+from .prompt_tools import install_prompt_routes
+install_prompt_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
+                                                   assets=assets, content=content, worker=worker))
 
 if (ROOT / 'web').is_dir():
     app.mount('/web', StaticFiles(directory=ROOT / 'web'), name='web')

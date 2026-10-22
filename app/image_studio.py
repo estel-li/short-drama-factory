@@ -22,6 +22,7 @@ from .image_inputs import ImageInputs
 from .image_sampling import resolve_sampling, sampling_for_plan, validate_sampling_support
 from .image_schemas import ImageRequest, ReferenceSourceSelection
 from .providers import Cancelled, LLMClient
+from .contracts import ContractError
 from .storage import contained, digest, identifier, now, read_json, write_json
 
 
@@ -190,23 +191,36 @@ class ImageStudio:
             write_json(path, value)
             return value
 
-    def create(self, raw, project_id='', target='', parent_id='', confirmation=''):
-        request = self.image_request(raw)
-        if project_id:
-            self.projects.path(project_id)
-        if parent_id:
-            self.path(parent_id)
-        iid = uuid.uuid4().hex[:24]
-        if request.seed is None:
-            request.seed = secrets.randbelow(2**53)
-        reference_inputs = self.inputs.snapshot(request.reference_images, self.root / iid)
-        self.validate_edit_inputs(request.model_dump(), reference_inputs)
-        value = {'id': iid, 'owner': project_id or '__image_' + iid, 'project_id': project_id,
-                 'target': target, 'parent_id': parent_id, 'request': request.model_dump(), 'download_confirmation': confirmation,
-                 'reference_inputs': reference_inputs,
-                 'status': 'new', 'message': '图片任务已创建。', 'created_at': now(), 'updated_at': now()}
-        write_json(self.root / iid / 'image.json', value)
-        return value
+    def create(self, raw, project_id='', target='', parent_id='', confirmation='', reserved_id=None, operation_id=None):
+        with self.lock:
+            if reserved_id is not None or operation_id is not None:
+                if not reserved_id or not operation_id:
+                    raise ValueError('预留图片必须同时提供图片标识和操作标识。')
+                identifier(reserved_id)
+                identifier(operation_id)
+                previous = read_json(self.root / reserved_id / 'image.json')
+                if previous:
+                    if previous.get('operation_id') != operation_id:
+                        raise ContractError('IMAGE_RESERVATION_CONFLICT', '预留图片标识已被其他操作使用。', status=409)
+                    return previous
+            request = self.image_request(raw)
+            if project_id:
+                self.projects.path(project_id)
+            if parent_id:
+                self.path(parent_id)
+            iid = reserved_id or uuid.uuid4().hex[:24]
+            if request.seed is None:
+                request.seed = secrets.randbelow(2**53)
+            reference_inputs = self.inputs.snapshot(request.reference_images, self.root / iid)
+            self.validate_edit_inputs(request.model_dump(), reference_inputs)
+            value = {'id': iid, 'owner': project_id or '__image_' + iid, 'project_id': project_id,
+                     'target': target, 'parent_id': parent_id, 'request': request.model_dump(), 'download_confirmation': confirmation,
+                     'reference_inputs': reference_inputs,
+                     'status': 'new', 'message': '图片任务已创建。', 'created_at': now(), 'updated_at': now()}
+            if operation_id:
+                value['operation_id'] = operation_id
+            write_json(self.root / iid / 'image.json', value)
+            return value
 
     def image_request(self, raw):
         settings = self.environment.settings()

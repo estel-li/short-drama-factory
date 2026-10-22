@@ -2,95 +2,75 @@
 name: short-drama-factory
 license: MIT
 metadata:
-  version: "1.7.1"
-description: 操作本地短剧工厂（Short Drama Factory），将灵感、大纲、剧本或外部 AI 编写的分镜与 H3 提示词变成视频，也可用本地生图模型生成独立图片和项目参考图。支持审核、素材绑定、续跑、重生成与导出。用于通过该程序制作图片或视频；不用于修改应用代码或一般视频剪辑。
+  version: "3.9.0"
+  contract_version: 1
+description: 通过本地短剧工厂的命令行与 API，把当前 AI 编写的分镜和 H3 提示词制作成视频；支持真实素材绑定、图片生成、按镜头修改、断点恢复与交付检查。用于操作已安装的工厂制作或修复内容，不用于开发应用代码。
 ---
 
-# 短剧工厂视频制作
+# 短剧工厂：从 AI 对话制作视频
 
-你是操作短剧工厂的制作助手。完成用户指定的视频并提供可播放的产物、项目 ID 和验收结果。此技能是**外部 AI 的操作技能**，不要导入工厂内部的大纲／分镜／提示词 Skill 列表。
+默认由当前 AI 理解需求、创作分镜和提示词，工厂负责校验、排队、生成与后期。用户无需打开图形工作台。本技能可安装给 Codex 或其他能执行本地 Python／HTTP 的 AI；它不是工厂内部的文字生成模板。
 
-## 连接与准备
+交付用户要求的实际产物，并保留项目 ID、任务 ID、提交回执和验收范围。仅完成计划、镜头子集或一个任务，不代表整片已完成。
 
-适配短剧工厂 **3.6.6** 的实际 API；基本图片功能要求 3.0.0，下载确认、图片删除及编辑后继续原任务要求 3.0.1，多图参考、图生图和自定义角色图片依据要求 3.1.0，高级采样参数要求 3.1.1，见 [图片参数与接口](references/images.md)。需要 AI 能执行本地命令或访问本机 HTTP；客户端脚本只用 Python 3.10+ 标准库，不依赖 Codex 专属工具。只有云端聊天能力的 AI 无法直接访问用户电脑的 `127.0.0.1`，应由本机代理执行命令。不要为此公开工作台端口。
+## 先连接正确实例
 
-1. 找到用户指定的应用目录与端口，先 `GET /api/health`。默认 `http://127.0.0.1:8765`，返回 `version`、`application_root`、`comfy`、`active_project`。不要把技能目录误当作应用目录。已启动的正确实例直接复用。
-2. 未启动时，在应用目录运行 `启动短剧工厂.cmd --no-browser`；也可用该应用的 `runtime/python.exe`（便携包）或 `.venv/Scripts/python.exe` 运行 `launcher/start.py --no-browser`。后台启动时隐藏窗口，轮询健康接口。端口冲突时先辨认实例，明确使用 `--port 8770` 等空闲端口，客户端对应传入 `--base-url`。
-3. 读 `GET /api/config`、`/api/skills`、`/api/presets`，使用真实存在的提供商、质量预设和 Skill。健康检查不能证明所有 H3 模型就绪；渲染前还要读 `/api/environment/catalog` 的 `missing_nodes`、`configured_missing`、`cache_protocol`。连接失败时按 [故障恢复](references/recovery.md) 处理。
-4. 从请求确定输入类型、故事、风格、画幅、镜头数／时长、对白、参考素材和审核方式。普通缺省用 9:16、24 秒、6 镜、`draft`；16GB 显存先用 0.4MP / 4 步、每镜 4～8 秒。不要覆盖用户明确设置。先请求 `/api/duration-plan`，报告分配时长与帧对齐后的预计时长；对白和后期会进一步影响成片长度。
-5. 有对白时先确认采用哪一版原文；用户已指定定稿就直接沿用。H3 同时生成音画，改台词通常需要重生成对应镜头，不能只改字幕冒充配音已更新。明确哪些镜头保留画面、哪些按用户要求用于文字页；按 [实战制作与诊断](references/production-practice.md) 计算对白预算，只有影响制作决策的缺项才询问。
+本技能使用 **agent 协议 1**。3.8.0 起提供版本化项目／计划接口；3.9.0 配套任务级 CLI。以健康接口的 `protocol_version`、`application_root` 和 capabilities 的实际功能为准，不单凭版本号猜能力。
 
-无界面接入可先运行 `python scripts/sdf.py connect --app 应用目录`，再用 `doctor`、`capabilities`、`job get 任务ID`。连接和诊断不会启动服务或生成。
-
-命令相对技能目录运行；也可将脚本改为绝对路径。Windows 中文 JSON 使用 UTF-8 文件，避免把整段 JSON 塞进 shell 参数：
+先读 [连接与命令行](references/cli.md)。以下命令在技能目录运行；Python 可替换为可用解释器的绝对路径。CLI 仅需 Python 3.10+ 标准库。
 
 ```powershell
-python scripts/factory_api.py get /api/health
-python scripts/factory_api.py get /api/config
-python scripts/factory_api.py get /api/skills
-python scripts/factory_api.py get /api/environment/catalog
+python scripts/sdf.py --base-url http://127.0.0.1:8765 connect --app "应用绝对目录"
+python scripts/sdf.py doctor
+python scripts/sdf.py capabilities
 ```
 
-有应用自带 Python 时可用其绝对路径替换 `python`。`--base-url`、`--timeout` 是子命令前的全局参数。
+连接失败且应用尚未启动时，使用 `sdf.py start --app "应用绝对目录" --port 8765`。新服务仅提供 API，不打开浏览器、不恢复旧队列；复用已运行服务时查看返回的 queue_mode，不假定它已暂停旧任务。工作目录中的 `.sdf` 保存连接与操作记录；换目录时用全局 `--context` 指向原连接文件。
 
-## 选择创作路径
+多实例必须核对 `application_root`。云端聊天不能直接访问用户电脑的 `127.0.0.1`；需要本机执行器，不能把绑定本机的接口描述成远程服务。
 
-先按 [完整工作流选择指南](references/workflow-selection.md) 根据用户目标、已有素材和硬件条件选择视频方案与图片模型。该指南覆盖全部原生／加速／高级工作流、兼容模式、参数、时长、性能与验收，优先保留用户指定的原声、画面和动作约束。读取 `/api/video/workflows` 获取本机能力；不要凭方案名称或步数猜测效果。
+## 按当前任务读取
 
-使用 3.3 的音频驱动、锁画面拟音、中段关键帧、多帧接续与轮廓控制时，先读 [H3 高级媒体工作流](references/h3-advanced.md)。
+| 用户目标 | 读取与执行 |
+| --- | --- |
+| 从故事制作短片 | [分镜与 H3 契约](references/story-and-h3.md)，[请求模板](references/templates.md)；当前 AI 创作后走严格渲染 |
+| 保留原声、原画面、关键帧或动作接续 | [工作流选择](references/workflow-selection.md)；仅涉及高级媒体槽时再读 [高级 H3](references/h3-advanced.md) |
+| 改一句台词、一个镜头、字幕或画幅 | [编辑与修复](references/production-practice.md)；按 UID 修改，重新计算影响范围 |
+| 接着旧项目做、请求超时或生成失败 | [诊断与恢复](references/recovery.md)；先定位原任务和回执 |
+| 生成独立图片或人物／场景参考图 | [图片接口](references/images.md)；外部提示词默认 `optimize:false` |
+| 准备模型或配置环境 | [资源准备](references/workflow-models.md)；只在确有缺项时读取 |
+| 验收、取片、CPU 后期 | [交付检查](references/delivery-checks.md) |
+| 编写自己的调用程序或 CLI 暂未覆盖某能力 | [接口契约](references/api.md) 与实例 `/openapi.json` |
 
-选择新增视频工作流、不同架构的生图模型或准备其资源时，先读 [模型与工作流选择](references/workflow-models.md)。
+不需要一次读取全部参考资料。模型、工作流、参数和槽位从 capabilities／实例接口查询，不复制历史参数表作为当前事实。
 
-仅制作图片，或为视频生成角色／场景／道具参考图时，先读 [图片与参考图接口](references/images.md)。图片优化默认开启；用户明确要求直接使用提示词时传 `optimize:false`。视频项目的 `reference_images.enabled` 默认关闭，只有用户需要自动参考图时才开启。启用后 `stage/plan` 也会使用 GPU 生成图片。
+## 默认制作路径
 
-### A. 工厂调用文字模型
-
-适合已有大纲／剧本，让工厂调用用户配置的 DeepSeek 或本地模型。以 [大纲请求模板](assets/project-outline.json) 为起点，替换 `input` 和 `options`。三阶段 `stages` 分别选提供商、模型与 Skill；留空 `model` 继承提供商模型。
-
-先用 `start:false` 创建项目，再调用 `stage/plan`，生成文字、不渲染视频。`execution_mode:auto` 会完成文字三阶段；`review` 则在配置的检查点返回 `review`。检查大纲、角色区分、镜头动作、对白装镜及 H3 提示词，读取 `preflight`。用户已要求全自动时直接完成合理检查并继续，不逐阶段重复询问；用户要求审核时停在相应阶段等待。
-
-### B. 外部 AI 自己写分镜和提示词
-
-适合用户要求由当前 AI 创作，或不想另调文字 API。先读 [分镜与 H3 契约](references/story-and-h3.md)，以 [外部 AI 请求模板](assets/project-storyboard.json) 改写。
-
-使用 `input_mode:storyboard`，`storyboard` 为对象，所有镜头填完整 `prompt`。工厂保存后会标记手写提示词；`auto_reference:false`、明确 `T2VA`、无首帧接续的模板可直接走渲染，不需要文字 API。**不要调用强制 `stage/prompt`，它会清除手写标记并重新调用文字模型。** 需要参考图／接续时按契约绑定，不能靠提示词虚构素材。若修改剧情导致旧提示词被清空，先补齐再继续。
-
-## 共同执行流程
-
-先读 [API 操作表](references/api.md)，其中说明准确请求体和关键参数。
+1. **整理需求与素材。** 保留用户指定的台词、原声、角色与镜头目的。依据现有素材选择模式；没有素材时先完成可做的创作，缺项不能用虚构 ID 或静音替代。
+2. **创作草稿。** 当前 AI 填写完整 Story 与每镜 H3 prompt。主模板为 [agent-storyboard.json](assets/agent-storyboard.json)；创建仅保存草稿，返回稳定项目 ID，不自动开始生成。
+3. **校验并计划。** 读取 `project validate` 的问题位置，再运行 `project plan`。查看 `ready`、`blocked`、`affected_uids`、`effects`、模型缺项与 `expected.delivery_scope`。计划中的缓存候选不是命中保证，未知时间／费用不能写成精确估计。
+4. **执行与跟踪。** 计划满足需求后使用同一 `plan_id` 运行，保存 CLI 先输出的请求键和最终任务 ID。用有界 `job watch` 观察原任务；仍在运行就继续观察，不新建任务。
+5. **检查产物。** 整片与所选镜头分别判断成功；按交付检查读取实际文件、媒体报告和审核材料，说明已完成及未完成的内容验收。
 
 ```powershell
-# 将所选模板复制到工作目录，填入用户内容，再发送。
-python scripts/factory_api.py post /api/projects --json project-request.json
-# 保存返回的 id；start:false 时 job_id 为空。
-python scripts/factory_api.py get /api/project/PROJECT_ID
-python scripts/factory_api.py get /api/projects/PROJECT_ID/preflight
+python scripts/sdf.py project create --json project-request.json
+python scripts/sdf.py project validate PROJECT_ID
+python scripts/sdf.py project plan PROJECT_ID
+python scripts/sdf.py project run PROJECT_ID --plan PLAN_ID --wait 45
+python scripts/sdf.py job watch JOB_ID --seconds 45
 ```
 
-创建请求的 `start` 必须明确；API 省略时默认立即排队全流程。每次保存返回的项目 ID、任务 ID。已有项目优先按 ID 继续，不因超时重新创建。
+`render` 计划始终严格：不补大纲、不重写分镜、不优化图片提示词、不生成隐藏参考图，也不隐式下载。缺失或失效的 prompt 由当前 AI 补齐后重新计划。已有下载或全自动制作授权继续有效；计划是机器执行契约，不要求每一步都再次询问用户。
 
-1. **生成文字（仅按需）**：`POST /api/projects/{id}/stage/plan`，JSON `{}`。`render` 也会补齐缺失的文字阶段，所以外部 AI 路径要先确认所有 `prompt` 非空。
-2. **保存修改**：先读取完整 `story` 或 `settings`，保留未知字段、镜头 `uid`、素材及锁定状态，只改所需字段，再通过 API 保存。设置保存是整体替换，不是局部 PATCH。项目 `busy:true` 时先等待；需要改动运行项目则按用户要求停止，等队列退出后再改。
-3. **预检**：`preflight.ready` 必须为真，另核对模式、真实素材、场景图的角色标记和 H3 标签。可运行 `diagnose --project PROJECT_ID` 汇总绑定冲突与历史采样耗时。结构校验、对白预检、素材／模式检查、提示词检查各有不同覆盖范围，任何一项通过都不代表 GPU 或全部契约已验证。
-4. **渲染**：`POST /api/projects/{id}/stage/render`，正常 `{}`；用户需要试镜时用 `{"limit":1}`。这是最多生成一个待生成镜头，不是选择镜头 ID，也不保证整片完成。首帧接续必须按相邻镜头顺序生成。
-5. **监控**：用下方命令跟踪确切任务，每轮至多约一分钟。客户端退出码 `3` 表示还在运行，不会停止服务或取消任务；下一轮跟踪同一个 ID。任务 `review`／`paused`／`error` 分别需要审核、恢复或诊断，不等于成片完成。任务 `done` 也可能只是文字或试镜完成。
+只有用户选择工厂内部文字模型时，才使用 [agent-outline.json](assets/agent-outline.json) 并请求 `project plan PROJECT_ID --action plan --allow-internal-text`。该内部规划阶段可能调用文字模型；启用了自动参考图时还可能使用 GPU。规划完成后另建 `render` 计划。
 
-```powershell
-python scripts/factory_api.py watch --project PROJECT_ID --job JOB_ID --seconds 45
-python scripts/factory_api.py diagnose --project PROJECT_ID
-```
+## 修改与恢复的关键约定
 
-6. **验收与交付**：读取项目和 `quality`，核对不再忙碌、`state.status:complete`、`final:true`、媒体验收报告及需要的字幕版。正式交付按 [成片验收](references/delivery-checks.md) 做完整解码、切口核对和原文／音频／字幕三方检查。没有播放／听音能力时明确尚未进行人工音画验收，不能声称质量已通过。返回项目 ID、成片链接或本地绝对路径；需要迁移才导出含视频项目包。
+- 读取最新项目及 `revision`，按 UID 局部修改。一次更新提交 `settings`、完整 `story` 或 `shots` 中一种。保留镜头 UID、用户台词、素材和不相关设置；不要直接改 SQLite、分镜文件或状态文件。
+- 改台词／人物／动作时同步改 prompt；只改字幕时间使用后期字段和 `finish` 计划。`profile` 是项目级设置，影响范围由计划说明。
+- 同一写请求保留同一个请求键。响应丢失时先查 `operation get`，需要补交时使用保存的 `operation retry`；新内容使用新键，不根据超时重新创建项目。
+- `REVISION_CONFLICT` 先重新读取并合并；`PLAN_STALE`、素材／模型变化先重新计划。已有原片继续保留，不能通过反复 resume 绕过过期计划。
+- `scope_complete` 表示选中范围完成，范围外仍待验证；即使原片都有，也没有自动合片。任务 `done` 只表示任务阶段结束。
+- 用户要求审核时遵守审核停点；已授权自动制作时在范围内继续。阻塞时给出具体字段、原项目／任务和下一步，不反复提交同一确定性失败。
 
-```powershell
-python scripts/factory_api.py get /api/projects/PROJECT_ID/quality
-python scripts/factory_api.py download /media/PROJECT_ID/成片.mp4 --output 成片.mp4
-```
-
-## 操作边界
-
-- 复用用户配置的凭证；不读取或输出 `.secrets`、真实 key，不把凭证写入技能、请求样例或导出说明。缺认证时由用户在应用设置或其受控凭证机制中填写。
-- 修改／重生成限于用户指定项目；按用户授权范围调用文字 API 和 GPU，不因为“测试技能”而启动有费用的创作或大量 GPU 任务。默认不做环境重装、升级、模型下载或全局配置替换。
-- POST 超时可能已经成功。先查项目列表、队列和原任务，不自动重发创建／生成／导出请求。脚本不自动重试写操作；应用本身已有有限重试。
-- 优先用 HTTP API 保存和排队，保留版本、缓存与锁定语义。不要直接改 SQLite、`state.json`、`分镜.json` 或并发启动 `pipeline.py`。
-- 修复、停止、后期、素材和分集功能见 [API 操作表](references/api.md)；异常按 [故障恢复](references/recovery.md)。使用 `/api/jobs/{id}` 精确查询原任务，`/api/jobs/page` 分页检索，`/api/jobs/{id}/events?after=0` 续读事件。旧 `/api/jobs` 仅返回最近 100 条；任务未知时不能猜测成功或重新排队。
+凭证通过用户本地环境变量或受控标准输入配置，只读取是否已配置。不得把 key 写入聊天、JSON 样例、技能、回执或日志。普通制作不顺带重装环境、升级引擎或下载额外模型。

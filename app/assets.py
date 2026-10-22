@@ -12,6 +12,7 @@ import av
 import requests
 
 from .storage import contained, identifier, now, read_json, write_json
+from .contracts import ContractError
 
 
 def media_metadata(path, kind):
@@ -36,19 +37,43 @@ class Assets:
     def __init__(self, config, projects):
         self.config, self.projects = config, projects
 
-    def add_image(self, pid, encoded, name='', character='', generated=False, generation=None):
-        if not generated:
-            self.projects.assert_idle(pid)
+    @staticmethod
+    def _reservation(project, asset_id, operation_id, upload_hash, kind):
+        if asset_id is None and operation_id is None:
+            return None
+        if not asset_id or not operation_id:
+            raise ValueError('预留素材必须同时提供素材标识和操作标识。')
+        identifier(asset_id)
+        identifier(operation_id)
+        previous = read_json(project / 'assets.json', {}).get(asset_id)
+        if previous:
+            if (previous.get('operation_id') != operation_id or previous.get('upload_sha256') != upload_hash
+                    or previous.get('type') != kind):
+                raise ContractError('ASSET_RESERVATION_CONFLICT', '预留素材标识已用于其他内容。', status=409)
+            path = contained(project, previous['file'])
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != previous.get('sha256'):
+                raise ContractError('ASSET_CHANGED', '已导入素材文件缺失或被修改，请检查原操作。', status=409,
+                                    next_actions=['inspect_asset', 'restore_asset'])
+            return previous
+        return None
+
+    def add_image(self, pid, encoded, name='', character='', generated=False, generation=None, asset_id=None, operation_id=None):
         project = self.projects.path(pid)
         raw = base64.b64decode(encoded, validate=True)
         if len(raw) > 8_000_000:
             raise ValueError('图片上限 8MB。')
+        upload_hash = hashlib.sha256(raw).hexdigest()
+        previous = self._reservation(project, asset_id, operation_id, upload_hash, 'image')
+        if previous:
+            return previous
+        if not generated:
+            self.projects.assert_idle(pid)
         with Image.open(io.BytesIO(raw)) as image:
             image.verify()
             ext = {'PNG': '.png', 'JPEG': '.jpg', 'WEBP': '.webp'}.get(image.format)
         if not ext:
             raise ValueError('支持 PNG、JPEG、WebP 图片。')
-        aid = uuid.uuid4().hex[:20]
+        aid = asset_id or uuid.uuid4().hex[:20]
         relative = 'assets/' + aid + ext
         contained(project, relative).parent.mkdir(exist_ok=True)
         contained(project, relative).write_bytes(raw)
@@ -56,24 +81,30 @@ class Assets:
                  'sha256': hashlib.sha256(raw).hexdigest(), 'source': 'user', 'character': character, 'created_at': now()}
         if generation:
             value.update(source='qwen-image', generation=generation)
+        if operation_id:
+            value.update(operation_id=operation_id, upload_sha256=upload_hash)
         assets = read_json(project / 'assets.json', {})
         assets[aid] = value
         write_json(project / 'assets.json', assets)
         return value
 
-    def add_media(self, pid, encoded, kind, name=''):
+    def add_media(self, pid, encoded, kind, name='', asset_id=None, operation_id=None):
         if kind not in ('video', 'audio'):
             raise ValueError('素材类型不正确。')
-        self.projects.assert_idle(pid)
         project = self.projects.path(pid)
         raw = base64.b64decode(encoded, validate=True)
         if len(raw) > 8_000_000:
             raise ValueError('参考素材上限 8MB，请使用短视频或短音频。')
+        upload_hash = hashlib.sha256(raw).hexdigest()
+        previous = self._reservation(project, asset_id, operation_id, upload_hash, kind)
+        if previous:
+            return previous
+        self.projects.assert_idle(pid)
         ext = Path(name).suffix.lower()
         allowed = ('.mp4', '.webm', '.mov') if kind == 'video' else ('.wav', '.mp3', '.flac', '.m4a', '.ogg')
         if ext not in allowed:
             raise ValueError('参考素材格式不支持。')
-        aid = uuid.uuid4().hex[:20]
+        aid = asset_id or uuid.uuid4().hex[:20]
         folder = project / 'assets'
         folder.mkdir(exist_ok=True)
         path = folder / (aid + ext)
@@ -96,12 +127,18 @@ class Assets:
                      'sha256': hashlib.sha256(path.read_bytes()).hexdigest(), 'source': 'user', 'duration': duration,
                      'include_audio': include_audio, 'created_at': now()}
             value.update(media_metadata(path, kind))
+            if operation_id:
+                value.update(operation_id=operation_id, upload_sha256=upload_hash)
             assets = read_json(project / 'assets.json', {})
             assets[aid] = value
             write_json(project / 'assets.json', assets)
             return value
         except Exception:
-            path.unlink(missing_ok=True)
+            # A manifest write can commit immediately before an interruption.
+            # Never remove the durable file referenced by that committed entry.
+            committed = read_json(project / 'assets.json', {}).get(aid)
+            if not (operation_id and committed and committed.get('operation_id') == operation_id):
+                path.unlink(missing_ok=True)
             raise
 
     def resolve(self, project, shot, story, inspect_media=False):

@@ -1,5 +1,5 @@
 # 短剧工厂 AI 入口
 
-先阅读根目录 [AGENTS.md](AGENTS.md)。使用应用生成图片、管理参考图或制作视频时，再读取 [操作技能](agent-skills/short-drama-factory/SKILL.md)，按其中流程执行。
+先读 [AGENTS.md](AGENTS.md)。操作图片／视频制作时读取 [唯一操作技能](agent-skills/short-drama-factory/SKILL.md)，通过本地 CLI 或 API 连接用户指定实例；用户无需打开图形工作台。
 
-本文件仅作入口，操作说明统一维护在该技能中。
+本文件只作发现入口，不维护另一份命令或制作规则。开发应用代码按代码任务处理。

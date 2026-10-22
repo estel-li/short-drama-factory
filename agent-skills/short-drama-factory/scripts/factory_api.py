@@ -273,6 +273,10 @@ def watch(client, project_id, job_id, seconds=45, interval=5):
         for name in ("terminal", "outcome", "next_actions"):
             if job and name in job:
                 event[name] = job[name]
+        if job and job.get('failure'):
+            failure = safe_server_error(job['failure'])
+            if failure:
+                event['failure'] = failure
         if project_id:
             event.update({
               "busy": project.get("busy"), "project_status": state.get("status"),

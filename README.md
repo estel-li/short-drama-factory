@@ -2,11 +2,11 @@
 
 > **让 AI 操作本项目：先读 [AGENTS.md](AGENTS.md)，再按 [视频制作 Skill](agent-skills/short-drama-factory/SKILL.md) 执行。** 内含调用脚本、请求模板、故障诊断与成片验收。Claude、Gemini 也有根目录入口文件。
 
-一个运行在本地的 AI 短剧工作台：从灵感、大纲、剧本或已有分镜出发，自动生成分镜和 MiniMax H3 提示词，串行调用 ComfyUI，保存镜头视频并合成为带原生音频的短剧。
+一个由 AI 工具驱动的本地视频生产服务。用户在 Codex、Claude、Gemini 或其他本机 AI 中提出需求，通过 Skill、命令行与 API 完成创作、素材绑定、生成、修复和交付。图形工作台作为可选的审片与高级编辑界面。
 
-文字模型默认使用 DeepSeek，也支持 Ollama、LM Studio 和兼容 OpenAI Chat Completions 接口的服务。大纲、分镜、提示词三个阶段可以分别配置模型与 Skill。
+默认由当前 AI 编写分镜和 H3 提示词，严格渲染不会调用内部文字模型。需要工厂代写时，可显式选择 DeepSeek、Ollama、LM Studio 或兼容服务，分别配置大纲、分镜与提示词阶段。
 
-**当前版本：3.8.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+**当前版本：3.9.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ![2.3 创作工作台](docs/images/ui-workspace.jpg)
 
@@ -38,7 +38,7 @@
 
 | 部分 | 要求 |
 | --- | --- |
-| 工作台 | Windows x64、Python 3.13、可写安装目录、现代浏览器 |
+| 服务端 | Windows x64、Python 3.13、可写安装目录；浏览器为可选界面 |
 | 本地生成 | 支持当前 ComfyUI/PyTorch 的 NVIDIA 驱动及显卡 |
 | 已验证配置 | RTX 5060 Ti 16GB、H3 W4A8、0.4MP、4 步快速预览 |
 | 文字模型 | 提供商服务地址与可用模型；云服务需要自己的 API key |
@@ -51,7 +51,36 @@
 
 工作台自启本地 ComfyUI 时，把输入素材、输出、数据库和生成缓存放在工作台的 `data/comfy-runtime/`，通过额外节点目录加载随包节点。已有 ComfyUI 安装目录和模型目录可只读。手动启动的 ComfyUI 仍使用它自身配置，需要加载兼容的缓存节点。
 
-## 快速开始
+## 从 AI 与命令行开始
+
+应用使用 Python 3.13；技能 CLI 只需 Python 3.10+ 标准库。Windows 便携包已包含应用 Python 与依赖，模型和认证另行配置。源码依赖安装方法见后文。
+
+在应用目录执行：
+
+```powershell
+.\.venv\Scripts\python.exe agent-skills/short-drama-factory/scripts/sdf.py start --app .
+.\.venv\Scripts\python.exe agent-skills/short-drama-factory/scripts/sdf.py doctor
+```
+
+`start` 默认仅启动 API，保存实例绑定，不打开网页或恢复旧队列。复用已运行实例时返回实际队列模式。端口可用 `--port 8770`；连接已有服务可用 `connect --app 应用目录 --url http://127.0.0.1:8765`。
+
+将技能安装到 AI 可发现的位置，例如 Codex：
+
+```powershell
+.\.venv\Scripts\python.exe agent-skills/short-drama-factory/scripts/install_skill.py --target "$env:USERPROFILE/.codex/skills/short-drama-factory"
+```
+
+安装工具离线执行，支持 `--update`，保留备份及个人文件，检测到本地修改不会静默覆盖。任意本机 AI 也可直接读取 [SKILL.md](agent-skills/short-drama-factory/SKILL.md)。完整命令见 [无界面使用指南](docs/ai-agent-usage.md)。
+
+使用当前 AI 填好的请求创建并生成：
+
+```powershell
+.\.venv\Scripts\python.exe agent-skills/short-drama-factory/scripts/sdf.py produce --json project-request.json --request-key my-first-film --wait 45
+```
+
+请求回执保存在当前工作目录的 `.sdf/`。超时后查询原请求或原任务；退出码 3 表示后台仍在运行。也可分开执行 `project create / validate / plan / run`。模型尚未就绪时先处理明确缺项，不会隐式下载。
+
+## 可选图形工作台使用
 
 ### 1. 安装工作台
 

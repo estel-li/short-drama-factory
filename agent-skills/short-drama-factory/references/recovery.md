@@ -1,31 +1,45 @@
-# 诊断与恢复
+# 诊断、响应丢失与跨聊天续跑
 
-优先看原项目、原任务的当前返回，不凭上一次超时猜状态。客户端 watch 只观察，不会取消任务；长镜头生成期间消息可能长时间不变。
+先恢复同一个实例、项目、任务和提交回执，不凭上次聊天结论猜当前状态。CLI 的观察超时不取消任务；采样阶段一段时间没有 MP4 也不等于停止。
 
-| 现象 | 行动 |
+## 找回工作
+
+在原工作目录运行 `sdf project list`、`project get PID`、`job get JID`；换目录用 `--context` 指向原 `.sdf/connection.json`。CLI 的本地请求记录在同目录 requests 中，包含精确 method/path/body、请求键与实例地址。不要把凭证混入请求文件。
+
+写请求结果未知时：
+
+1. 保存 `request_saved` 输出的请求键与回执路径。
+2. `sdf operation get KEY` 查询服务端原提交。
+3. 需要补交时 `sdf operation retry KEY` 按已保存内容、同一键提交；不要另造新键重做同一操作。
+4. 若实例不匹配或本地回执缺失，先核对原实例和服务端记录。不能通过“任务不在最近列表”推断没有提交。
+
+本地账本丢失时，operation get 仍可读取服务端 completed 的结果；但 pending／404 不包含足以重新提交的完整原请求。operation retry 需要本地原 method/path/body。只有能从保存的请求文件或计划恢复完全一致的正文时才使用原键补交，不能用当前已变化的项目内容重造原请求。无法恢复时保留现有状态并明确缺少原请求数据，不承诺“一把键”无条件恢复。
+
+job 已存在时跟踪这个 job_id：`job watch JID --seconds 45`、`job events JID --after CURSOR`。退出码 3 表示仍在运行，下一轮观察原任务。
+
+## 按错误修复
+
+| 证据／状态 | 下一步 |
 | --- | --- |
-| 工厂不连接 | 检查用户指定目录、健康接口、端口占用。启动该目录 launcher，不能杀掉不明进程来抢端口 |
-| ComfyUI=false | 文字规划可继续；渲染前确认 ComfyUI 路径、Python、服务地址、模型配置。工厂可按配置自动启动本地引擎，不必因此重装 |
-| catalog 缺节点／模型 | 显示具体缺项；已有授权安装时先预览 `/api/environment/plan`，核对体积与目标目录后再安装。普通出片任务不自动下载几十 GB |
-| cache_protocol 不兼容 | 2.4.1 使用缓存协议 2，核对程序随包 `nodes/ComfyUI-DramaFactory` 与运行中 ComfyUI；不能仅凭 health=true 开始大量任务 |
-| 文字超时／限流 | 查原任务和 records；程序已有网络退避。确认 provider/model 和超时设置，修复后继续原项目，不无限外层重试 |
-| 认证／余额／模型名错误 | 让用户在提供商设置修正；不要重复收费测试，也不要输出 key；本地模型不一定需要 key |
-| JSON／schema／对白错误 | 查看具体校验位置，按 Story/H3 契约修正，保留用户台词；`preflight.ready` 仅代表静态预算通过 |
-| 身份参考绑定了未出场角色 | 检查场景图是否误填 character；按 [素材修复步骤](production-practice.md) 重新上传正确标记的图并经 API 换绑。保留真实人物图身份，不添加虚构角色绕过校验 |
-| 单镜很慢但没有报错 | 用 diagnose 对照同配置成功记录，结合编码／采样／解码阶段判断。没 MP4、日志不变或低功耗单独都不能判停摆，见 [性能诊断](production-practice.md) |
-| POST 超时／连接断开 | 结果未知。先 GET `/api/projects`、`/api/jobs`、已知项目；对照时间与内容定位。没有证据表明未提交前不要重发 |
-| job=review | 检查 `state.current_stage`、message、preflight。审核停点或预检失败，处理后继续，不是网络故障 |
-| job=paused | 可能是用户停止或试镜 limit 到达。确认用户意图、已完成镜头与队列空闲，再 resume/render |
-| job=done 但 final=false | 可能只是 plan 或阶段完成。检查 kind、state、缺失镜头，再按请求继续渲染 |
-| job ID 不在最近 100 条 | 使用 `/api/jobs/{id}` 精确查询。只有旧版本才需回退最近列表；新接口返回 JOB_NOT_FOUND 时核对实例与提交回执，不直接重排 |
-| GPU 显存不足／显卡掉线 | 先确认当前任务终态。检查 GPU 是否仍被系统识别、ComfyUI 是否恢复；16GB 配置优先 draft、4秒，避免并行占显存。显卡坞掉线先处理硬件连接，不能靠无穷重试恢复 |
-| busy=true 无法保存 | 可能正在排队；按原任务等待。若用户要修改，调用 stop 并等 queued/running 退出后保存完整 story/settings |
-| 同一 UID 锁定 | 按用户意图解锁目标镜头，保留其他锁；首帧链可能要求相邻依赖解锁 |
-| 缺原片无法后期 | `quality.finishing` 提供缺失镜头；定位磁盘／迁移包是否带视频，必要时只修复受影响生成阶段 |
-| 原片齐全，后期提示缺 numpy 等依赖 | 在实际应用 Python 检查安装；修复后执行 finish，保留已生成镜头。当前 requirements.lock.txt 已包含 numpy，不把旧环境问题当作所有便携版缺陷 |
+| protocol 或 application_root 不匹配 | 停止向错误实例写入，连接指定实例；安装匹配技能版本 |
+| REVISION_CONFLICT | 重新读取项目，合并本次改动后以新 revision 提交 |
+| PLAN_STALE | 项目、素材、模型或环境已变化；重新计划当前项目，保留已有原片 |
+| EXTERNAL_CONTENT_REQUIRED | 根据 details 的 UID／字段补齐分镜和 prompt；严格 render 不会代写 |
+| TEXT_GENERATION_FORBIDDEN | 由当前 AI 提供内容；只有用户选择内部创作才用允许文字调用的 plan |
+| MODEL_FILES_MISSING／SPEECH_MODEL_MISSING／IMPLICIT_DOWNLOAD_FORBIDDEN | 按 [资源准备](workflow-models.md) 处理真实缺项；准备后重新计划 |
+| 认证、余额或模型名称错误 | 使用本地受控 credential/config 入口修正；不输出 key、不重复收费探测 |
+| 引擎不可连接 | 可继续编辑草稿；检查实例配置与引擎归属，不顺带重装或抢占端口 |
+| 任务 review | 检查审核停点、message 与计划阻塞；尊重用户审核要求 |
+| 任务 paused | 查看停止原因和已保存成果；输入／环境未变时 resume 同一任务 |
+| 任务 done、stage=scope_complete | 选中范围完成；范围外仍待验证，没有自动整片合成 |
+| 任务 done、final=false | 可能仅完成文字／镜头阶段；按用户目标计划下一步 |
+| busy=true | 等待原任务；用户要修改时请求 stop 并等 queued/running 退出，再版本化保存 |
+| 依赖镜头锁定 | 查看 affected_uids 和原因，只解锁完成本次目标需要的镜头 |
+| 原片齐全、后期失败 | 保留原片，修复 CPU 依赖／后期配置后执行 finish，不能先重生成视频 |
+| GPU 显存不足／设备离线 | 先确认原任务终态与硬件状态；修复后重新核对计划，不无限重启生成 |
 
-一次修正后续跑仍出现相同确定性错误，就报告阻塞项、项目 ID、任务 ID、保留成果与具体下一步，不持续创建任务。客户端遇到错误会返回非零，自动化调用方不得把退出码 3（仍在运行）当作生成失败。
+`job resume JID` 继续原任务 ID。输入、模型或资源变化会让原执行证据失效；此时新建的是**同一项目的新执行计划**，不是重建项目。只修改字幕时间使用 finish；台词实际内容错误需要改 prompt 并生成受影响镜头。
 
-恢复命令使用临时 UTF-8 JSON，例如 `{"id":"项目ID"}` 后发送 `POST /api/resume`。需改变质量时，读取完整 settings，修改 profile 并保存；改变 profile 会使相关缓存失效，重渲染可能覆盖所有受影响镜头，不宣称零成本续跑。
+旧图片／环境接口仍按 [图片说明](images.md)、[资源准备](workflow-models.md) 的原任务续跑机制处理；不要把其请求当成支持 agent 幂等头的请求。
 
-后期能改善剪辑和字幕呈现，不能修复错误台词或角色变形。真正需要重新表演时才改提示词／种子并生成；没有听音或逐帧查看就不能宣布台词及画面验收合格。字幕时间修正和发布检查见 [成片验收](delivery-checks.md)。
+一次修正后仍出现相同确定性错误，报告具体阻塞、已保留产物、项目／任务 ID 与下一步。只有可观察证据支持时重试；不反复创建任务、不凭静止日志杀进程。慢渲染的观察方法见 [制作与诊断](production-practice.md)。

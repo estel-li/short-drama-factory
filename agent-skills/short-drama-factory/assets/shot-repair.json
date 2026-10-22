@@ -1,0 +1,5 @@
+{
+  "summary": "纸船继续向右漂，不重复开场。",
+  "action": "从上一镜末态继续向右，保留当前构图。",
+  "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description:\n[Shot 1] 0.0-4.46s. Start exactly from <Picture 1>. Continue the existing paper boat slowly toward the right from its present location. Keep the same camera, lighting and ripples. No repeated entry, captions or dialogue.\n\noverall_soundscape:\nQuiet room tone and gentle movement sounds. No invented speech.\n\nnon_diegetic_music:\nN/A"
+}

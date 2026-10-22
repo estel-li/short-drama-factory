@@ -6,6 +6,7 @@ defaults without silently changing old projects or browser behavior.
 from __future__ import annotations
 
 import re
+import json
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,6 +43,15 @@ class CreateProjectRequest(BaseModel):
     start: bool = True
 
 
+class ErrorView(BaseModel):
+    error: str
+    code: str
+    message: str
+    retryable: bool = False
+    details: list[dict] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+
+
 class SaveStoryRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
     id: str = Field(pattern=r'^[a-zA-Z0-9_-]{1,80}$')
@@ -74,6 +84,7 @@ class JobView(BaseModel):
     terminal: bool
     outcome: str
     next_actions: list[str]
+    failure: dict | None = None
 
 
 def job_view(row):
@@ -86,4 +97,11 @@ def job_view(row):
                  terminal=status not in ('queued', 'running'),
                  outcome='stage_completed' if status == 'done' else status,
                  next_actions=actions.get(status, ['inspect']))
+    try:
+        failure = json.loads(row.get('failure') or '{}')
+    except (ValueError, TypeError):
+        failure = {}
+    if failure and status in ('error', 'paused'):
+        value['failure'] = failure
+        value['next_actions'] = failure.get('next_actions') or value['next_actions']
     return value

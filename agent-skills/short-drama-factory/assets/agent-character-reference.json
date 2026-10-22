@@ -1,0 +1,56 @@
+{
+  "input": "参考人物示例：先上传真实图片，再替换 replace_real_image_id 并校验。",
+  "options": {
+    "input_mode": "storyboard",
+    "execution_mode": "auto",
+    "duration_rule": "count",
+    "total_seconds": 4,
+    "shot_count": 1,
+    "shot_seconds": 4,
+    "style": "温暖的二维动漫，细腻手绘背景",
+    "genre": "治愈",
+    "ratio": "9:16",
+    "profile": "draft",
+    "auto_reference": false,
+    "subtitles": false,
+    "render_retries": 0,
+    "h3_mode": "Ref2VA",
+    "music": "N/A"
+  },
+  "storyboard": {
+    "title": "参考人物收伞",
+    "style": "温暖的二维动漫，细腻手绘背景",
+    "aspect_ratio": "9:16",
+    "characters": [
+      {
+        "id": "hero",
+        "name": "小雨",
+        "visual_description": "短黑发，黄色雨衣，蓝色雨伞；以真实参考图确认人物身份。",
+        "voice_description": "年轻女性，自然平静。"
+      }
+    ],
+    "shots": [
+      {
+        "uid": "reference_umbrella",
+        "id": 1,
+        "scene": "门口",
+        "summary": "人物在门口收伞。",
+        "camera": "固定中景",
+        "action": "保持参考身份，缓慢合拢伞面。",
+        "duration": 4,
+        "characters": [
+          "hero"
+        ],
+        "dialogue": [],
+        "mode": "Ref2VA",
+        "bindings": {
+          "images": [
+            "replace_real_image_id"
+          ]
+        },
+        "use_previous_last_frame": false,
+        "prompt": "subject_definitions:\nSubject hero is the only person present. <Picture 1> defines her face, short dark hair, yellow raincoat and blue umbrella.\n\nsummary:\nThe referenced woman closes her umbrella at a quiet doorway.\n\nretention_analysis:\nPreserve the visible identity and clothing from <Picture 1>. Do not add other people.\n\ndetailed_description:\n[Shot 1] 0.0-4.46s. The woman from <Picture 1> stands at a quiet doorway. She gently closes her blue umbrella while rain falls outside. Fixed medium shot, warm hand-drawn animation, no captions or watermark.\n\noverall_soundscape:\nSoft rain, umbrella fabric folding and quiet room tone. No dialogue.\n\nnon_diegetic_music:\nN/A"
+      }
+    ]
+  }
+}

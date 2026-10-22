@@ -135,18 +135,24 @@ class Worker:
             folder = self.config.root / 'logs'
             folder.mkdir(parents=True, exist_ok=True)
             with (folder / 'worker.log').open('a', encoding='utf-8') as log:
-                traceback.print_exception(type(exc), exc, exc.__traceback__, file=log)
+                from .contracts import safe_message
+                log.write(safe_message(''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))) + '\n')
         except Exception:
             pass
 
     def record_failure(self, job, exc):
+        from .contracts import ContractError, error_body, safe_message
         was_cancelled = isinstance(exc, Cancelled)
         try:
             was_cancelled = was_cancelled or self.db.cancelled(job['id'])
         except Exception as failure:
             self.log_failure(failure)
         status = 'paused' if was_cancelled else 'error'
-        message = str(exc)[:2000] if isinstance(exc, Cancelled) or not was_cancelled else '任务已停止，成果已保留。'
+        message = safe_message(exc) if isinstance(exc, Cancelled) or not was_cancelled else '任务已停止，成果已保留。'
+        failure = error_body(exc.code, str(exc), retryable=exc.retryable, details=exc.details,
+                             next_actions=exc.next_actions) if isinstance(exc, ContractError) else error_body(
+            'TASK_PAUSED' if was_cancelled else 'EXECUTION_FAILED', message,
+            next_actions=['inspect_project', 'resume'] if was_cancelled else ['inspect_records'])
 
         def project_state():
             if job['project_id'] == '__environment':
@@ -164,7 +170,7 @@ class Worker:
                 self.series.mark_paused(paused)
 
         # Persist the durable result first; ancillary state files fail independently.
-        for save in (lambda: self.db.update(job['id'], status, message),
+        for save in (lambda: self.db.update(job['id'], status, message, failure=failure),
                      lambda: self.image_failure(job, status, message), project_state, series_policy):
             try:
                 save()
@@ -191,7 +197,7 @@ class Worker:
         policy = 'forbid' if payload.get('strict_render') else payload.get('internal_text', 'allowed')
         receipt = begin_execution(self, job, payload)
         try:
-            with execution_policy(policy, scope='job/' + job['id'], allow_downloads=not bool(payload.get('agent_plan'))):
+            with execution_policy(policy, scope='job/' + job['id'], allow_downloads=payload.get('allow_downloads', not bool(payload.get('agent_plan')))):
                 return self._execute(job)
         finally:
             checkpoint_execution(self, job, receipt)
@@ -199,6 +205,16 @@ class Worker:
     def _execute(self, job):
         import pipeline
         pid, jid = job['project_id'], job['id']
+        if job['kind'] == 'speech-prepare' and pid == '__environment':
+            from .agent_environment import speech_plan
+            from .speech import ensure_model
+            payload = json.loads(job['payload'])
+            if speech_plan()['confirmation_token'] != payload['download_confirmation']:
+                from .contracts import ContractError
+                raise ContractError('DOWNLOAD_PLAN_CHANGED', '资源清单变化，请重新检查并确认。', status=409)
+            ensure_model(lambda message: self.db.update(jid, message=message, event={'message': message}),
+                         lambda: self.db.cancelled(jid) or self.shutdown.is_set(), self.config.get().get('proxy', ''))
+            return 'done'
         if job['kind'] == 'video-prepare' and pid == '__video_environment':
             payload = json.loads(job['payload'])
             def video_report(message, **extra):

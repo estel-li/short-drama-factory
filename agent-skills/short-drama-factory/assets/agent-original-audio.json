@@ -1,0 +1,55 @@
+{
+  "input": "原声驱动示例：替换 source_audio 与 first_frame 的真实素材ID；如需字幕，先核实原声逐句文字再填写 dialogue。",
+  "options": {
+    "input_mode": "storyboard",
+    "execution_mode": "auto",
+    "duration_rule": "count",
+    "total_seconds": 4,
+    "shot_count": 1,
+    "shot_seconds": 4,
+    "style": "温暖的二维动漫，细腻手绘背景",
+    "genre": "治愈",
+    "ratio": "9:16",
+    "profile": "h3-audio-drive",
+    "auto_reference": false,
+    "subtitles": false,
+    "render_retries": 0,
+    "h3_mode": "I2VA",
+    "music": "N/A"
+  },
+  "storyboard": {
+    "title": "人物原声驱动",
+    "style": "温暖的二维动漫，细腻手绘背景",
+    "aspect_ratio": "9:16",
+    "characters": [
+      {
+        "id": "speaker",
+        "name": "说话人",
+        "visual_description": "外形和服装以用户提供的真实首帧为准。",
+        "voice_description": "使用用户指定原声音轨，不生成替代配音。"
+      }
+    ],
+    "shots": [
+      {
+        "uid": "original_audio",
+        "id": 1,
+        "scene": "首帧场景",
+        "summary": "人物在指定原声驱动下自然表演。",
+        "camera": "固定中近景",
+        "action": "从真实首帧开始，自然呼吸和说话动作；保持原声。",
+        "duration": 4,
+        "characters": [
+          "speaker"
+        ],
+        "dialogue": [],
+        "mode": "I2VA",
+        "bindings": {
+          "first_frame": "replace_real_first_frame_id",
+          "source_audio": "replace_real_audio_id"
+        },
+        "use_previous_last_frame": false,
+        "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description:\n[Shot 1] 0.0-4.46s. Start from <Picture 1>, preserving the visible person, clothes, position and lighting. The person performs naturally in sync with the provided source speech. Fixed medium close-up, restrained motion, no added captions. The workflow keeps the supplied original audio; do not invent or replace spoken lines.\n\noverall_soundscape:\nQuiet room tone and gentle movement sounds. No invented speech.\n\nnon_diegetic_music:\nN/A"
+      }
+    ]
+  }
+}

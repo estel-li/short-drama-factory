@@ -1,111 +1,90 @@
-# API 操作表（3.6.6）
+# 接口契约：agent 协议 1
 
-基址默认 `http://127.0.0.1:8765`，不是 ComfyUI 的 8188。工作台校验 Host 与浏览器 Origin；本地脚本不需要伪造 Origin。下列路径由 `app/api.py` 核对，升级后先比对本机 `/openapi.json` 与实际返回；多数请求体是普通 dict，OpenAPI 不会列出所有字段。
+默认应用地址 `http://127.0.0.1:8765`，不是 ComfyUI 端口。先读 `/api/health` 核对 `application_root` 与 `protocol_version:1`，再读 `/api/capabilities` 与 `/openapi.json`。应用版本与 agent 协议版本分别检查；实际字段、约束和响应 Schema 以该实例为准。
 
-CLI：`python scripts/factory_api.py post 路径 --json 请求文件.json`；没有 `--json` 时发送 `{}`。GET 使用 `get 路径`。请求文件是纯 JSON；`--json -` 可从标准输入读取。所有异步请求返回任务 ID 后都需要跟踪。
+日常制作优先使用 [任务级 CLI](cli.md)。需要未封装能力时可用同包 `factory_api.py` 的 get/post/download/asset；使用底层工具前先看 `--help`，尤其不要把 legacy POST 当作已有幂等保护。纯 JSON 文件可通过 `--json FILE` 或 `--json -` 输入。
 
-诊断：`python scripts/factory_api.py diagnose --project PROJECT_ID`。仅 GET 项目、队列和 preflight，输出显式素材身份冲突及历史采样耗时；退出码 0 表示读取完成，不表示项目通过全部预检。发现的问题放在 issues 和 preflight，脚本不会修改或停止任务。
+## 版本化制作接口
 
-## 核心接口
-
-| 方法／路径 | 请求体或含义 |
+| 方法与路径 | 请求／结果与副作用 |
 | --- | --- |
-| GET `/api/health` | 程序版本、应用根目录、当前项目、ComfyUI 连通性 |
-| GET `/api/config` | 公开配置、`providers`、`profiles`、凭证是否配置；不返回 key |
-| GET `/api/video/workflows` | 当前视频方案、模式、必需槽位、用途与限制；见 [选择指南](workflow-selection.md) |
-| GET `/api/video/workflows/progress?job_id=ID` | 精确跟踪准备任务；刷新后恢复排队／运行／暂停／错误／完成状态 |
-| GET `/api/skills`、`/api/presets` | 实际可用 Skill 和选项预设 |
-| GET `/api/environment/catalog` | 模型列表、缺失节点／模型、缓存协议 |
-| GET `/api/environment` | GPU、显存、磁盘和安装状态；不启动生成 |
-| GET `/api/environment/progress` | 最近环境安装进度；精确任务用 `/api/jobs/{id}`。准备用 POST `/api/environment/install`，停止用 `/api/environment/stop`；`/api/environment/verify` 会创建项目并执行 GPU 生成测试 |
-| POST `/api/duration-plan` | 完整或部分 Options 对象，**没有 options 包装层**；只计算时长 |
-| GET `/api/projects` | 项目列表，用真实 ID 选择已有项目 |
-| POST `/api/projects` | `{"input":"故事正文","options":{...},"start":false}`；外部 AI 分镜加 `"storyboard":{...}` |
-| GET `/api/project/{id}` | 注意是单数 project；返回 `story`、`settings`、`state`、`busy`、`final` 等 |
-| POST `/api/projects/{id}/settings` | **完整** Options 对象；读取 settings 后修改再保存，省略字段会回默认值 |
-| POST `/api/projects/{id}/outline` | `{"title":"...","premise":"...","beats":[{"event":"..."}],"ending":"..."}`；改大纲会使旧分镜失效 |
-| POST `/api/projects/{id}/validate-story` | `{"story":完整分镜对象}`；只检查结构、角色及首帧关系并返回规范化结果 |
-| POST `/api/story` | `{"id":"项目ID","story":完整分镜对象}`；保存并记录版本 |
-| POST `/api/projects/{id}/stage/{stage}` | stage 为 `outline/storyboard/prompt/plan/render/all`，通常 `{}`；返回 `job_id` |
-| GET `/api/projects/{id}/preflight` | 对白／身份预算，查看 `ready` 和各项 `severity` |
-| GET `/api/jobs/{id}` | 精确持久任务；阶段完成不是成片完成 |
-| GET `/api/jobs/page` | 分页：limit、before、project_id、status；返回 items、next_cursor |
-| GET `/api/jobs/{id}/events` | 事件游标：after、limit；返回 items、next_cursor |
-| GET `/api/jobs` | 旧客户端兼容接口，仅最近 100 条 |
-| GET `/api/doctor`、`/api/capabilities` | 只读诊断与当前能力契约，不执行生成 |
-| GET `/api/projects/{id}/quality` | `preflight`、`report`、`finishing`、`versions`、`current_edit` |
-| GET `/api/projects/{id}/records` | 请求记录索引、渲染快照和媒体验收 |
-| GET `/api/projects/{id}/requests/{name}` | 按 records 返回的文件名读取诊断，避免转贴私人剧本 |
-| POST `/api/resume` | `{"id":"项目ID"}`；按 all 继续，遵循项目的审核模式 |
-| POST `/api/stop` | `{"id":"项目ID","immediate":false}`；默认在当前镜头完成后停，true 仅中断已确认属于该项目的 ComfyUI 任务 |
+| GET `/api/v2/projects/{pid}` | 项目、story、settings、revision；只读 |
+| POST `/api/v2/projects` | `input/options/storyboard`；仅创建草稿，不接受 start 字段，不排队 |
+| PATCH `/api/v2/projects/{pid}` | `expected_revision` + settings／story／shots 中一种；版本化保存、按内容失效缓存 |
+| POST `/api/v2/projects/{pid}/validate` | 无内容请求；校验已保存分镜与外部 prompt，不生成 |
+| POST `/api/v2/projects/{pid}/shots/{uid}/compile` | sections 段落对象；纯格式编译，返回 prompt／mode／对齐时间／标签／revision，不保存、不排队 |
+| POST `/api/v2/projects/{pid}/plans` | action=render/finish/plan、internal_text=forbid/allowed、可选 uids、regenerate；保存可审阅计划，不生成 |
+| GET `/api/v2/projects/{pid}/plans/{plan_id}` | 读取已保存计划 |
+| POST `/api/v2/projects/{pid}/run` | `{"plan_id":"实际64位计划ID"}`；验证计划仍有效后排队 |
+| GET `/api/v2/operations/{key}` | 查询原写请求与结果；可用于响应丢失恢复 |
+| POST `/api/v2/jobs/{jid}/resume` | 可选 expected_revision；续跑同一任务，仍受输入／资源版本检查 |
+| POST `/api/v2/jobs/{jid}/stop` | `{"immediate":false}` 默认请求停止；true 只中断该任务拥有的引擎提交 |
+| POST `/api/v2/images` | request + internal_text，默认外部提示词；创建持久图片任务，禁止隐式下载 |
+| POST `/api/v2/image-inputs` | name/data；带提交回执上传独立图片输入 |
+| POST `/api/v2/projects/{pid}/assets` | type/name/data/character；带提交回执上传项目素材，返回新 revision |
+| GET／PATCH `/api/v2/config` | 查询 revision/config；PATCH 用 expected_revision/changes 局部修改公开配置 |
+| GET `/api/v2/environment/speech/plan` | 查询 CPU 语音模型的真实缺项、体积与确认 token |
+| POST `/api/v2/environment/speech/prepare` | download_confirmation；显式准备 CPU 模型并返回任务 |
 
-`stage/outline`、`stage/storyboard`、`stage/prompt` 默认 `force:true`，可能重写已有内容；仅补缺用 `{"force":false}`，常规继续用 `plan`／`render`／`resume`。`stage/render` 会自动补齐缺失的大纲／分镜／提示词，且不在文字审核检查点暂停。需要审核时先 plan，别直接 render。
+create/update/run/resume/stop、图片／素材上传、配置 PATCH 与显式资源准备必须传 `Idempotency-Key` 请求头。相同键、相同请求返回原结果；同键不同内容拒绝。计划创建只是保存计划，不能据 POST 或 HTTP 201 断言开始推理。幂等键解决应用提交重复，不等于可以不检查引擎未知的提交结果。
 
-`stage/all` 或 `stage/plan` 可用 `{"execution_mode":"auto"}` 仅覆盖该次任务的审核策略；不要在用户要求审核时这样跳过。`{"limit":1}` 仅对 all/render 有效，表示新生成数量上限，不能当作指定第 1 镜。
-
-## 素材与单镜
-
-3.6.6 起，逐句画外音使用 `dialogue` 条目的 `narration:true`，同时将项目 `options.narration` 设为 `true`。`speaker` 保留真实说话人，画外音角色不必列入本镜可见 `characters`；普通对白不设置此标记。可视化对白编辑器以 `[旁白] 人物名：台词` 表达同一字段。
-
-修改场景名称时同步更新 `scene_id`（无法确定则清空），随后重新检查首帧接续。修改被镜头引用的场景／道具定义或旁白声线会使原片失效；锁定镜头应先解锁，不能仅通过后期合成冒充已经更新的画面或声音。
-
-上传不等于绑定。CLI 上传后读取返回 `id`，填进对应镜头的 `bindings`，再保存完整 story：
-
-```powershell
-python scripts/factory_api.py asset --project PROJECT_ID --file 角色.png --kind image --character hero
-```
-
-接口 `POST /api/projects/{id}/assets` 的 JSON 为 `{"type":"image","name":"角色.png","character":"hero","data":"纯Base64"}`。不用 data URI 前缀。图片为 PNG/JPEG/WebP；参考视频 MP4/WebM/MOV、2～15 秒；音频 WAV/MP3/FLAC/M4A/OGG、最长 15 秒。单文件上限 8,000,000 字节；视频入库时转换为 24fps。
-
-| 模式 | `bindings` 示例 |
-| --- | --- |
-| T2VA | `{}` |
-| I2VA | `{"first_frame":"真实图片ID"}` |
-| L2VA | `{"last_frame":"真实图片ID"}` |
-| FL2VA | `{"first_frame":"图片ID1","last_frame":"图片ID2"}` |
-| Ref2VA | `{"images":["图片ID"],"videos":[],"audios":["音频ID"]}` |
-
-普通角色参考图属于 Ref2VA，不等于 I2VA 首帧。使用角色关联上传的图，即使 bindings 为空也可能自动匹配该角色；明确选择正确 mode 并核对最终绑定。
-
-`POST /api/projects/{id}/shots/{uid}/regenerate`：
-
-- `{"kind":"prompt"}`：仅对指定 UID 强制重写提示词，会调用文字模型。
-- `{"kind":"video"}`：给该镜换随机种子，再排队整个项目的 render。其他失效／未完成镜头及首帧依赖链也可能生成，不能承诺只消耗一镜 GPU。
-
-锁定镜头需按用户意图解锁后才能改内容或重生成。保留 UID，数组重排时不要自行重造所有 UID。只需改字幕／剪辑时优先后期，避免重生成原片。
-
-验看完成镜头后，可 `POST /api/projects/{id}/shots/{uid}/template`，请求 `{"name":"已验收对白镜"}`，保存样板。目标镜头的 `prompt_template_id` 指向返回的样板 ID，并通过 `/api/story` 保存。实际模式、出场角色和参考契约须匹配；见 [实战制作](production-practice.md)。
-
-## 后期与交付
-
-原镜头全部可用后，`quality.finishing.ready` 可用于判断是否能后期；它不证明创作品质合格。
-
-`POST /api/projects/{id}/finish` 示例：
+创建示例使用 [agent-storyboard.json](../assets/agent-storyboard.json)。更新示例：
 
 ```json
-{"edit_preset":"gentle","review_interval":0.75,"notes":[],"masks":[]}
+{
+  "expected_revision": "从最新项目返回复制的revision",
+  "shots": [
+    {"uid": "实际镜头UID", "changes": {"dialogue_timings": [{"start": 0.6, "end": 2.1}]}}
+  ]
+}
 ```
 
-`edit_preset` 支持 original/gentle/compact；该接口是 CPU 后期任务，不重生成原镜头。notes 元素为 `{"start":0.0,"end":1.5,"text":"文字"}`，时间不能重叠。高级遮罩按本机 `app/finishing_settings.py`、`app/masking.py` 或 UI 获取结构，不猜字段。
+settings 是局部递归合并，story 是完整替换，shots 按 UID 局部修改。一次请求只更新一种资源；数组不做逐项递归合并，不能把半份 characters 数组当作单角色 PATCH。UID/id 不可通过镜头 patch 更换；排序／插镜使用完整 story，保留已有 UID。
 
-同一请求体也可发到 `/finishing-settings` 只保存、不执行。`POST /api/projects/{id}/edits/{edit_id}/rebuild` 无请求体，按 quality 返回的真实版本 ID 重建。后期仍需监控任务、检查当前版本和成片。
+严格 render 不使用内部文字模型；即使请求 internal_text=allowed 也不会隐式编写提示词。允许内部文字的创作使用 action=plan、internal_text=allowed，完成后另建 render 计划。所有 agent 执行默认禁止隐式下载。
 
-- 原版：`/media/{id}/成片.mp4`。
-- 字幕版：`/media/{id}/成片_字幕版.mp4`，仅 `subtitled:true` 时提供。
-- 字幕：`/media/{id}/字幕.srt`，先确认存在。
-- 可用 `download` 保存；CLI 流式处理、输出 SHA-256，拒绝覆盖已有文件。输出存在时换文件名。
-- 项目迁移：`POST /api/export`，`{"projects":["项目ID"],"include_videos":true}`，返回 `url` 和 `size`。用 `download 返回的url --output 项目.zip`。执行前先确保目标项目空闲。
-- 反向导入：`POST /api/import`，请求体是 multipart 的**导出 zip 文件本身**（字段名 `file`），不是 JSON 摘要。导入会在当前任务空闲时把项目与 Skill 并回本机；冲突时按返回的 `projects`／`skills` 分别核对，不要假设原项目 ID 不变。
-- 3.6.6 起迁移包携带项目和个人预设引用的视频质量／工作流方案；目标目录同名方案参数不同会另存并映射 `profile`。模型文件、环境路径和认证信息仍需在目标环境配置。
-- 已命名导出物可用 GET `/api/exports/{name}` 读取，`name` 来自导出响应，不接受自行拼造的路径。
-- HTTP 媒体链接需要应用运行；用户要离线文件时下载，并返回实际绝对路径。不要把本机链接称为公开链接。
+## 精确任务与状态
 
-## 多集（用户确实需要时）
+- GET `/api/jobs/{jid}` 精确查询持久 ID；GET `/api/jobs/page` 支持 limit、before、project_id、status。
+- GET `/api/jobs/{jid}/events?after=0` 按返回游标续读；不要反复只读最近 100 条的旧 `/api/jobs`。
+- `done` 是阶段完成，`review`／`paused`／`error` 需要检查 message 和项目状态。
+- `state.current_stage:scope_complete` 是所选镜头完成，范围外未验证，不产生新的完整合片。
+- `REVISION_CONFLICT` 重新读取合并；`PLAN_STALE` 重新计划；`TEXT_GENERATION_FORBIDDEN`／`EXTERNAL_CONTENT_REQUIRED` 由外部 AI 修正；`IMPLICIT_DOWNLOAD_FORBIDDEN` 显式准备资源。
+- 错误返回 code/message/retryable/details/next_actions。只展示脱敏信息；retryable 也不授权无限重试。
 
-`POST /api/series`：
+## 素材与媒体能力
 
-```json
-{"title":"雨巷故事","input":"整剧故事正文","mode":"auto","episode_count":3,"start":"draft","fail_policy":"continue","options":{"execution_mode":"auto","total_seconds":24,"duration_rule":"count","shot_count":6,"profile":"draft"}}
-```
+素材上传优先使用上面的 v2 接口，原有接口为兼容保留；每次素材变化后重新读取 revision 并计划。
 
-响应 `id` 为剧集 ID，`job_ids` 为数组。`GET /api/series/{id}` 读分集和各自 `project_id`。`POST /api/series/{id}/plan`，`{"start":"plan"}` 规划文字（不渲染）；完成后 `/batch` 用 `{"kind":"all","numbers":[1,2,3]}` 排队指定分集（numbers 是集号）。`/stop` 停本剧批次。`fail_policy` 支持 continue/stop；按每集的项目 ID 与任务 ID 追踪，不把整剧规划结束当作所有视频完成。
+上传 `POST /api/v2/projects/{pid}/assets`：
+`{"type":"image","name":"角色.png","character":"hero","data":"纯Base64"}`。也可运行 `sdf.py asset upload --project PID --file 文件 --kind image --character hero`。场景／道具图片不传人物标记。上传返回 id 后才写入 bindings；上传不等于绑定。
+
+图片 PNG/JPEG/WebP；视频 MP4/WebM/MOV、2～15 秒，入库规范到 24fps；音频 WAV/MP3/FLAC/M4A/OGG、最长 15 秒。单文件上限 8,000,000 字节。数据不用 data URI，不把文件路径、URL 或模板占位符当素材 ID。
+
+| 输入 | bindings |
+| --- | --- |
+| 无参考文字 | `{}` |
+| 首帧／尾帧 | `{"first_frame":"实际ID"}`／`{"last_frame":"实际ID"}` |
+| 首尾帧 | 两个对应单值槽 |
+| 多模态参考 | `{"images":["实际ID"],"videos":[],"audios":[]}` |
+| 高级媒体 | source_audio/source_video/guide_image 各为单值真实 ID，见 [高级 H3](h3-advanced.md) |
+
+`GET /api/projects/{pid}/quality` 返回媒体报告、后期就绪情况与版本。`POST /api/projects/{pid}/finishing-settings` 仅保存后期设置；`POST /api/projects/{pid}/edits/{edit_id}/rebuild` 按真实版本重建。原片、字幕版与 SRT 分别在 `/media/{pid}/成片.mp4`、`成片_字幕版.mp4`、`字幕.srt`，必须先确认对应文件存在。详见 [交付检查](delivery-checks.md)。
+
+迁移用 `POST /api/export`，请求 `{"projects":["实际项目ID"],"include_videos":true}`，下载返回的 URL。导入 `POST /api/import` 是 multipart 的 zip 文件（file 字段），不是 JSON。项目包不包含模型权重和认证；冲突按导入返回 ID 映射核对。
+
+## Legacy 行为须明确区分
+
+这些路径为旧客户端保留；新制作默认走上面的 agent 接口。
+
+| 旧接口 | 实际行为 |
+| --- | --- |
+| POST `/api/projects` | 省略 start 默认立即排队，旧模板必须保留 start:false |
+| POST `/api/projects/{pid}/stage/render` | 可补大纲／分镜／提示词，与严格 render 不同 |
+| POST `/api/projects/{pid}/stage/prompt` | 默认强制清除手写标记并调用文字模型 |
+| POST `/api/projects/{pid}/shots/{uid}/regenerate` | kind=video 会改种子并排队整个项目 render，不能宣称只生成该镜 |
+| POST `/api/resume` | 新排队整个项目 all，不等于原任务 ID resume |
+| POST `/api/environment/verify` | 创建测试项目并实际 GPU 渲染 |
+| POST `/api/series/{sid}/plan`、`/batch` | 整剧文字规划／分集批次，可能调用文字和 GPU；仅在用户确实需要多集时使用 |
+
+旧接口超时没有 agent 请求键保障；先查已有项目、精确任务与原引擎提交，不盲目重发。旧系列可以按其返回的各集 project_id 转入版本化项目计划；不能把整剧规划结束当作所有视频完成。

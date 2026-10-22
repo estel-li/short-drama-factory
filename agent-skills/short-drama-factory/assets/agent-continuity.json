@@ -1,0 +1,63 @@
+{
+  "input": "连续动作示例：第一镜纸船漂到画面中央，第二镜从第一镜实际最后一帧继续向右漂。",
+  "options": {
+    "input_mode": "storyboard",
+    "execution_mode": "auto",
+    "duration_rule": "count",
+    "total_seconds": 8,
+    "shot_count": 2,
+    "shot_seconds": 4,
+    "style": "温暖的二维动漫，细腻手绘背景",
+    "genre": "治愈",
+    "ratio": "9:16",
+    "profile": "draft",
+    "auto_reference": false,
+    "subtitles": false,
+    "render_retries": 0,
+    "h3_mode": "auto",
+    "music": "N/A"
+  },
+  "storyboard": {
+    "title": "纸船连续漂流",
+    "style": "温暖的二维动漫，细腻手绘背景",
+    "aspect_ratio": "9:16",
+    "characters": [],
+    "shots": [
+      {
+        "uid": "boat_arrives",
+        "id": 1,
+        "scene": "雨后水洼",
+        "scene_id": "puddle",
+        "continuity_group": "one_drift",
+        "summary": "纸船缓慢漂入中央。",
+        "camera": "固定低机位近景",
+        "action": "白色纸船从左侧漂向画面中央。",
+        "duration": 4,
+        "characters": [],
+        "dialogue": [],
+        "mode": "T2VA",
+        "bindings": {},
+        "use_previous_last_frame": false,
+        "prompt": "integrated_multimodal_description:\n[Shot 1] 0.0-4.46s. A white paper boat slowly drifts from the left toward the center of a shallow rain puddle. Warm hand-drawn animation, fixed low close-up, gentle ripples. It reaches the center near the end; no people or captions.\n\noverall_soundscape:\nQuiet room tone and gentle movement sounds. No invented speech.\n\nnon_diegetic_music:\nN/A"
+      },
+      {
+        "uid": "boat_continues",
+        "id": 2,
+        "scene": "雨后水洼",
+        "scene_id": "puddle",
+        "continuity_group": "one_drift",
+        "summary": "纸船从上一镜末态继续向右漂。",
+        "camera": "固定低机位近景",
+        "action": "接续前镜中央位置，纸船继续向右，不能从左侧重新入画。",
+        "duration": 4,
+        "characters": [],
+        "dialogue": [],
+        "mode": "I2VA",
+        "bindings": {},
+        "use_previous_last_frame": true,
+        "first_frame_reason": "同场景、同一漂流动作，使用紧邻前镜的真实末帧接续。",
+        "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description:\n[Shot 1] 0.0-4.46s. Start exactly from <Picture 1>, the preceding shot last frame. Continue the same paper boat from its current central position toward the right, preserving camera, ripples and warm lighting. Do not repeat its entry from the left. No people, captions or cuts.\n\noverall_soundscape:\nQuiet room tone and gentle movement sounds. No invented speech.\n\nnon_diegetic_music:\nN/A"
+      }
+    ]
+  }
+}
