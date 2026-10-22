@@ -1,6 +1,10 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import base64
+import os
+import inspect
+from functools import wraps
+from types import SimpleNamespace
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -28,6 +32,7 @@ from .transfer import Transfer
 from .version import VERSION, PROTOCOL_VERSION
 from .contracts import (ContractError, CreateProjectRequest, SaveStoryRequest, ValidateStoryRequest,
                         StageRequest, JobView, error_body, job_view, safe_message)
+from .project_locks import project_lock
 
 config = ConfigStore()
 db = Database()
@@ -41,13 +46,29 @@ transfer = Transfer(config, projects, skills)
 
 @asynccontextmanager
 async def lifespan(app):
-    worker.start()
+    if os.environ.get('FACTORY_SERVE_ONLY') != '1':
+        worker.start()
     yield
     worker.shutdown.set()
     worker.wake.set()
 
 
 app = FastAPI(title='短剧工厂', version=VERSION, lifespan=lifespan)
+
+
+def project_mutation(function):
+    """Legacy routes participate in the same atomic check/edit lock as v2."""
+    signature = inspect.signature(function)
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        arguments = signature.bind(*args, **kwargs).arguments
+        pid = arguments.get('pid')
+        if pid is None:
+            body = arguments.get('body')
+            pid = body.get('id') if isinstance(body, dict) else getattr(body, 'id', None)
+        with project_lock(projects.db, pid or '__global'):
+            return function(*args, **kwargs)
+    return wrapped
 
 
 @app.middleware('http')
@@ -298,17 +319,20 @@ def old_create(body: dict):
 
 
 @app.post('/api/projects/{pid}/settings')
+@project_mutation
 def project_settings(pid: str, body: Options):
     return projects.save_options(pid, body.model_dump())
 
 
 @app.post('/api/story')
+@project_mutation
 def story_save(body: SaveStoryRequest):
     body = body.model_dump()
     return projects.save_story(body['id'], body['story'])
 
 
 @app.post('/api/projects/{pid}/validate-story')
+@project_mutation
 def story_validate(pid: str, body: ValidateStoryRequest):
     body = body.model_dump()
     projects.path(pid)
@@ -316,6 +340,7 @@ def story_validate(pid: str, body: ValidateStoryRequest):
 
 
 @app.post('/api/projects/{pid}/outline')
+@project_mutation
 def outline_save(pid: str, body: dict):
     from .schemas import Outline
     projects.assert_idle(pid)
@@ -339,6 +364,7 @@ def outline_save(pid: str, body: dict):
 
 
 @app.post('/api/projects/{pid}/stage/{stage}', status_code=202)
+@project_mutation
 def run_stage(pid: str, stage: str, body: StageRequest):
     body = body.model_dump(exclude_unset=True, exclude_none=True)
     if stage not in ('outline', 'storyboard', 'prompt', 'plan', 'render', 'all'):
@@ -368,6 +394,7 @@ def quality(pid: str):
 
 
 @app.post('/api/projects/{pid}/finishing-settings')
+@project_mutation
 def save_finishing_settings(pid: str, body: dict):
     from .finishing_settings import validate_settings
     projects.assert_idle(pid)
@@ -378,6 +405,7 @@ def save_finishing_settings(pid: str, body: dict):
 
 
 @app.post('/api/projects/{pid}/finish',status_code=202)
+@project_mutation
 def finish(pid: str,body:dict):
     from .finishing_settings import validate_settings
     from .finishing import collect_clips
@@ -389,6 +417,7 @@ def finish(pid: str,body:dict):
 
 
 @app.post('/api/projects/{pid}/edits/{edit_id}/rebuild',status_code=202)
+@project_mutation
 def rebuild(pid:str,edit_id:str):
     from .finishing import load_recipe
     projects.assert_idle(pid)
@@ -397,6 +426,7 @@ def rebuild(pid:str,edit_id:str):
 
 
 @app.post('/api/projects/{pid}/shots/{uid}/template')
+@project_mutation
 def template_save(pid:str,uid:str,body:dict):
     from .templates import save_template
     projects.assert_idle(pid)
@@ -413,6 +443,7 @@ def resume(body: dict):
 
 
 @app.post('/api/projects/{pid}/shots/{uid}/regenerate', status_code=202)
+@project_mutation
 def regenerate_shot(pid: str, uid: str, body: dict):
     import secrets
     projects.assert_idle(pid)
@@ -443,6 +474,7 @@ def stop(body: dict):
 
 
 @app.post('/api/projects/{pid}/assets')
+@project_mutation
 def add_asset(pid: str, body: dict):
     if body.get('type') in ('video', 'audio'):
         return assets.add_media(pid, body['data'], body['type'], body.get('name', ''))
@@ -666,6 +698,7 @@ def image_references(pid: str):
 
 
 @app.post('/api/projects/{pid}/image-references/generate', status_code=202)
+@project_mutation
 def image_reference_generate(pid: str, body: dict):
     projects.assert_idle(pid)
     candidates = worker.images.candidates(pid)
@@ -679,6 +712,7 @@ def image_reference_generate(pid: str, body: dict):
 
 
 @app.post('/api/projects/{pid}/image-references/{target}/generate', status_code=202)
+@project_mutation
 def image_reference_one(pid: str, target: str, body: dict):
     projects.assert_idle(pid)
     request = worker.images.reference_request(pid, target, body.get('request'))
@@ -689,11 +723,13 @@ def image_reference_one(pid: str, target: str, body: dict):
 
 
 @app.post('/api/projects/{pid}/image-references/{target}/sources')
+@project_mutation
 def image_reference_sources(pid: str, target: str, body: dict):
     return worker.images.set_reference_sources(pid, target, body)
 
 
 @app.post('/api/projects/{pid}/image-references/{target}/adopt')
+@project_mutation
 def image_reference_adopt(pid: str, target: str, body: dict):
     return worker.images.adopt(pid, target, body['image_id'])
 
@@ -707,14 +743,17 @@ def health():
     except (httpx.HTTPError, KeyError):
         healthy = False
     return {'comfy': healthy, 'active_project': worker.active['project_id'] if worker.active else None,
-            'version': app.version, 'application_root': str(ROOT), 'protocol_version': PROTOCOL_VERSION}
+            'version': app.version, 'application_root': str(ROOT), 'protocol_version': PROTOCOL_VERSION,
+            'worker_running': bool(worker.thread and worker.thread.is_alive()),
+            'queue_mode': worker.queue_mode if worker.thread and worker.thread.is_alive() else 'stopped'}
 
 
 @app.get('/api/capabilities')
 def capabilities():
     return {'protocol_version': PROTOCOL_VERSION, 'application_version': VERSION,
             'features': {'exact_jobs': True, 'job_events': True, 'structured_errors': True,
-                         'execution_plans': False, 'idempotency': False, 'revisioned_edits': False},
+                         'execution_plans': True, 'idempotency': True, 'revisioned_edits': True,
+                         'strict_render': True, 'serve_only': True},
             'video': video_workflow_catalog(), 'images': image_model_catalog(),
             'schemas': '/openapi.json',
             'effects': {'/api/environment/verify': ['creates_project', 'gpu_render'],
@@ -913,6 +952,10 @@ def media(pid: str, relative: str):
         raise ValueError('文件不可访问。')
     return FileResponse(path)
 
+
+from .agent_api import install_agent_routes
+install_agent_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
+                                                  assets=assets, content=content, worker=worker))
 
 if (ROOT / 'web').is_dir():
     app.mount('/web', StaticFiles(directory=ROOT / 'web'), name='web')

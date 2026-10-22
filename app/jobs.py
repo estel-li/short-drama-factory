@@ -15,6 +15,8 @@ from .series import Series
 from .image_studio import ImageStudio
 from .skills import Skills
 from .storage import ROOT, digest, now, read_json, write_json
+from .execution_policy import execution_policy, validate_external_story
+from .project_locks import locked_project
 
 
 class Worker:
@@ -24,6 +26,8 @@ class Worker:
         self.thread = None
         self.active = None
         self.execution_lock = threading.RLock()
+        self.queue_lock = threading.RLock()
+        self.allowed_job_ids = None
         self.installer = Installer(config)
         self.series = Series(config, db, projects, content)
         self.images = ImageStudio(config, db, projects, assets, getattr(content, 'skills', None) or Skills())
@@ -31,14 +35,30 @@ class Worker:
         self.video_environment = VideoWorkflowEnvironment(config)
         self.instance_lock = InstanceLock(db.path.with_suffix('.worker.lock'))
 
-    def start(self):
-        if self.thread and self.thread.is_alive():
-            return
-        self.instance_lock.acquire()
-        self.db.recover()
-        self.thread = threading.Thread(target=self.loop, name='factory-worker', daemon=True)
-        self.thread.start()
+    @property
+    def queue_mode(self):
+        return 'all' if self.allowed_job_ids is None else 'explicit'
 
+    def start(self, recover=True):
+        with self.queue_lock:
+            if self.thread and self.thread.is_alive():
+                return
+            self.instance_lock.acquire()
+            self.allowed_job_ids = None if recover else set()
+            if recover:
+                self.db.recover()
+            self.shutdown.clear()
+            self.thread = threading.Thread(target=self.loop, name='factory-worker', daemon=True)
+            self.thread.start()
+
+    def allow_job(self, jid):
+        """Authorize one durable receipt without recovering any older queue work."""
+        with self.queue_lock:
+            if self.allowed_job_ids is not None:
+                self.allowed_job_ids.add(jid)
+        self.wake.set()
+
+    @locked_project
     def enqueue(self, pid, kind='all', payload=None):
         if pid in ('__image_environment', '__video_environment'):
             pass
@@ -49,7 +69,7 @@ class Worker:
         elif pid != '__environment':
             self.projects.path(pid)
         jid = self.db.enqueue(pid, kind, payload)
-        self.wake.set()
+        self.allow_job(jid)
         return jid
 
     def stop(self, pid):
@@ -92,7 +112,8 @@ class Worker:
 
     def loop(self):
         while not self.shutdown.is_set():
-            job = self.db.claim()
+            with self.queue_lock:
+                job = self.db.claim() if self.allowed_job_ids is None else self.db.claim(allowed_ids=self.allowed_job_ids)
             if not job:
                 self.wake.wait(1)
                 self.wake.clear()
@@ -165,6 +186,17 @@ class Worker:
                 self.images.update(payload['image_id'], status=status, message=message)
 
     def execute(self, job):
+        from .execution_guard import begin_execution, checkpoint_execution
+        payload = json.loads(job['payload'])
+        policy = 'forbid' if payload.get('strict_render') else payload.get('internal_text', 'allowed')
+        receipt = begin_execution(self, job, payload)
+        try:
+            with execution_policy(policy, scope='job/' + job['id'], allow_downloads=not bool(payload.get('agent_plan'))):
+                return self._execute(job)
+        finally:
+            checkpoint_execution(self, job, receipt)
+
+    def _execute(self, job):
         import pipeline
         pid, jid = job['project_id'], job['id']
         if job['kind'] == 'video-prepare' and pid == '__video_environment':
@@ -218,8 +250,9 @@ class Worker:
             if self.db.cancelled(jid) or self.shutdown.is_set():
                 raise Cancelled('分集规划已停止。')
             if payload.get('start', 'draft') != 'draft':
-                self.series.enqueue_batch(sid, kind=payload['start'], batch_id=payload.get('batch_id') or jid)
-                self.wake.set()
+                ids = self.series.enqueue_batch(sid, kind=payload['start'], batch_id=payload.get('batch_id') or jid)
+                for child in ids:
+                    self.allow_job(child)
             return 'done'
         if job['kind'] == 'install' and pid == '__environment':
             def progress(value):
@@ -230,6 +263,13 @@ class Worker:
         project = self.projects.path(pid)
         options = self.projects.options(project)
         payload = json.loads(job['payload'])
+        strict_render = payload.get('strict_render', False)
+        if strict_render and not payload.get('agent_plan') and job['kind'] in ('all', 'render', 'plan'):
+            validate_external_story(
+                self.projects.get(pid)['story'], options,
+                lambda shot, story: self.assets.resolve(project, shot, story), self.content.mode,
+                uids=payload.get('allowed_uids'),
+            )
         if payload.get('execution_mode') == 'auto':
             options.execution_mode = 'auto'
         if payload.get('series_id') and options.auto_reference:
@@ -271,7 +311,7 @@ class Worker:
             return 'done'
         if requested not in ('all', 'plan', 'outline', 'storyboard', 'prompt', 'render'):
             raise ValueError('未知任务类型。')
-        stages = ['outline', 'storyboard', 'prompt'] if requested in ('all', 'plan', 'render') else [requested]
+        stages = [] if strict_render else ['outline', 'storyboard', 'prompt'] if requested in ('all', 'plan', 'render') else [requested]
         for stage in stages:
             if cancelled():
                 raise Cancelled('已停止，阶段成果已保存。')
@@ -333,6 +373,11 @@ class Worker:
             from .workflow_checks import workflow_report
             preflight = workflow_report(read_json(project / '分镜.json'), options, self.config.renderer_config(),
                 lambda shot, story: self.assets.resolve(project, shot, story, inspect_media=True), self.content.mode)
+            if payload.get('allowed_uids') is not None:
+                selected = set(payload['allowed_uids'])
+                preflight['selected_uids'] = payload['allowed_uids']
+                preflight['ready'] = not any(issue['severity'] == 'error'
+                    and (not issue.get('uid') or issue['uid'] in selected) for issue in preflight['issues'])
             write_json(project / '出片预检.json', preflight)
             if not preflight['ready']:
                 report('出片预检未通过：' + '\n'.join(i['message'] for i in preflight['issues'] if i['severity']=='error'), status='review')
@@ -344,13 +389,28 @@ class Worker:
                     raise RuntimeError('此项目在另一进程中生成。')
                 lock.unlink()
             runner = pipeline.Runner(project, callback=lambda state: self.db.update(jid, message=state['message'], event=state))
+            runner.allowed_uids = payload.get('allowed_uids')
+            runner.regenerate_uids = payload.get('regenerate_uids', [])
+            runner.execution_id = payload.get('plan_id') or jid
+            runner.before_render = lambda: self.projects.archive_final(project)
             image_settings = self.images.environment.settings()
             for url in {image_settings.comfy_url, f'http://127.0.0.1:{image_settings.managed_port}'}-{pipeline.CONFIG['comfy_url'], ''}:
                 self.images.release_idle(url,required=True)
             if pipeline.CONFIG['profiles'][options.profile].get('workflow','native') != 'native':
                 pipeline.ensure_comfy(report, profile=options.profile, cancel=cancelled)
                 runner.engine_prepared = True
-            runner.model_versions = fingerprint_models(pipeline.CONFIG, report, cancelled, profile=options.profile)
+            model_args = {}
+            if strict_render:
+                stored = read_json(project / 'execution-plans' / (payload['plan_id'] + '.json')) if payload.get('agent_plan') else None
+                if stored and 'modes' in stored['plan']:
+                    modes = set(stored['plan']['modes'])
+                else:
+                    current_story = self.projects.get(pid)['story']
+                    modes = {self.content.mode(shot, options, self.assets.resolve(project, shot, current_story))
+                             for shot in current_story['shots']
+                             if payload.get('allowed_uids') is None or shot['uid'] in payload['allowed_uids']}
+                model_args['modes'] = modes
+            runner.model_versions = fingerprint_models(pipeline.CONFIG, report, cancelled, profile=options.profile, **model_args)
             write_json(project / 'renderer_snapshot.json', {'models': runner.model_versions, 'environment': {
                 k: pipeline.CONFIG.get(k) for k in ('attention', 'profiles')}, 'settings': options.model_dump(), 'created_at': now()})
             def resolve(shot, story, refs):
@@ -361,7 +421,7 @@ class Worker:
                 return self.assets.materialize(project, bindings)
             runner.binding_resolver = resolve
             # Optional workflows must honor the project mode even for manual prompts.
-            if pipeline.CONFIG['profiles'][options.profile].get('workflow','native') != 'native' or any(s.get('prompt_snapshot') or s.get('use_previous_last_frame') for s in read_json(project / '分镜.json')['shots']):
+            if strict_render or pipeline.CONFIG['profiles'][options.profile].get('workflow','native') != 'native' or any(s.get('prompt_snapshot') or s.get('use_previous_last_frame') for s in read_json(project / '分镜.json')['shots']):
                 runner.prompt_compiler = lambda story, shot, bindings: self.content.prompt_shot(
                     project, story, shot, options, bindings, report, cancelled)
             class Stop:

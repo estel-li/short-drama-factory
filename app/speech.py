@@ -23,6 +23,8 @@ def ensure_model(status=lambda message: None, cancel=None, proxy='', download=Tr
         return target
     if not download:
         return None
+    from .execution_policy import enforce_download
+    enforce_download('speech_detection/' + model['filename'])
     status('准备 CPU 语音检测模型（约 2.3 MB），固定版本并核对 SHA256。')
     return loader.fetch(model['url'], target, model['size'], model['sha256'],
                         lambda value: status('语音模型：' + value['status']), cancel)

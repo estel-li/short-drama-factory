@@ -69,6 +69,8 @@ class Downloader:
         if self.verified(target, size, checksum, cancel):
             progress({'status': 'reused', 'file': target.name, 'bytes': size, 'total': size})
             return target
+        from .execution_policy import enforce_download
+        enforce_download(target.name)
         if shutil.disk_usage(target.parent).free < size - (target.with_name(target.name + '.part').stat().st_size if target.with_name(target.name + '.part').exists() else 0):
             raise RuntimeError('目标磁盘剩余空间不足。')
         partial = target.with_name(target.name + '.part')

@@ -26,13 +26,13 @@ def health(url):
 
 
 def check_owner(value, root):
-    if not str(value.get('version', '')).startswith(('2.', '3.')) or not value.get('application_root'):
+    if not str(value.get('version', '')).startswith(('2.', '3.', '4.')) or not value.get('application_root'):
         raise RuntimeError('端口已被其他服务占用，请使用 --port 指定空闲端口。')
     if Path(value['application_root']).resolve() != root.resolve():
         raise RuntimeError('端口已被另一目录的工作台占用，请使用 --port 指定空闲端口。')
 
 
-def launch(root=ROOT, port=8765, no_browser=False):
+def launch(root=ROOT, port=8765, no_browser=False, serve_only=False):
     root = Path(root).resolve()
     if not 1 <= port <= 65535:
         raise ValueError('端口必须在 1～65535 之间。')
@@ -52,6 +52,7 @@ def launch(root=ROOT, port=8765, no_browser=False):
         temporary = root / 'data/panel-temp'; temporary.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
         env.update(FACTORY_PORT=str(port), PYTHONIOENCODING='utf-8', HF_HUB_DISABLE_TELEMETRY='1')
+        env['FACTORY_SERVE_ONLY'] = '1' if serve_only else '0'
         for name in ('TEMP', 'TMP', 'TMPDIR'):
             env[name] = str(temporary)
         with (logs/'panel.stdout.log').open('ab') as stdout, (logs/'panel.stderr.log').open('ab') as stderr:
@@ -69,7 +70,7 @@ def launch(root=ROOT, port=8765, no_browser=False):
         if value is None:
             raise RuntimeError('启动尚未完成，请查看 logs/panel.stderr.log，稍后重试。')
     check_owner(value, root)
-    if not no_browser:
+    if not no_browser and not serve_only:
         webbrowser.open(url)
     return value
 
@@ -78,9 +79,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='启动短剧工厂')
     parser.add_argument('--port', '-Port', type=int, default=8765)
     parser.add_argument('--no-browser', '-NoBrowser', action='store_true')
+    parser.add_argument('--serve-only', action='store_true', help='仅启动 API；不恢复旧任务或打开浏览器')
     args = parser.parse_args()
     try:
-        launch(port=args.port, no_browser=args.no_browser)
+        launch(port=args.port, no_browser=args.no_browser, serve_only=args.serve_only)
     except (OSError, ValueError, RuntimeError) as error:
         parser.exit(1, str(error) + '\n')
     print(f'短剧工厂已就绪：http://127.0.0.1:{args.port}')

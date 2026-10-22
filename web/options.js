@@ -1,5 +1,5 @@
-import { el, field, select } from "./api.js?v=3.7.0";
-import {videoWorkflowControls} from "./video-workflows.js?v=3.7.0";
+import { el, field, select } from "./api.js?v=3.8.0";
+import {videoWorkflowControls} from "./video-workflows.js?v=3.8.0";
 
 const DEFAULTS = {
   duration_rule: "total",

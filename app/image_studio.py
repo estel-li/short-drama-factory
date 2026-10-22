@@ -295,6 +295,8 @@ class ImageStudio:
             return request.prompt
         if value.get('optimized_prompt'):
             return value['optimized_prompt']
+        from .execution_policy import enforce_provider_call
+        enforce_provider_call('image_prompt')
         settings = self.environment.settings()
         provider = self.config.provider(request.provider or settings.provider)
         model = request.model or settings.model or provider.model

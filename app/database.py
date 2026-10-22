@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
 
-from .contracts import safe_message
+from .contracts import ContractError, safe_message
 from .storage import ROOT, now
 
 
@@ -34,6 +36,25 @@ def _page_number(value, name, minimum=1, maximum=200):
     return value
 
 
+def _operation_key(key):
+    if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', key):
+        raise ContractError('INVALID_IDEMPOTENCY_KEY', '请求标识必须是 1 到 128 位 ASCII 字母、数字或 _ . : -。', status=422)
+    return key
+
+
+def _canonical_json(value):
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ContractError('INVALID_OPERATION_DATA', '操作数据必须是有效 JSON。', status=422) from exc
+
+
+def _operation_row(row):
+    if row is None:
+        return None
+    return {**dict(row), 'result': json.loads(row['result']) if row['result'] is not None else None}
+
+
 class Database:
     def __init__(self, path=None):
         self.path = path or ROOT / 'data' / 'factory.sqlite3'
@@ -49,6 +70,10 @@ class Database:
                 CREATE INDEX IF NOT EXISTS job_status ON jobs(status,created_at);
                 CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, job_id TEXT, timestamp TEXT NOT NULL, data TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS event_job_cursor ON events(job_id,id);
+                CREATE TABLE IF NOT EXISTS operations(
+                    key TEXT PRIMARY KEY, scope TEXT NOT NULL, request_hash TEXT NOT NULL,
+                    operation_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK(status IN ('pending','completed')),
+                    result TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
             ''')
 
     @contextmanager
@@ -74,6 +99,117 @@ class Database:
     def _event(db, jid, data, timestamp=None):
         db.execute('INSERT INTO events(job_id,timestamp,data) VALUES(?,?,?)',
                    (jid, timestamp or now(), json.dumps(_event_data(data), ensure_ascii=False)))
+
+    @staticmethod
+    def _reserve_operation(db, key, scope, payload):
+        _operation_key(key)
+        if not isinstance(scope, str) or not scope.strip() or len(scope) > 128:
+            raise ContractError('INVALID_OPERATION_SCOPE', '操作范围必须是 1 到 128 位非空字符串。', status=422)
+        request_hash = hashlib.sha256(_canonical_json(payload).encode('utf-8')).hexdigest()
+        row = db.execute('SELECT * FROM operations WHERE key=?', (key,)).fetchone()
+        if row:
+            if row['scope'] != scope or row['request_hash'] != request_hash:
+                raise ContractError('IDEMPOTENCY_CONFLICT', '请求标识已用于不同操作或不同请求内容。', status=409,
+                                    next_actions=['use_new_request_key'])
+            return _operation_row(row)
+        timestamp = now()
+        db.execute('INSERT INTO operations(key,scope,request_hash,operation_id,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',
+                   (key, scope, request_hash, uuid.uuid4().hex, 'pending', timestamp, timestamp))
+        return _operation_row(db.execute('SELECT * FROM operations WHERE key=?', (key,)).fetchone())
+
+    def reserve_operation(self, key, scope, payload):
+        """Persist an operation identity before effects, without storing request text."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            return self._reserve_operation(db, key, scope, payload)
+
+    def operation(self, key):
+        _operation_key(key)
+        with self.connect() as db:
+            return _operation_row(db.execute('SELECT * FROM operations WHERE key=?', (key,)).fetchone())
+
+    @staticmethod
+    def _save_operation(db, key, result, complete):
+        _operation_key(key)
+        if not isinstance(result, dict):
+            raise ContractError('INVALID_OPERATION_DATA', '操作回执结果必须是 JSON 对象。', status=422)
+        encoded = _canonical_json(result)
+        row = db.execute('SELECT * FROM operations WHERE key=?', (key,)).fetchone()
+        if row is None:
+            raise ContractError('OPERATION_NOT_FOUND', '操作回执不存在。', status=404)
+        # Completion is immutable. Pending recovery data may be completed, but
+        # cannot be silently replaced by a competing writer's different plan.
+        if row['status'] == 'completed' or (not complete and row['result'] is not None):
+            if row['result'] != encoded:
+                raise ContractError('IDEMPOTENCY_CONFLICT', '此操作已保存不同的回执结果。', status=409)
+            return _operation_row(row)
+        db.execute('UPDATE operations SET status=?,result=?,updated_at=? WHERE key=?',
+                   ('completed' if complete else 'pending', encoded, now(), key))
+        return _operation_row(db.execute('SELECT * FROM operations WHERE key=?', (key,)).fetchone())
+
+    def stage_operation(self, key, result):
+        """Persist immutable recovery metadata before a non-database effect."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            return self._save_operation(db, key, result, complete=False)
+
+    def complete_operation(self, key, result):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            return self._save_operation(db, key, result, complete=True)
+
+    def enqueue_operation(self, key, scope, request_payload, project_id, kind, job_payload=None):
+        """A receipt and its queued job commit together, or neither commits."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            receipt = self._reserve_operation(db, key, scope, request_payload)
+            if receipt['status'] == 'completed':
+                return receipt['result']
+            if db.execute("SELECT id FROM jobs WHERE project_id=? AND status IN ('queued','running')", (project_id,)).fetchone():
+                raise ContractError('PROJECT_BUSY', '此项目已有排队或执行中的任务。', status=409,
+                                    retryable=True, next_actions=['watch', 'stop'])
+            jid, timestamp = uuid.uuid4().hex, now()
+            db.execute('INSERT INTO jobs(id,project_id,kind,payload,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',
+                       (jid, project_id, kind, _canonical_json(job_payload or {}), 'queued', timestamp, timestamp))
+            self._event(db, jid, {'type': 'status_changed', 'status': 'queued', 'previous_status': None}, timestamp)
+            result = {'job_id': jid, 'id': project_id, 'operation_id': receipt['operation_id'], 'request_key': key}
+            self._save_operation(db, key, result, complete=True)
+            return result
+
+    def _requeue_job(self, db, jid):
+        row = db.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
+        if row is None:
+            raise ContractError('JOB_NOT_FOUND', '任务不存在。', status=404)
+        if row['status'] not in ('paused', 'error', 'review'):
+            raise ContractError('JOB_NOT_RESUMABLE', '仅暂停、失败或等待审核的任务可以续跑。', status=409,
+                                next_actions=['inspect'])
+        if db.execute("SELECT id FROM jobs WHERE project_id=? AND status IN ('queued','running')", (row['project_id'],)).fetchone():
+            raise ContractError('PROJECT_BUSY', '此项目已有排队或执行中的任务。', status=409,
+                                retryable=True, next_actions=['watch', 'stop'])
+        timestamp = now()
+        db.execute("UPDATE jobs SET rowid=(SELECT COALESCE(MAX(rowid),0)+1 FROM jobs),status='queued',cancel_requested=0,message='继续原任务',created_at=?,updated_at=? WHERE id=?",
+                   (timestamp, timestamp, jid))
+        self._event(db, jid, {'type': 'status_changed', 'status': 'queued', 'previous_status': row['status'],
+                              'message': '继续原任务'}, timestamp)
+        return dict(row)
+
+    def requeue_job(self, jid):
+        """Resume the original durable job, preserving payload and attempt count."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            self._requeue_job(db, jid)
+        return jid
+
+    def requeue_operation(self, key, scope, request_payload, jid):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            receipt = self._reserve_operation(db, key, scope, request_payload)
+            if receipt['status'] == 'completed':
+                return receipt['result']
+            row = self._requeue_job(db, jid)
+            result = {'job_id': jid, 'id': row['project_id'], 'operation_id': receipt['operation_id'], 'request_key': key}
+            self._save_operation(db, key, result, complete=True)
+            return result
 
     def enqueue(self, project_id, kind, payload=None):
         with self.connect() as db:
@@ -132,10 +268,15 @@ class Database:
                                           'status': 'paused' if row['cancel_requested'] else 'queued',
                                           'message': '服务重启，等待从持久化阶段恢复'})
 
-    def claim(self):
+    def claim(self, allowed_ids=None):
+        allowed = None if allowed_ids is None else tuple(allowed_ids)
+        if allowed == ():
+            return None
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
-            row = db.execute("SELECT * FROM jobs WHERE status='queued' AND cancel_requested=0 ORDER BY created_at,rowid LIMIT 1").fetchone()
+            where = '' if allowed is None else ' AND id IN (' + ','.join('?' for _ in allowed) + ')'
+            row = db.execute("SELECT * FROM jobs WHERE status='queued' AND cancel_requested=0" + where + ' ORDER BY created_at,rowid LIMIT 1',
+                             allowed or ()).fetchone()
             if not row:
                 return None
             db.execute("UPDATE jobs SET status='running',attempts=attempts+1,updated_at=? WHERE id=?", (now(), row['id']))

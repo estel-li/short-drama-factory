@@ -11,6 +11,7 @@ from .schemas import Options, Story, durations
 from .continuity import validate_links
 from .quality import POST_FIELDS, render_contract, render_contract_matches, shot_dependencies, story_report
 from .storage import ROOT, digest, identifier, now, read_json, write_json
+from .project_locks import locked_project, project_lock
 
 
 class Projects:
@@ -27,7 +28,7 @@ class Projects:
             except OSError:
                 continue  # An offline project disk must not prevent the workbench from opening.
             for folder in folders:
-                if folder.is_dir() and (folder / 'settings.json').exists():
+                if folder.is_dir() and not folder.name.startswith('.creating-') and (folder / 'settings.json').exists():
                     try:
                         story = read_json(folder / '分镜.json', {})
                         title = self.title(folder, story)
@@ -145,7 +146,8 @@ class Projects:
         write_json(project / 'versions.json', versions)
         return vid
 
-    def save_story(self, pid, value, generated=False, snapshot=None):
+    @locked_project
+    def save_story(self, pid, value, generated=False, snapshot=None, operation=None):
         if not generated:
             self.assert_idle(pid)
         project = self.path(pid)
@@ -223,11 +225,15 @@ class Projects:
         state.setdefault('stages', {})['storyboard'] = {'status': 'done', 'hash': digest(story)}
         if changed:
             state['stages'].pop('prompt', None)
+        if operation:
+            invalidated = [s['uid'] for s in story['shots'] if old_by_uid.get(s['uid'], {}).get('prompt') and not s.get('prompt')]
+            self.record_mutation(pid, state, operation, invalidated)
         write_json(project / 'state.json', state)
         self.db.index(project, story['title'])
         return story
 
-    def save_options(self, pid, value):
+    @locked_project
+    def save_options(self, pid, value, operation=None):
         self.assert_idle(pid)
         options = Options.model_validate(value)
         durations(options)
@@ -235,12 +241,96 @@ class Projects:
         before = read_json(project / 'settings.json')
         self.version(project, 'settings', before)
         write_json(project / 'settings.json', options.model_dump())
+        state = read_json(project / 'state.json', {})
         if before != options.model_dump():
             self.archive_final(project)
-            state = read_json(project / 'state.json', {})
             state.update(status='ready' if (project / '分镜.json').exists() else 'new', message='项目设置已保存，继续后会更新受影响的镜头。', updated_at=now())
+        if operation:
+            self.record_mutation(pid, state, operation, [])
+        if before != options.model_dump() or operation:
             write_json(project / 'state.json', state)
         return options.model_dump()
+
+    def record_mutation(self, pid, state, operation, invalidated):
+        """The final project state write also records the recoverable edit result."""
+        state.setdefault('mutation_receipts', {})[operation['key']] = {
+            'request_hash': operation['request_hash'],
+            'result': {'id': pid, 'revision': self.revision(pid), 'request_key': operation['key'],
+                       'operation_id': operation['operation_id'], 'invalidated_prompts': invalidated,
+                       'changed_shots': state.get('changed_shots', [])}}
+
+    def revision(self, pid):
+        """Content revision includes legacy mutations; progress does not change it."""
+        import hashlib
+        from .storage import contained
+        with project_lock(self.db, pid):
+            project = self.path(pid)
+            names = ('outline.json', '大纲.txt', 'assets.json',
+                     'reference-images.json', 'finishing-settings.json', 'prompt-templates.json')
+            files = {}
+            files['settings'] = self.options(project).model_dump()
+            raw_story = read_json(project / '分镜.json')
+            if raw_story:
+                semantic_story = self.normalize(pid, raw_story)
+                for shot in semantic_story['shots']:
+                    for field in ('prompt_snapshot', 'prompt_manual', 'compiled_mode', 'compiled_bindings'):
+                        shot.pop(field, None)
+                files['story'] = semantic_story
+            files['pinned_references'] = {key: value for key, value in read_json(project / 'references.json', {}).items()
+                                         if not isinstance(value, dict) or value.get('shot_id') == 0}
+            files['templates'] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+                                  for path in sorted((project / 'prompt_templates').glob('*.json'))}
+            for name in names:
+                path = project / name
+                files[name] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+            for aid, asset in read_json(project / 'assets.json', {}).items():
+                if asset.get('file'):
+                    path = contained(project, asset['file'])
+                    files['asset:' + aid] = None
+                    if path.is_file():
+                        checksum = hashlib.sha256()
+                        with path.open('rb') as source:
+                            while block := source.read(1024 * 1024):
+                                checksum.update(block)
+                        files['asset:' + aid] = checksum.hexdigest()
+            return digest(files)
+
+    def create_reserved(self, pid, text, options, storyboard, operation_id):
+        """Publish a complete draft by rename; retries recover the reserved identity."""
+        identifier(pid)
+        options = Options.model_validate(options)
+        durations(options)
+        if not isinstance(text, str) or len(text) > 50000 or (not text.strip() and options.input_mode != 'storyboard'):
+            raise ValueError('输入不能为空，最多五万字。')
+        if options.profile not in self.config.renderer_config().get('profiles', {}):
+            raise ValueError('未知生成质量预设。')
+        story = self.normalize(pid, storyboard) if options.input_mode == 'storyboard' else None
+        parent = Path(self.config.get()['projects_dir'])
+        project = parent / pid
+        with project_lock(self.db, pid):
+            if project.exists():
+                marker = read_json(project / 'creation-receipt.json', {})
+                if marker.get('operation_id') != operation_id:
+                    raise ValueError('预留项目身份冲突。')
+                self.db.index(project, self.title(project))
+                return project
+            stage = parent / ('.creating-' + pid)
+            stage.mkdir(parents=True, exist_ok=True)
+            if story:
+                for shot in story['shots']:
+                    if shot.get('prompt'):
+                        shot['prompt_manual'] = True
+                write_json(stage / '分镜.json', story)
+                write_json(stage / '出片预检.json', story_report(story, options))
+            (stage / '大纲.txt').write_text(text, encoding='utf-8')
+            write_json(stage / 'settings.json', options.model_dump())
+            write_json(stage / 'state.json', {'status': 'ready' if story else 'new', 'shots': {},
+                       'stages': {'storyboard': {'status': 'done'}} if story else {},
+                       'total_shots': len(story['shots']) if story else 0, 'message': '项目草稿已保存，尚未排队。'})
+            write_json(stage / 'creation-receipt.json', {'operation_id': operation_id})
+            stage.rename(project)
+            self.db.index(project, self.title(project, story))
+            return project
 
     def archive_final(self, project):
         outputs = list(project.glob('成片*.mp4'))

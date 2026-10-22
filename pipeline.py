@@ -186,7 +186,7 @@ def cache_exists(category, filename, local_path):
     return api('/drama/cache?' + urlencode({'category': category, 'filename': filename}))['exists']
 
 
-def validate_story(story, max_shots=150):
+def validate_story(story, max_shots=150, prompt_uids=None):
     if not isinstance(story, dict) or not str(story.get('title', '')).strip():
         raise ValueError('分镜缺少 title。')
     characters = story.get('characters', [])
@@ -208,7 +208,8 @@ def validate_story(story, max_shots=150):
         duration = shot.get('duration', 4)
         if not isinstance(duration, (int, float)) or not 4 <= duration <= 15:
             raise ValueError(f'镜头 {index} 时长必须是 4～15 秒。')
-        if not isinstance(shot.get('prompt'), str) or len(shot['prompt']) < 30:
+        check_prompt = prompt_uids is None or (shot.get('uid') or str(index)) in prompt_uids
+        if check_prompt and (not isinstance(shot.get('prompt'), str) or len(shot['prompt']) < 30):
             raise ValueError(f'镜头 {index} 缺少完整 H3 提示词。')
         if not isinstance(shot.get('characters', []), list) or set(shot.get('characters', [])) - ids:
             raise ValueError(f'镜头 {index} 引用了未定义角色。')
@@ -224,6 +225,8 @@ def validate_story(story, max_shots=150):
 
 
 def plan(outline, total_seconds=24, shot_seconds=4, style='温暖的二维动漫短剧', ratio='9:16', status=None):
+    from app.execution_policy import enforce_provider_call
+    enforce_provider_call('legacy_storyboard')
     if not outline.strip():
         raise ValueError('请填写剧本大纲。')
     if not 4 <= shot_seconds <= 8 or not 4 <= total_seconds <= 600:
@@ -435,6 +438,11 @@ class Runner:
         self.binding_resolver = None
         self.prompt_compiler = None
         self.model_versions = {}
+        self.allowed_uids = None
+        self.regenerate_uids = []
+        self.execution_id = self.client
+        self.before_render = None
+        self._render_started = False
 
     def report(self, message, **changes):
         self.state.update(changes)
@@ -622,13 +630,28 @@ class Runner:
         os.write(fd, str(os.getpid()).encode())
         os.close(fd)
         try:
-            story = validate_story(load_json(self.project / '分镜.json'))
+            selected = None if self.allowed_uids is None else set(self.allowed_uids)
+            story = validate_story(load_json(self.project / '分镜.json'), prompt_uids=selected)
             settings = load_json(self.project / 'settings.json')
-            if not getattr(self, 'engine_prepared', False):
+            known = {shot.get('uid') or str(shot['id']) for shot in story['shots']}
+            regenerate = set(self.regenerate_uids)
+            from app.contracts import ContractError
+            if selected is not None and selected - known:
+                raise ContractError('SHOT_NOT_FOUND', '执行范围含不存在的镜头 UID。', status=404)
+            if regenerate - (known if selected is None else selected):
+                raise ContractError('EXECUTION_SCOPE_CONFLICT', '重生成镜头不在授权执行范围内。', status=409)
+            if any(shot.get('locked') and (shot.get('uid') or str(shot['id'])) in regenerate for shot in story['shots']):
+                raise ContractError('SHOT_LOCKED', '请先解锁镜头再重生成。', status=409)
+            if selected != set() and not getattr(self, 'engine_prepared', False):
                 ensure_comfy(self.report, profile=settings['profile'], cancel=self.stop.is_set)
             clips = []
+            pending_uids = []
+            unverified_uids = []
+            pending_reasons = {}
             render_count = 0
-            self.report('开始顺序生成', status='rendering', total_shots=len(story['shots']))
+            self.report('开始顺序生成', status='rendering', total_shots=len(story['shots']),
+                        scope_complete=False, pending_uids=[], pending_count=0,
+                        unverified_uids=[], pending_reasons={})
             records = self.state.setdefault('shots_by_uid', {})
             for shot in story['shots']:
                 key = shot.get('uid') or str(shot['id'])
@@ -641,6 +664,31 @@ class Runner:
                 locked_record = records[shot.get('uid') or str(shot['id'])]
                 from app.quality import render_contract, render_contract_matches
                 from app.continuity import enabled, extract_last_frame, materialize_frame
+                uid = shot.get('uid') or str(shot['id'])
+                if selected is not None and uid not in selected:
+                    # Keep story positions, so a selected continuity shot can only
+                    # use its actual immediate predecessor, never a prior selection.
+                    candidate = Path(locked_record['clip']) if locked_record.get('clip') else None
+                    usable = (locked_record.get('status') == 'done' and candidate is not None
+                              and candidate.resolve().is_relative_to(self.project.resolve())
+                              and candidate.is_file()
+                              and render_contract_matches(locked_record.get('render_contract'), story, shot))
+                    if usable and enabled(shot):
+                        # A matching authored contract alone does not prove a
+                        # previously chained take still uses the current source.
+                        receipt = locked_record.get('first_frame', {})
+                        previous_clip = clips[-1] if clips else None
+                        usable = bool(previous_clip and receipt.get('source_shot_uid') == story['shots'][index - 1].get('uid')
+                                      and receipt.get('source_clip_sha256') == hashlib.sha256(previous_clip.read_bytes()).hexdigest())
+                    clips.append(candidate if usable else None)
+                    # A usable narrative source is not proof that the take
+                    # matches today's profile, ratio, models or asset bytes.
+                    # The requested subset never verifies those outside inputs.
+                    pending_uids.append(uid)
+                    pending_reasons[uid] = 'not_validated_in_scope' if usable else 'missing_or_stale_clip'
+                    if usable:
+                        unverified_uids.append(uid)
+                    continue
                 chained = enabled(shot)
                 if not chained and shot.get('locked') and locked_record.get('status') == 'done' and locked_record.get('clip'):
                     if (locked_record.get('render_contract') and not render_contract_matches(locked_record['render_contract'],story,shot)) or (not locked_record.get('render_contract') and shot.get('uid') in self.state.get('changed_shots',[])):
@@ -654,6 +702,11 @@ class Runner:
                         continue
                 refs = self.references(shot, story) if settings.get('auto_reference', True) and not chained else []
                 if chained:
+                    if not clips or clips[-1] is None:
+                        raise ContractError('DEPENDENCY_OUTSIDE_SCOPE',
+                            f'镜头 {shot["id"]} 缺少紧邻上一镜头的有效视频，请重新规划依赖范围。',
+                            status=409, details=[{'uid': uid, 'predecessor_uid': story['shots'][index - 1].get('uid')}],
+                            next_actions=['create_execution_plan'])
                     self.report(f'镜头 {shot["id"]}：首帧功能，提取上一分镜实际末帧。', current_shot=shot['id'], current_stage='first_frame')
                     frame = extract_last_frame(self.project, shot, story['shots'][index - 1], clips[-1], self.stop.is_set)
                     bindings = {'first_frame': materialize_frame(self.project, frame, CONFIG)}
@@ -690,9 +743,20 @@ class Runner:
                     # A regenerated/reordered predecessor invalidates all dependent renders.
                     signature = hashlib.sha256((signature + frame['source_shot_uid'] + frame['source_clip_sha256']).encode()).hexdigest()
                     compatible_legacy = False
+                    record['first_frame'] = frame
+                base_signature = signature
+                if uid in regenerate:
+                    # A stable receipt nonce forces all render phases once, while
+                    # retries of the same receipt can still reuse completed work.
+                    signature = hashlib.sha256((signature + '/regenerate/' + self.execution_id).encode()).hexdigest()
+                    compatible_legacy = False
+                elif record.get('regeneration_receipt') and record.get('render_base_signature') == base_signature:
+                    # Future ordinary runs reuse this accepted take until a real
+                    # input changes; the regeneration nonce is not a stale input.
+                    signature = record['signature']
+                if chained:
                     if shot.get('locked') and record.get('status') == 'done' and record.get('signature') != signature:
                         raise RuntimeError(f'镜头 {shot["id"]} 已锁定，但上一分镜或首帧依赖已改变。请解锁此镜头后继续，避免使用旧首帧。')
-                    record['first_frame'] = frame
                 cache_id = shot.get('uid') or f'{shot["id"]:03d}'
                 clip = Path(record['clip']) if record.get('status') == 'done' and record.get('clip') else self.project / 'clips' / (cache_id + '.mp4')
                 if not clip.resolve().is_relative_to(self.project.resolve()):
@@ -707,12 +771,18 @@ class Runner:
                     return
                 self.report(f'生成镜头 {shot["id"]}/{len(story["shots"])}：{shot.get("summary", "")}', current_shot=shot['id'])
                 validate_graph(graph)
+                if not self._render_started:
+                    if self.before_render:
+                        self.before_render()
+                    self._render_started = True
                 if record.get('signature') != signature:
                     if clip.exists():
                         history = self.project / 'takes' / cache_id
                         history.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(clip, history / (time.strftime('%Y%m%d_%H%M%S') + '_' + uuid.uuid4().hex[:6] + '.mp4'))
                     record = {'signature': signature, 'status': 'new', 'model_versions': self.model_versions}
+                    if uid in regenerate:
+                        record.update(render_base_signature=base_signature, regeneration_receipt=self.execution_id)
                     if chained:
                         record['first_frame'] = frame
                 self.state['shots'][str(shot['id'])] = record
@@ -758,6 +828,15 @@ class Runner:
                 self.capture_reference(shot, clip)
                 clips.append(clip)
                 render_count += 1
+            if selected is not None and selected != known:
+                self.report('授权范围内的镜头已完成；其余镜头保持原状，尚未执行整片合成。',
+                            status='ready', current_stage='scope_complete', scope_complete=True,
+                            completed_uids=[shot.get('uid') or str(shot['id']) for shot in story['shots']
+                                            if (shot.get('uid') or str(shot['id'])) in selected],
+                            pending_uids=pending_uids, pending_count=len(pending_uids),
+                            unverified_uids=unverified_uids, pending_reasons=pending_reasons,
+                            unselected_count=len(known - selected))
+                return
             self.report('全部镜头完成，正在合片与生成字幕……', status='assembling', current_stage='assembling')
             output = assemble(self.project, story, clips, settings['ratio'], self.report, settings.get('subtitles', True),cancel=lambda: self.stop.is_set() or (self.project / '.stop').exists())
             self.report('短剧已完成。', status='complete', current_stage='done', output=str(output))

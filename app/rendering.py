@@ -12,7 +12,7 @@ ROLES = {'fl_model': 'diffusion_models', 'ref_model': 'diffusion_models', 'text_
          'video_vae': 'vae', 'audio_vae': 'vae', 'fl_lora': 'loras', 'ref_lora': 'loras'}
 
 
-def fingerprint_models(config, report, cancel, profile=None):
+def fingerprint_models(config, report, cancel, profile=None, modes=None):
     config = dict(config)
     roles = dict(ROLES)
     preset = config.get('profiles', {}).get(profile, {})
@@ -33,6 +33,21 @@ def fingerprint_models(config, report, cancel, profile=None):
             from .h3_advanced import CONTROL_MODEL
             roles['control_model']='model_patches'
             config['control_model']=preset.get('control_model') or CONTROL_MODEL
+    if modes is not None:
+        modes = set(modes)
+        if modes - {'T2VA', 'Ref2VA', 'I2VA', 'L2VA', 'FL2VA'}:
+            raise ValueError('无法为未知视频模式核对模型。')
+        if not modes:
+            return {}
+        if 'Ref2VA' not in modes:
+            for role in ('ref_model', 'ref_lora', 'pdd_ref'):
+                roles.pop(role, None)
+        if not (modes - {'Ref2VA'}):
+            for role in ('fl_model', 'fl_lora', 'pdd_fl'):
+                roles.pop(role, None)
+        if workflow == 'native' and not preset.get('turbo'):
+            roles.pop('fl_lora', None)
+            roles.pop('ref_lora', None)
     index_path = Path(config.get('runtime_root', ROOT)) / 'data/model_versions.json'
     index = read_json(index_path, {})
     result = {}

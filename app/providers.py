@@ -92,6 +92,8 @@ class LLMClient:
                 self.wait_retry(attempt, exc)
 
     def generate(self, messages, schema=None, model='', status=None, cancel=None):
+        from .execution_policy import enforce_provider_call
+        enforce_provider_call('text_provider')
         p = self.provider
         if not (model or p.model):
             raise ProviderError('请先选择文字模型。')

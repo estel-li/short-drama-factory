@@ -155,6 +155,8 @@ class Content:
         self.config, self.skills, self.projects = config, skills, projects
 
     def call(self, project, stage, options, data, schema, validate, status, cancel, mode=None):
+        from .execution_policy import enforce_provider_call
+        enforce_provider_call(stage)
         choice = options.stages[stage]
         sid = choice.skill
         if stage == 'prompt' and (not sid or sid in BUILTIN_H3):
@@ -419,6 +421,12 @@ class Content:
         if mode == 'T2VA':
             bindings = {key:value for key,value in bindings.items() if key in ('source_video','source_audio','guide_image')}
         if mode=='Ref2VA':prompt_cast_valid('',story,shot,bindings,mode)
+        from .execution_policy import internal_text_allowed, validate_external_shot
+        if not internal_text_allowed():
+            prompt = validate_external_shot(story, shot, options, bindings, mode)
+            # Effective mode belongs to this in-memory render, not a rewritten prompt.
+            shot['compiled_mode'] = mode
+            return prompt
         public_bindings = {}
         for kind, values in bindings.items():
             multiple = isinstance(values, list)
