@@ -23,7 +23,8 @@ class ImageRelease366Tests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        # Windows CI may expose TEMP through an 8.3 alias; plans use resolved paths.
+        self.root = Path(temporary.name).resolve()
         write_json(self.root / 'config.default.json', read_json(ROOT / 'config.default.json'))
         self.config = ConfigStore(self.root)
 
