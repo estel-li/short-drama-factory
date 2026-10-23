@@ -44,12 +44,43 @@ class Worker:
             if self.thread and self.thread.is_alive():
                 return
             self.instance_lock.acquire()
-            self.allowed_job_ids = None if recover else set()
-            if recover:
-                self.db.recover()
-            self.shutdown.clear()
-            self.thread = threading.Thread(target=self.loop, name='factory-worker', daemon=True)
-            self.thread.start()
+            try:
+                self.allowed_job_ids = None if recover else set()
+                if recover:
+                    self.db.recover()
+                else:
+                    self._pause_interrupted_jobs()
+                self.shutdown.clear()
+                self.thread = threading.Thread(target=self.loop, name='factory-worker', daemon=True)
+                self.thread.start()
+            except BaseException:
+                self.instance_lock.release()
+                raise
+
+    def _pause_interrupted_jobs(self, jid=None):
+        """Called only while this process exclusively owns an idle worker lock."""
+        rows = self.db.pause_interrupted_jobs(jid)
+        # Leave project/engine files intact, including incomplete checkpoints.
+        # The exact durable job is the authority for execution ownership.
+        return [job['id'] for job in rows]
+
+    def recover_orphaned_jobs(self, jid=None):
+        """Make dead-process jobs inspectable/resumable without starting work.
+
+        A live thread or another process's OS lock is evidence that execution
+        still has an owner. Never infer abandonment from a silent job or timer.
+        """
+        with self.queue_lock:
+            if self.thread and self.thread.is_alive():
+                return []
+            try:
+                self.instance_lock.acquire()
+            except RuntimeError:
+                return []
+            try:
+                return self._pause_interrupted_jobs(jid)
+            finally:
+                self.instance_lock.release()
 
     def allow_job(self, jid):
         """Authorize one durable receipt without recovering any older queue work."""
@@ -327,7 +358,15 @@ class Worker:
             return 'done'
         if requested not in ('all', 'plan', 'outline', 'storyboard', 'prompt', 'render'):
             raise ValueError('未知任务类型。')
-        stages = [] if strict_render else ['outline', 'storyboard', 'prompt'] if requested in ('all', 'plan', 'render') else [requested]
+        prompt_uids = payload.get('uids')
+        if requested == 'plan' and payload.get('agent_plan'):
+            prompt_uids = payload.get('allowed_uids') or None
+        known_uids = {shot['uid'] for shot in read_json(project / '分镜.json', {}).get('shots', [])}
+        scoped_text = requested == 'plan' and payload.get('agent_plan') and prompt_uids is not None and set(prompt_uids) < known_uids
+        # A selected text plan may compile those existing shots only. Outline /
+        # storyboard creation and reference preparation are project-wide effects.
+        stages = ([] if strict_render else ['prompt'] if scoped_text else
+                  ['outline', 'storyboard', 'prompt'] if requested in ('all', 'plan', 'render') else [requested])
         for stage in stages:
             if cancelled():
                 raise Cancelled('已停止，阶段成果已保存。')
@@ -340,9 +379,10 @@ class Worker:
             if stage == 'outline' and options.input_mode == 'storyboard':
                 continue
             if stage == 'prompt' and done:
-                done = all(s.get('prompt') for s in read_json(existing)['shots'])
+                prompt_shots = [s for s in read_json(existing)['shots'] if not prompt_uids or s['uid'] in prompt_uids]
+                done = all(s.get('prompt') for s in prompt_shots)
                 # 新版项目保存编译快照，改参数后应重编译。
-                for s in read_json(existing)['shots']:
+                for s in prompt_shots:
                     snap = s.get('prompt_snapshot')
                     if snap and snap.get('settings_hash') != prompt_settings_hash(options):
                         done = False
@@ -361,6 +401,8 @@ class Worker:
                     lambda shot, story: self.assets.resolve(project, shot, story, inspect_media=True), self.content.mode)
                 # Stop before asking a text provider to write unusable prompts.
                 blockers = [i for i in check['issues'] if i['kind'] == 'workflow' and i['severity'] == 'error']
+                if scoped_text:
+                    blockers = [i for i in blockers if not i.get('uid') or i['uid'] in prompt_uids]
                 if blockers:
                     write_json(project / '出片预检.json', check)
                     report('工作流预检未通过：' + '\n'.join(i['message'] for i in blockers), status='review')
@@ -368,12 +410,12 @@ class Worker:
                 if force:
                     story = read_json(project / '分镜.json')
                     for shot in story['shots']:
-                        if not shot.get('locked') and (not payload.get('uids') or shot['uid'] in payload['uids']):
+                        if not shot.get('locked') and (not prompt_uids or shot['uid'] in prompt_uids):
                             shot.pop('prompt_snapshot', None)
                             shot.pop('prompt_manual', None)
                     write_json(project / '分镜.json', story)
                 self.content.prompts(project, options, report, cancelled,
-                    lambda s, story: self.assets.resolve(project, s, story), uids=payload.get('uids'))
+                    lambda s, story: self.assets.resolve(project, s, story), uids=prompt_uids)
             state = read_json(project / 'state.json', {})
             state.setdefault('stages', {})[stage] = {'status': 'done', 'updated_at': now()}
             write_json(project / 'state.json', state)

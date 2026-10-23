@@ -13,12 +13,12 @@ import hashlib
 from http.client import HTTPException
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import re
 import subprocess
 import sys
 import uuid
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from factory_api import APIError, Client, emit, get_job, identifier, load_body, watch
 
@@ -478,6 +478,15 @@ def parser():
     prepare = environments.add_parser('speech-prepare')
     prepare.add_argument('--confirmation', required=True)
     write_options(prepare)
+    deliver = commands.add_parser('deliver', help='读取交付清单，可核验并下载当前版本产物')
+    deliver.add_argument('project', type=identifier)
+    deliver.add_argument('--verify', action='store_true', help='请求服务器完整解码当前成片；内容验收仍单独记录')
+    deliver.add_argument('--output', help='可选新建输出目录；已有目录不会覆盖')
+    deliver.add_argument('--include-shots', action='store_true', help='同时下载当前分镜原片，不包含历史版本视频')
+    batch = commands.add_parser('batch', help='按已有执行计划逐项目排队；每项独立记录结果')
+    json_input(batch)
+    batch.add_argument('--request-key', required=True, type=request_key)
+    batch.add_argument('--retry-unknown', action='store_true', help='仅显式重发结果未知的原请求；不重发明确拒绝项')
     return result
 
 
@@ -490,6 +499,135 @@ def upload_body(path):
     if source.stat().st_size > 8_000_000:
         raise APIError('上传文件超过 8MB，请先缩小或截短。', payload={'code': 'asset_too_large'})
     return {'name': source.name, 'data': base64.b64encode(source.read_bytes()).decode('ascii')}
+
+
+def delivery_selection(manifest, pid, include_shots):
+    current = manifest.get('version_id')
+    selected, paths = [], set()
+    common = {'original', 'subtitled', 'subtitles', 'subtitle_script', 'recorded_report'}
+    evidence = {'review_index', 'review_page', 'edit_recipe.json', 'edit_媒体验收.json', 'edit_completed.json'}
+    artifacts = manifest.get('artifacts', [])
+    if not isinstance(artifacts, list) or any(not isinstance(item, dict) or not isinstance(item.get('kind'), str) for item in artifacts):
+        raise APIError('交付清单的文件列表无效。', payload={'code': 'invalid_delivery_manifest'})
+    for artifact in artifacts:
+        kind = artifact.get('kind')
+        if not (kind in common or kind in evidence and current and artifact.get('version_id') == current
+                or include_shots and kind == 'shot_clip'):
+            continue
+        name = artifact.get('relative_path')
+        if not isinstance(name, str) or not name or '\\' in name or ':' in name or any(ord(character) < 32 for character in name):
+            raise APIError('交付清单含无效文件路径。', payload={'code': 'invalid_delivery_path'})
+        relative = PurePosixPath(name)
+        if (relative.is_absolute() or relative.as_posix() != name or any(part in ('', '.', '..')
+                or part.startswith('.') or part.endswith((' ', '.'))
+                or re.fullmatch(r'(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])', part.split('.')[0]) for part in relative.parts)
+                or name.casefold() == 'delivery.json' or name.casefold() in paths):
+            raise APIError('交付清单含越界、保留或重复文件路径。', payload={'code': 'invalid_delivery_path'})
+        expected_url = f'/api/v2/projects/{pid}/delivery/files/' + quote(name, safe='/')
+        if artifact.get('api_url') != expected_url:
+            raise APIError('交付文件地址不属于当前项目专用下载接口。', payload={'code': 'invalid_delivery_url'})
+        if (not isinstance(artifact.get('sha256'), str) or not re.fullmatch(r'[a-f0-9]{64}', artifact['sha256'])
+                or type(artifact.get('size')) is not int or artifact['size'] < 0):
+            raise APIError('交付清单缺少有效 SHA256 或文件大小。', payload={'code': 'invalid_delivery_integrity'})
+        paths.add(name.casefold())
+        selected.append(artifact)
+    return selected
+
+
+def deliver_artifacts(args, client):
+    manifest = client.request('GET', f'/api/v2/projects/{args.project}/delivery?' + urlencode({'verify': str(args.verify).lower()}))
+    if not isinstance(manifest, dict) or manifest.get('project_id') != args.project:
+        raise APIError('交付清单项目标识不匹配。', payload={'code': 'invalid_delivery_manifest'})
+    if not args.output:
+        return manifest
+    selected = delivery_selection(manifest, args.project, args.include_shots)
+    target = Path(args.output).expanduser().resolve()
+    if target.exists():
+        raise APIError('交付输出目录已经存在，请指定新的目录。', payload={'code': 'delivery_output_exists'})
+    target.mkdir(parents=True, exist_ok=False)
+    result = {**manifest, 'download_directory': str(target), 'downloads': [], 'download_failures': [],
+              'download_complete': False, 'delivery_manifest': str(target / 'delivery.json')}
+    # Persist the server's scope and evidence even if verification or download
+    # later fails. No file is replaced and historical movies are never selected.
+    atomic_json(target / 'delivery.json', result)
+    for artifact in selected:
+        destination = target.joinpath(*PurePosixPath(artifact['relative_path']).parts)
+        try:
+            if not destination.resolve().is_relative_to(target):
+                raise APIError('输出路径越出交付目录。', payload={'code': 'invalid_delivery_path'})
+            downloaded = client.download(artifact['api_url'], destination,
+                                         expected_sha256=artifact['sha256'], expected_size=artifact['size'])
+            result['downloads'].append({'relative_path': artifact['relative_path'], 'kind': artifact['kind'],
+                                         'version_id': artifact.get('version_id'), **downloaded})
+        except (APIError, OSError, ValueError, HTTPException) as exc:
+            error = exc.payload if isinstance(exc, APIError) else {'code': 'delivery_download_failed', 'message': '文件下载未完成。'}
+            result['download_failures'].append({'relative_path': artifact['relative_path'], **error})
+            result['ready_for_delivery'] = False
+            atomic_json(target / 'delivery.json', result)
+            raise APIError('交付下载未完成；已保存清单和失败记录。',
+                           payload={'code': 'delivery_download_incomplete', 'delivery_manifest': result['delivery_manifest'],
+                                    'download_failures': result['download_failures']}) from None
+    result['download_complete'] = True
+    atomic_json(target / 'delivery.json', result)
+    return result
+
+
+def batch_submit(args, client):
+    text = sys.stdin.read() if args.json_file == '-' else Path(args.json_file).read_text(encoding='utf-8-sig')
+    items = json.loads(text)
+    if not isinstance(items, list) or not 1 <= len(items) <= 150:
+        raise APIError('批次请求应为 1～150 项 JSON 数组。', payload={'code': 'invalid_batch'})
+    seen = set()
+    for item in items:
+        if (not isinstance(item, dict) or set(item) != {'project_id', 'plan_id'}
+                or not isinstance(item.get('project_id'), str)
+                or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', item['project_id'])
+                or not isinstance(item.get('plan_id'), str) or not re.fullmatch(r'[a-f0-9]{64}', item['plan_id'])
+                or item['project_id'] in seen):
+            raise APIError('每项须含唯一 project_id 和有效 plan_id。', payload={'code': 'invalid_batch'})
+        seen.add(item['project_id'])
+    path = Path(args.context).expanduser().resolve().parent / 'batches' / (args.request_key + '.json')
+    checksum = hashlib.sha256(json.dumps(items, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()
+    if path.exists():
+        saved = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(saved, dict) or saved.get('items') != items or saved.get('request_hash') != checksum or saved.get('base_url') != client.base:
+            raise APIError('此批次标识已用于其他请求或实例。', payload={'code': 'batch_idempotency_conflict'})
+    else:
+        saved = {'version': 1, 'batch_key': args.request_key, 'request_hash': checksum, 'base_url': client.base,
+                 'items': items, 'results': []}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with path.open('x', encoding='utf-8') as stream:
+                json.dump(saved, stream, ensure_ascii=False, allow_nan=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except FileExistsError:
+            saved = json.loads(path.read_text(encoding='utf-8'))
+            if not isinstance(saved, dict) or saved.get('items') != items or saved.get('request_hash') != checksum or saved.get('base_url') != client.base:
+                raise APIError('此批次标识已被另一请求占用。', payload={'code': 'batch_idempotency_conflict'}) from None
+    emit({'event': 'batch_saved', 'batch_key': args.request_key, 'receipt': str(path), 'atomic': False})
+    results = []
+    for item in items:
+        key = phase_key(args.request_key, item['project_id'])
+        local = read_receipt(args, key) if ledger_path(args, key).exists() else None
+        previous_retry = getattr(args, 'explicit_retry', False)
+        args.explicit_retry = bool(args.retry_unknown and local and local.get('status') in ('unknown', 'submitted'))
+        try:
+            value = submit_run(args, client, item['project_id'], item['plan_id'], key=key)
+            results.append({**item, 'request_key': key, 'submission_status': 'confirmed', 'result': value})
+        except APIError as exc:
+            receipt = read_receipt(args, key) if ledger_path(args, key).exists() else {}
+            status = 'unknown' if receipt.get('status') in ('unknown', 'submitted') else 'failed'
+            results.append({**item, 'request_key': key, 'submission_status': status, 'error': exc.payload})
+        finally:
+            args.explicit_retry = previous_retry
+        saved['results'] = results
+        atomic_json(path, saved)
+    confirmed = sum(item['submission_status'] == 'confirmed' for item in results)
+    unknown = sum(item['submission_status'] == 'unknown' for item in results)
+    return {'batch_key': args.request_key, 'receipt': str(path), 'atomic': False, 'results': results,
+            'confirmed': confirmed, 'unknown': unknown, 'failed': len(results) - confirmed - unknown,
+            'status': 'submitted' if confirmed == len(results) else 'partial_failure'}
 
 
 def recover_operation(args, client):
@@ -527,6 +665,10 @@ def recover_operation(args, client):
 
 
 def execute_task(args, client):
+    if args.command == 'deliver':
+        return deliver_artifacts(args, client)
+    if args.command == 'batch':
+        return batch_submit(args, client)
     if args.command == 'project':
         if args.action == 'list':
             return client.request('GET', '/api/projects')
@@ -650,6 +792,10 @@ def main(argv=None):
             emit({'job_id': args.id, 'job_status': 'unknown', 'code': 'job_not_found'})
             return 4
         if isinstance(value, dict) and value.get('status') == 'blocked':
+            emit(value)
+            return 2
+        if (args.command == 'deliver' and args.verify and value.get('ready_for_delivery') is not True
+                or args.command == 'batch' and value.get('status') == 'partial_failure'):
             emit(value)
             return 2
         return maybe_watch(args, client, value)

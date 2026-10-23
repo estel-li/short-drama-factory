@@ -18,7 +18,9 @@ connect 绑定已运行实例并核对目录和协议，不靠“第一个可用
 python scripts/sdf.py start --app "E:/实际应用目录" --port 8765
 ```
 
-start 使用应用解释器和 launcher 的 serve-only 模式启动新服务，不恢复旧队列、不打开浏览器；后续明确执行的任务获得运行授权，旧任务保持原状态。已有服务会直接复用，不改变其运行方式或取消任务，须查看健康返回的 queue_mode。直接启动新服务也可 `python launcher/start.py --serve-only --port 8765`。
+start 使用应用解释器和 launcher 的 serve-only 模式启动新服务，不恢复旧队列、不打开浏览器；后续明确执行的任务获得运行授权，旧 queued 任务不自动执行。已有服务会直接复用，不改变其运行方式或取消任务，须查看健康返回的 queue_mode。直接启动新服务也可 `python launcher/start.py --serve-only --port 8765`。
+
+异常退出留下 running 记录时，服务只有在取得独占 worker 锁、确认旧执行者已退出后才将其转为 paused 并记录事件；不领取旧 queued 任务，不打断活跃 worker。随后检查原任务并显式恢复，具体边界见 [诊断与恢复](recovery.md)。
 
 doctor 只读检查，不做文字生成、GPU 推理或下载。doctor 未通过也可以继续编写／保存分镜；特定模式是否能执行看对应项目计划。
 
@@ -48,6 +50,8 @@ sections.json 是当前 AI 编写的段落名→正文对象，不再包一层 s
 
 默认计划 action=render、internal_text=forbid。内部文字创作明确选择 `--action plan --allow-internal-text`；仅后期选择 `--action finish`。`--json` 可传完整计划请求，其字段见 [API](api.md)。
 
+已有分镜的内部文字 plan 可用 `--uids` 限定提示词编译；真正的镜头子集不补写项目大纲。启用了项目级自动参考图准备时，计划会展开到全部受影响镜头，先检查 effects 与 affected_uids。没有分镜的完整内部创作不指定 uids。
+
 `shot regenerate PROJECT_ID SHOT_UID` 先计划并执行受影响范围；不是旧接口的整个项目隐式 render。需要改变随机结果时可按需求指定 `--seed`，查看输出的新计划与依赖范围。`--wait 45` 有界等待，不表示必须在 45 秒内生成完。
 
 高层 `produce --json project-request.json --wait 45` 可完成创建、计划与提交。只有完整外部分镜、环境已就绪且用户已授权生成时使用；明确需要审阅计划时分开调用 create／plan／run。任何一步阻塞都保留已创建项目，不重建绕过问题。
@@ -74,6 +78,40 @@ python scripts/sdf.py operation retry REQUEST_KEY
 响应丢失不等于失败：先 operation get，必要时 operation retry 按原内容补交。`--wait`／watch 到期仍在运行返回退出码 3；观察同一个 job。不要因非零退出码统一重试写操作。具体错误 JSON 包含 code、retryable 和 next_actions。
 
 operation retry 依赖原本地请求账本，不是只凭键就能重建任意请求。账本丢失但服务端 completed 时，operation get 可取回原结果；服务端仍 pending 或返回 404 且原请求正文也缺失时，先从保存的请求文件／计划恢复**完全一致**的 JSON，不能依据当前项目猜原正文。无法恢复时说明缺少原请求数据；保留原项目与请求键，取得原请求后再补交。
+
+## 交付与取片
+
+```powershell
+python scripts/sdf.py deliver PROJECT_ID
+python scripts/sdf.py deliver PROJECT_ID --verify --output delivery-v1
+python scripts/sdf.py deliver PROJECT_ID --verify --include-shots --output delivery-with-shots-v1
+```
+
+不加 --verify 时只读取清单、哈希、媒体头和既有记录；--verify 在服务器上完整解码当前干净版及存在的字幕版成片。查看 scope、version_id、checks、issues 与 ready_for_delivery；后者仅表示技术交付条件，delivery_scope 为 technical_integrity_only，画面／台词／字幕内容仍需实际查看和试听。更多判断方法见 [交付检查](delivery-checks.md)。
+
+--output 必须是尚不存在的目录；默认下载当前成片、字幕及已有验收报告、当前后期版本的配方和审核图，不下载历史视频。--include-shots 另取当前镜头原片；这些原片不属于 --verify 的完整解码范围。每个下载文件核对字节数与 SHA256，结果写入 delivery.json。验证不通过仍保存已有材料及失败证据，不能把文件已下载当作验收通过。
+
+使用 --verify 而技术条件未通过时退出码为 2；下载出错也返回非零并保留清单。处理清单指出的缺项或失败原因后再验证，取片时使用新的输出目录。
+
+## 批量提交已有计划
+
+先逐项目创建并检查执行计划，把真实返回值写入 batches.json；文件是 1～150 项的 JSON 数组，同一项目只能出现一次：
+
+```json
+[
+  {"project_id": "实际项目ID", "plan_id": "该项目返回的64位计划ID"},
+  {"project_id": "另一个项目ID", "plan_id": "另一个项目返回的64位计划ID"}
+]
+```
+
+```powershell
+python scripts/sdf.py batch --json batches.json --request-key release-batch-1
+python scripts/sdf.py batch --json batches.json --request-key release-batch-1 --retry-unknown
+```
+
+batch 按列表逐项目提交已有计划，不创作分集、不新建项目，也不等待生成完成。批次有独立账本，每项有稳定请求键和提交回执；返回 atomic:false、results、confirmed、unknown、failed。某项失败后继续其他项，不撤销已接受的任务；全部已接受只表示 status:submitted，仍需按各自 job_id 观察和验收。部分失败返回 status:partial_failure，退出码为 2。
+
+同一批次键必须保持完全一致的列表和实例。再次执行会取回已确定的结果；明确拒绝项不自动重发。只有加 --retry-unknown 才允许补交本地记录为 unknown／submitted 的原请求，并沿用同一项目请求键；先查 operation get，不能把未知当作失败而重建整个批次。确定性失败先修正原项目并重新计划，再用新批次键提交需要执行的项目，不把已成功的项目一起重跑。
 
 ## 无界面配置与安装
 

@@ -25,6 +25,8 @@
 | GET／PATCH `/api/v2/config` | 查询 revision/config；PATCH 用 expected_revision/changes 局部修改公开配置 |
 | GET `/api/v2/environment/speech/plan` | 查询 CPU 语音模型的真实缺项、体积与确认 token |
 | POST `/api/v2/environment/speech/prepare` | download_confirmation；显式准备 CPU 模型并返回任务 |
+| GET `/api/v2/projects/{pid}/delivery` | 只读交付清单；可选 verify=true 完整解码当前成片，不生成、不修改项目 |
+| GET `/api/v2/projects/{pid}/delivery/files/{relative}` | 下载清单列出的产物；不提供任意项目文件访问 |
 
 create/update/run/resume/stop、图片／素材上传、配置 PATCH 与显式资源准备必须传 `Idempotency-Key` 请求头。相同键、相同请求返回原结果；同键不同内容拒绝。计划创建只是保存计划，不能据 POST 或 HTTP 201 断言开始推理。幂等键解决应用提交重复，不等于可以不检查引擎未知的提交结果。
 
@@ -70,6 +72,10 @@ settings 是局部递归合并，story 是完整替换，shots 按 UID 局部修
 | 高级媒体 | source_audio/source_video/guide_image 各为单值真实 ID，见 [高级 H3](h3-advanced.md) |
 
 `GET /api/projects/{pid}/quality` 返回媒体报告、后期就绪情况与版本。`POST /api/projects/{pid}/finishing-settings` 仅保存后期设置；`POST /api/projects/{pid}/edits/{edit_id}/rebuild` 按真实版本重建。原片、字幕版与 SRT 分别在 `/media/{pid}/成片.mp4`、`成片_字幕版.mp4`、`字幕.srt`，必须先确认对应文件存在。详见 [交付检查](delivery-checks.md)。
+
+4.0 交付优先使用 v2 delivery：清单返回 project_id、revision、version_id、scope、artifacts、checks、issues 与 fingerprint。每个产物提供专用 api_url、relative_path、size、sha256，下载后核对大小与哈希。`verify=true` 只完整解码当前成片，不替历史视频或镜头原片作完整性背书。`ready_for_delivery` 仅代表 technical_integrity_only，visual_content、dialogue_content、subtitle_content 的验收单独记录。
+
+CLI `batch` 是客户端对多个 `/run` 的逐项编排，不存在跨项目原子提交接口。每项仍需自己的计划与 Idempotency-Key；返回部分失败后按单项回执恢复，不回滚已入队项目。
 
 迁移用 `POST /api/export`，请求 `{"projects":["实际项目ID"],"include_videos":true}`，下载返回的 URL。导入 `POST /api/import` 是 multipart 的 zip 文件（file 字段），不是 JSON。项目包不包含模型权重和认证；冲突按导入返回 ID 映射核对。
 

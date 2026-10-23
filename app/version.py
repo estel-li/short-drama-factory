@@ -1,4 +1,4 @@
 """Application and agent protocol versions (independent compatibility axes)."""
 
-VERSION = '3.9.0'
+VERSION = '4.0.0'
 PROTOCOL_VERSION = 1

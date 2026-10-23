@@ -123,10 +123,11 @@ class Client:
             detail = "写请求结果未知，查询队列后再决定后续操作。" if method != "GET" else "后台状态未知，请再次查询原任务。"
             raise APIError("响应未完整读取或不是有效 JSON。" + detail) from exc
 
-    def download(self, path, target):
+    def download(self, path, target, expected_sha256=None, expected_size=None):
         if not (path.startswith(("/media/", "/api/exports/"))
-                or re.fullmatch(r'/api/images/[A-Za-z0-9_-]+/file', path)):
-            raise APIError("download 仅用于媒体、项目导出和 /api/images/{id}/file。")
+                or re.fullmatch(r'/api/images/[A-Za-z0-9_-]+/file', path)
+                or re.fullmatch(r'/api/v2/projects/[A-Za-z0-9_-]+/delivery/files/.+', path)):
+            raise APIError("download 仅用于媒体、项目导出、图片文件和交付清单中的文件。")
         target = Path(target).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         created = False
@@ -139,8 +140,12 @@ class Client:
                     digest.update(block)
                     size += len(block)
                 length = response.headers.get("Content-Length")
-                if not size or (length is not None and size != int(length)):
+                if (not size and expected_size != 0) or (length is not None and size != int(length)):
                     raise APIError("下载不完整，已移除本次不完整文件。")
+                if expected_size is not None and size != expected_size:
+                    raise APIError('下载大小与交付清单不一致，已移除本次文件。', payload={'code': 'delivery_size_mismatch'})
+                if expected_sha256 is not None and digest.hexdigest() != expected_sha256:
+                    raise APIError('下载 SHA256 与交付清单不一致，已移除本次文件。', payload={'code': 'delivery_hash_mismatch'})
         except BaseException:
             if created:
                 target.unlink(missing_ok=True)

@@ -53,7 +53,7 @@ class ServiceStartTests(unittest.TestCase):
             self.assertFalse(worker.thread.is_alive())
             self.assertEqual(executed, [new])
             self.assertEqual(db.job(old_queued)['status'], 'queued')
-            self.assertEqual(db.job(old_running)['status'], 'running')
+            self.assertEqual(db.job(old_running)['status'], 'paused')
             self.assertEqual(db.job(new)['status'], 'done')
 
     def test_launch_serve_only_sets_environment_and_does_not_open_browser(self):

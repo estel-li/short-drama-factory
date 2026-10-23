@@ -380,7 +380,11 @@ def build_plan(projects, assets, content, config, pid, request, revision):
         if options.reference_images.optimize:
             effects.append({'kind': 'text', 'action': 'reference_image_prompt_optimization', 'certainty': 'possible'})
     if policy == 'allowed' and action == 'plan':
-        effects.append({'kind': 'text', 'action': 'fill_or_compile_story_and_prompts', 'certainty': 'possible'})
+        scoped_text = bool(affected_uids) and affected != set(known)
+        effects.append({'kind': 'text',
+                        'action': 'compile_selected_prompts' if scoped_text else 'fill_or_compile_story_and_prompts',
+                        'certainty': 'possible', 'scope': 'selected_shots' if scoped_text else 'project',
+                        'uids': affected_uids})
     effects.append({'kind': 'download', 'action': 'none_authorized', 'certainty': 'required',
                     'missing_models': [item['name'] for item in models if item['availability'] == 'missing'],
                     'requirements': [{'name': item['name'], 'bytes': item.get('expected_size')}

@@ -49,6 +49,8 @@ transfer = Transfer(config, projects, skills)
 async def lifespan(app):
     if os.environ.get('FACTORY_SERVE_ONLY') != '1':
         worker.start()
+    else:
+        worker.recover_orphaned_jobs()
     yield
     worker.shutdown.set()
     worker.wake.set()
@@ -763,7 +765,8 @@ def capabilities():
             'features': {'exact_jobs': True, 'job_events': True, 'structured_errors': True,
                          'execution_plans': True, 'idempotency': True, 'revisioned_edits': True,
                          'strict_render': True, 'serve_only': True, 'typed_images': True,
-                         'configuration_patch': True, 'speech_prepare': True, 'prompt_compile': True},
+                         'configuration_patch': True, 'speech_prepare': True, 'prompt_compile': True,
+                         'delivery_manifest': True, 'delivery_verification': True},
             'video': video_workflow_catalog(), 'images': image_model_catalog(),
             'schemas': '/openapi.json',
             'effects': {'/api/environment/verify': ['creates_project', 'gpu_render'],
@@ -975,6 +978,9 @@ install_media_routes(app, lambda: SimpleNamespace(config=config, db=db, projects
 from .prompt_tools import install_prompt_routes
 install_prompt_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
                                                    assets=assets, content=content, worker=worker))
+from .agent_delivery import install_delivery_routes
+install_delivery_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
+                                                     assets=assets, content=content, worker=worker))
 
 if (ROOT / 'web').is_dir():
     app.mount('/web', StaticFiles(directory=ROOT / 'web'), name='web')

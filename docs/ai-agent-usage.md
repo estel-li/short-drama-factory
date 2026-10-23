@@ -26,7 +26,7 @@ python "技能目录/scripts/sdf.py" doctor
 
 已有服务时直接 connect。start 新建服务使用 serve-only，不打开浏览器、不恢复旧任务；明确提交或恢复的任务才进入执行。复用已有服务不改变其运行方式，需核对 queue_mode，不能假定旧任务已暂停。连接记录保存在当前工作目录 `.sdf/connection.json`，换聊天可复用，换工作目录可用全局 --context 指定原文件。
 
-健康接口必须返回目标 application_root 与支持的 protocol_version。3.8.0 起提供 agent 协议 1 的版本化项目、计划与提交回执；3.9.0 的技能提供任务级命令。应用版本升级不等于协议变化，具体功能查 capabilities。
+健康接口必须返回目标 application_root 与支持的 protocol_version。3.8.0 起提供 agent 协议 1 的版本化项目、计划与提交回执，3.9.0 的技能提供任务级命令，4.0.0 提供交付清单与批量提交。应用版本升级不等于协议变化，具体功能查 capabilities。
 
 127.0.0.1 只指向执行命令的机器。只有云端聊天能力时需要本机执行器；不能公开现有本机端口来冒充具备远程认证的服务。
 
@@ -37,6 +37,28 @@ python "技能目录/scripts/sdf.py" doctor
 可直接使用 `agent-storyboard.json` 的结构创作，不需要另配文字服务。若用户主动选择内部模型编写，再配置 provider 并创建允许内部文字的 plan。密钥通过 `credential set --env 环境变量名` 或受控 --stdin 输入，不放进聊天或 JSON 请求。
 
 修改只按目标 UID 进行，服务端检查 revision 防止覆盖他人更新。新计划列出接续／参考依赖，不承诺单镜修改永远只消耗一镜。局部完成不会自动标为整片交付；完整后期另有明确计划。
+
+## 验收与取片
+
+```powershell
+python "技能目录/scripts/sdf.py" deliver PROJECT_ID --verify --output delivery-v1
+```
+
+命令只读项目，在服务器上完整解码当前干净版及存在的字幕版，并核对实际文件哈希与已记录的后期版本。--output 创建新目录，下载当前产物、已有报告及当前版本的审核材料，写入 delivery.json；添加 --include-shots 可同时取镜头原片。下载会再次核对大小和 SHA256，不覆盖已有目录，不自动下载历史版本视频。
+
+ready_for_delivery 表示技术交付条件，不能证明画面、台词、字幕内容符合要求。清单明确区分项目是否完整、媒体是否可解码、版本证据是否一致，以及尚未进行的内容审片。--verify 未通过返回退出码 2，保留已有材料和失败记录；具体判定见 [交付检查](../agent-skills/short-drama-factory/references/delivery-checks.md)。
+
+## 多项目批量提交
+
+先为每个已有项目创建并核对计划，再把 project_id、plan_id 列为 JSON 数组：
+
+```powershell
+python "技能目录/scripts/sdf.py" batch --json batches.json --request-key batch-1
+```
+
+批次逐项提交，不生成分集剧本，不是跨项目事务，也不等待生成结束。某项失败会继续其他项，每项保存独立请求键、结果和任务 ID；部分失败返回退出码 2，成功入队仍需观察各自任务。
+
+保持原列表、实例与批次键可以读取已确定结果；--retry-unknown 只显式补交未知结果，不自动重发确定性失败。先修正失败项目并重新计划，再以新批次键提交需要执行的项目。详细格式和恢复规则见 [CLI 参考](../agent-skills/short-drama-factory/references/cli.md#批量提交已有计划)。
 
 ## 中断后继续
 

@@ -8,7 +8,7 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 
-from .contracts import ContractError, safe_message
+from .contracts import ContractError, error_body, safe_message
 from .storage import ROOT, now
 
 
@@ -271,6 +271,27 @@ class Database:
                 self._event(db, row['id'], {'type': 'status_changed', 'previous_status': 'running',
                                           'status': 'paused' if row['cancel_requested'] else 'queued',
                                           'message': '服务重启，等待从持久化阶段恢复'})
+
+    def pause_interrupted_jobs(self, jid=None):
+        """Caller must hold the exclusive worker lock and have no live worker.
+
+        Record abandoned execution as paused, never as queued. This is separate
+        from legacy automatic recovery so serve-only cannot consume older work.
+        """
+        message = '原工作进程已结束，任务已暂停；检查已保存成果后显式续跑或重新规划。'
+        failure = error_body('WORKER_INTERRUPTED', message,
+                             next_actions=['inspect_records', 'resume_or_replan'])
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            where, params = (' AND id=?', (jid,)) if jid is not None else ('', ())
+            rows = db.execute("SELECT * FROM jobs WHERE status='running'" + where, params).fetchall()
+            timestamp = now()
+            for row in rows:
+                db.execute("UPDATE jobs SET status='paused',cancel_requested=1,message=?,failure=?,updated_at=? WHERE id=?",
+                           (message, _canonical_json(failure), timestamp, row['id']))
+                self._event(db, row['id'], {'type': 'status_changed', 'previous_status': 'running',
+                                          'status': 'paused', 'cancel_requested': True, 'message': message}, timestamp)
+            return [dict(row) for row in rows]
 
     def claim(self, allowed_ids=None):
         allowed = None if allowed_ids is None else tuple(allowed_ids)

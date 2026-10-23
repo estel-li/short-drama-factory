@@ -2,7 +2,7 @@
 name: short-drama-factory
 license: MIT
 metadata:
-  version: "3.9.0"
+  version: "4.0.0"
   contract_version: 1
 description: 通过本地短剧工厂的命令行与 API，把当前 AI 编写的分镜和 H3 提示词制作成视频；支持真实素材绑定、图片生成、按镜头修改、断点恢复与交付检查。用于操作已安装的工厂制作或修复内容，不用于开发应用代码。
 ---
@@ -15,7 +15,7 @@ description: 通过本地短剧工厂的命令行与 API，把当前 AI 编写�
 
 ## 先连接正确实例
 
-本技能使用 **agent 协议 1**。3.8.0 起提供版本化项目／计划接口；3.9.0 配套任务级 CLI。以健康接口的 `protocol_version`、`application_root` 和 capabilities 的实际功能为准，不单凭版本号猜能力。
+本技能使用 **agent 协议 1**。3.8.0 起提供版本化项目／计划接口，3.9.0 配套任务级 CLI，4.0.0 增加交付清单与批量提交。以健康接口的 `protocol_version`、`application_root` 和 capabilities 的实际功能为准，不单凭版本号猜能力。
 
 先读 [连接与命令行](references/cli.md)。以下命令在技能目录运行；Python 可替换为可用解释器的绝对路径。CLI 仅需 Python 3.10+ 标准库。
 
@@ -40,6 +40,7 @@ python scripts/sdf.py capabilities
 | 生成独立图片或人物／场景参考图 | [图片接口](references/images.md)；外部提示词默认 `optimize:false` |
 | 准备模型或配置环境 | [资源准备](references/workflow-models.md)；只在确有缺项时读取 |
 | 验收、取片、CPU 后期 | [交付检查](references/delivery-checks.md) |
+| 按已有计划提交多个项目 | [CLI 的批量提交](references/cli.md#批量提交已有计划)；逐项目保存结果，分别跟踪任务 |
 | 编写自己的调用程序或 CLI 暂未覆盖某能力 | [接口契约](references/api.md) 与实例 `/openapi.json` |
 
 不需要一次读取全部参考资料。模型、工作流、参数和槽位从 capabilities／实例接口查询，不复制历史参数表作为当前事实。
@@ -50,7 +51,7 @@ python scripts/sdf.py capabilities
 2. **创作草稿。** 当前 AI 填写完整 Story 与每镜 H3 prompt。主模板为 [agent-storyboard.json](assets/agent-storyboard.json)；创建仅保存草稿，返回稳定项目 ID，不自动开始生成。
 3. **校验并计划。** 读取 `project validate` 的问题位置，再运行 `project plan`。查看 `ready`、`blocked`、`affected_uids`、`effects`、模型缺项与 `expected.delivery_scope`。计划中的缓存候选不是命中保证，未知时间／费用不能写成精确估计。
 4. **执行与跟踪。** 计划满足需求后使用同一 `plan_id` 运行，保存 CLI 先输出的请求键和最终任务 ID。用有界 `job watch` 观察原任务；仍在运行就继续观察，不新建任务。
-5. **检查产物。** 整片与所选镜头分别判断成功；按交付检查读取实际文件、媒体报告和审核材料，说明已完成及未完成的内容验收。
+5. **检查产物。** 使用 `deliver PROJECT_ID --verify` 核对当前成片，按需加 `--output 新目录` 取片。整片与所选镜头分别判断成功；媒体完整性通过不代表画面、台词或字幕已经验收，按交付检查记录已验证与未验证项。
 
 ```powershell
 python scripts/sdf.py project create --json project-request.json
@@ -58,6 +59,7 @@ python scripts/sdf.py project validate PROJECT_ID
 python scripts/sdf.py project plan PROJECT_ID
 python scripts/sdf.py project run PROJECT_ID --plan PLAN_ID --wait 45
 python scripts/sdf.py job watch JOB_ID --seconds 45
+python scripts/sdf.py deliver PROJECT_ID --verify --output delivery-v1
 ```
 
 `render` 计划始终严格：不补大纲、不重写分镜、不优化图片提示词、不生成隐藏参考图，也不隐式下载。缺失或失效的 prompt 由当前 AI 补齐后重新计划。已有下载或全自动制作授权继续有效；计划是机器执行契约，不要求每一步都再次询问用户。

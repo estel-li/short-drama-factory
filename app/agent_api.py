@@ -189,6 +189,8 @@ def install_agent_routes(app, services):
             job = s.db.job(jid)
             if job is None:
                 raise ContractError('JOB_NOT_FOUND', '任务不存在。', status=404)
+            if job['status'] == 'running':
+                s.worker.recover_orphaned_jobs(jid)
             with project_lock(s.db, job['project_id']):
                 if body.expected_revision:
                     check_revision(s.projects, job['project_id'], body.expected_revision)
@@ -206,6 +208,9 @@ def install_agent_routes(app, services):
             job = s.db.job(jid)
             if job is None:
                 raise ContractError('JOB_NOT_FOUND', '任务不存在。', status=404)
+            if job['status'] == 'running':
+                s.worker.recover_orphaned_jobs(jid)
+                job = s.db.job(jid)
             if job['status'] in ('queued', 'running'):
                 if job['project_id'].startswith(('__environment', '__series_')):
                     s.db.cancel(job['project_id'])

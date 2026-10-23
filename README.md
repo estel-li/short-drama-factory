@@ -6,12 +6,15 @@
 
 默认由当前 AI 编写分镜和 H3 提示词，严格渲染不会调用内部文字模型。需要工厂代写时，可显式选择 DeepSeek、Ollama、LM Studio 或兼容服务，分别配置大纲、分镜与提示词阶段。
 
-**当前版本：3.9.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+**当前版本：4.0.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ![2.3 创作工作台](docs/images/ui-workspace.jpg)
 
 ## 功能
 
+- **以 AI 为主入口**：独立 Skill、任务级 CLI 与版本化 API 覆盖草稿、素材、执行计划、生成、修复、恢复和交付，无需打开客户端。
+- 幂等提交回执、项目 revision、固定镜头范围与资源检查；默认外部 AI 创作，严格 render 不隐式调用文字模型或下载。
+- 当前成片完整解码、版本来源检查、SHA256 校验取片与审核材料；多项目按已确认计划逐项提交并分别恢复。
 - 四种输入：一句话灵感、已有大纲、完整剧本、分镜 JSON。
 - 全自动生成，或在大纲、分镜、提示词阶段暂停检查。
 - 4 个大纲、4 个分镜、5 个 H3 提示词及 4 个图片提示词 Skill；可复制、编辑、导入和导出。
@@ -41,7 +44,7 @@
 | 服务端 | Windows x64、Python 3.13、可写安装目录；浏览器为可选界面 |
 | 本地生成 | 支持当前 ComfyUI/PyTorch 的 NVIDIA 驱动及显卡 |
 | 已验证配置 | RTX 5060 Ti 16GB、H3 W4A8、0.4MP、4 步快速预览 |
-| 文字模型 | 提供商服务地址与可用模型；云服务需要自己的 API key |
+| 文字模型（可选） | 仅使用工厂内部创作时配置；默认外部 AI 提供完整分镜和提示词 |
 | 磁盘 | 应用依赖、ComfyUI、模型、下载缓存及成片分别占用空间；先预览安装清单 |
 | 网络 | 首次下载依赖/模型，以及调用云端文字模型时需要联网 |
 
@@ -80,9 +83,19 @@
 
 请求回执保存在当前工作目录的 `.sdf/`。超时后查询原请求或原任务；退出码 3 表示后台仍在运行。也可分开执行 `project create / validate / plan / run`。模型尚未就绪时先处理明确缺项，不会隐式下载。
 
-## 可选图形工作台使用
+任务完成后核对当前成片并下载到新目录：
 
-### 1. 安装工作台
+```powershell
+.\.venv\Scripts\python.exe agent-skills/short-drama-factory/scripts/sdf.py deliver PROJECT_ID --verify --output delivery-v1
+```
+
+交付清单记录项目／版本、文件哈希、实际规格、审核材料和未验证项。--verify 完整解码当前成片；画面、台词及字幕是否符合要求仍需查看与试听。技术条件未通过返回退出码 2，已有材料和失败证据会保留。
+
+多个项目可用 `batch --json batches.json --request-key batch-1` 逐项提交已创建的计划。批次不是原子事务：某项失败不取消其他项，输出独立回执；仅显式 `--retry-unknown` 才补交未知结果。输入格式及恢复方式见 [CLI 参考](agent-skills/short-drama-factory/references/cli.md#批量提交已有计划)。
+
+## 安装应用与可选工作台
+
+### 1. 从源码安装应用
 
 在 PowerShell 中执行：
 
@@ -91,12 +104,12 @@ git clone https://github.com/estel-li/short-drama-factory.git
 cd short-drama-factory
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
-.\.venv\Scripts\python.exe .\launcher\start.py
+.\.venv\Scripts\python.exe .\launcher\start.py --serve-only
 ```
 
-启动后访问 <http://127.0.0.1:8765>。再次执行启动脚本会复用同目录已运行的服务。端口冲突时使用 `启动短剧工厂.cmd --port 8770`，不自动打开浏览器可加 `--no-browser`。关闭网页后任务仍会继续运行。启动入口直接使用应用 Python，无需修改 PowerShell 执行策略。
+--serve-only 启动 API 后，按前文绑定 Skill 即可制作。需要图形工作台时访问 <http://127.0.0.1:8765>；关闭网页后任务仍会继续。再次启动会复用同目录服务，端口冲突时指定 --port 8770。启动入口直接使用应用 Python，无需修改 PowerShell 执行策略。
 
-如果使用自行构建的 Windows 便携包，解压到可写目录后双击 `启动短剧工厂.cmd`。便携包包含应用 Python 和依赖，ComfyUI、模型和认证信息另行配置；仓库不包含这些大型运行文件。
+Windows 便携包包含应用 Python 和依赖，解压到可写目录后可从前文的 CLI 启动；ComfyUI、模型和认证信息另行配置。双击 `启动短剧工厂.cmd` 使用传统启动方式并打开工作台，也会恢复旧队列。仓库不包含这些大型运行文件。
 
 ### 2. 连接生成环境
 
@@ -108,7 +121,7 @@ py -3.13 -m venv .venv
 
 “从服务获取可用模型”可检查模型与节点。“运行 4 秒环境验证”会使用 GPU 生成验证样片，不调用文字模型。
 
-### 3. 配置文字模型
+### 3. 配置文字模型（可选）
 
 在提供商设置中填写自己的 DeepSeek key，选择模型并测试连接。也可配置本地 Ollama、LM Studio 或其他兼容服务。默认模型为 `deepseek-flash`；以你使用的提供商实际支持的模型名称为准。
 
@@ -124,19 +137,13 @@ py -3.13 -m venv .venv
 
 整剧批量生成使用“分集 / 批量”。完整操作见 [使用指南](使用说明.md)。
 
-### 让其他 AI 操作工作台
+### AI 与工作台共同编辑
 
-3.5 提供 [完整工作流选择指南](agent-skills/short-drama-factory/references/workflow-selection.md)：覆盖 11 个内置视频方案、7 类图片模型、素材与模式匹配、16GB 参数建议、真实时长与验收。新增工作流用途卡片、合法参数下拉、可恢复的准备进度及素材预检。
+工作台与 CLI 使用同一项目和队列。AI 修改前读取最新 revision，提交后重新计划；不要用旧草稿覆盖工作台刚保存的内容。工作流、模式和真实素材约束见 [工作流选择指南](agent-skills/short-drama-factory/references/workflow-selection.md)，无需先打开网页才能查阅。
 
-仓库提供 [short-drama-factory 操作技能](agent-skills/short-drama-factory/SKILL.md)，包含中文操作流程、HTTP 客户端、两种请求模板及故障恢复说明。支持让工厂调用文字模型，或让外部 AI 编写完整分镜和 H3 提示词后直接渲染。另有实战制作经验、只读素材与耗时诊断，以及解码、接缝、字幕三类成片验收指导。
+示例请求：`使用 $short-drama-factory，把这份大纲做成 6 镜、9:16 的短片，先检查分镜，再生成并验收。` 技能按当前任务读取外部分镜、人物参考、原声、连续镜头或局部修复模板。Qwen-Image 2.1 权重采用非商用研究许可，商业用途需模型方授权。
 
-3.0 新增 [图片与参考图操作接口](agent-skills/short-drama-factory/references/images.md)，其他 AI 可生成独立图片、下载 PNG、管理项目参考图历史。Qwen-Image 2.1 权重采用非商用研究许可，商业用途需模型方授权；首次准备会在页面列出模型与运行时下载量。
-
-将 `agent-skills/short-drama-factory` 整个文件夹复制到 AI 工具的技能目录；Codex 默认目录为 `~/.codex/skills/`。其他能执行本地命令的 AI 可直接读取其中的 `SKILL.md` 并使用脚本，无需额外 Python 库。这是外部操作技能，不应导入工作台内部的提示词 Skill 列表。
-
-示例请求：`使用 $short-drama-factory，把这份大纲做成 6 镜、9:16 的短片，先检查分镜，再生成并验收。`
-
-AI 需能访问运行工作台的电脑。只有云端聊天能力的 AI 无法直接访问本机端口；技能不会公开服务、携带密钥或自动下载模型。
+AI 需能访问运行服务的电脑。只有云端聊天能力的 AI 无法直接访问本机端口；本地技能不会公开服务、携带密钥或自动下载模型。外部操作技能与工作台内部文字模板分开安装。
 
 ## 首帧功能
 
@@ -152,17 +159,21 @@ AI 需能访问运行工作台的电脑。只有云端聊天能力的 AI 无法�
 
 ```mermaid
 flowchart LR
-    A[浏览器工作台] --> B[FastAPI]
+    A[Codex / 其他本机 AI] --> S[Skill 与任务 CLI]
+    S --> B[FastAPI 与版本化计划]
+    W[可选图形工作台] --> B
     B --> C[SQLite 串行任务队列]
-    C --> D[文字提供商与 Skill]
-    D --> E[大纲 / 分镜 / 提示词]
-    E --> F[ComfyUI H3]
-    E --> I[可选 Qwen 参考图]
+    A --> E[分镜 / H3 提示词]
+    E --> B
+    C --> D[显式选择的内部文字创作]
+    D --> E
+    C --> F[ComfyUI H3]
+    C --> I[可选图片与参考图生成]
     I --> F
-    C --> J[独立图片生成]
     F --> G[镜头视频与实际末帧]
     G --> F
     G --> H[FFmpeg 合片 / 字幕]
+    H --> Q[交付清单 / 媒体检查 / 哈希取片]
 ```
 
 后端使用 Python、FastAPI、Pydantic 和 SQLite；前端使用原生 JavaScript/CSS，无需 Node 构建。视频处理使用 PyAV 和随 `imageio-ffmpeg` 提供的 FFmpeg。
@@ -171,7 +182,8 @@ flowchart LR
 app/          API、配置、文字生成、项目、队列、安装与迁移
 web/          浏览器工作台
 pipeline.py   ComfyUI 工作流、顺序渲染、缓存与合片
-skills/       当前 Skill 包
+agent-skills/ 外部 AI 操作技能、任务 CLI、模板与按需参考
+skills/       工厂内部文字生成模板
 resources/    可移植的内置 Skill 原文、适配层与来源记录
 manifests/    固定版本的模型/运行环境下载清单
 nodes/        ComfyUI 条件与潜空间缓存节点

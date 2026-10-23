@@ -95,6 +95,109 @@ class AgentOperationTests(unittest.TestCase):
         self.allow.assert_not_called()
         self.assertIsNone(self.worker.thread)
 
+    def test_orphaned_running_job_can_stop_then_resume_without_a_worker(self):
+        pid = self.create()['id']
+        plan = self.plan(pid)
+        jid = self.run_plan(pid, plan).json()['job_id']
+        self.db.claim({jid})
+        self.assertIsNone(self.worker.thread)
+        stopped = self.client.post('/api/v2/jobs/' + jid + '/stop', json={}, headers=self.headers('orphan-stop'))
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        self.assertEqual(stopped.json()['status'], 'paused')
+        self.assertFalse(self.projects.get(pid)['busy'])
+        resumed = self.client.post('/api/v2/jobs/' + jid + '/resume', json={}, headers=self.headers('orphan-resume'))
+        self.assertEqual(resumed.status_code, 202, resumed.text)
+        self.assertEqual(resumed.json()['job_id'], jid)
+        self.assertEqual(self.db.job(jid)['status'], 'queued')
+        self.assertEqual(len(self.db.jobs()), 1)
+
+    def test_resume_recovers_only_the_requested_orphaned_running_job(self):
+        pid = self.create()['id']
+        jid = self.run_plan(pid, self.plan(pid)).json()['job_id']
+        old = self.db.enqueue('other-orphan', 'render')
+        self.db.claim({jid})
+        self.db.claim({old})
+        result = self.client.post('/api/v2/jobs/' + jid + '/resume', json={}, headers=self.headers('direct-orphan-resume'))
+        self.assertEqual(result.status_code, 202, result.text)
+        self.assertEqual(result.json()['job_id'], jid)
+        self.assertEqual(self.db.job(jid)['status'], 'queued')
+        self.assertEqual(self.db.job(old)['status'], 'running')
+
+    def test_selected_text_plan_only_compiles_approved_shots_and_skips_outline(self):
+        body = copy.deepcopy(self.body)
+        body['options']['input_mode'] = 'idea'
+        for shot in body['storyboard']['shots']:
+            shot['prompt'] = ''
+        pid = self.create(body=body)['id']
+        project = self.projects.path(pid)
+        # An idea project may already have a user-approved storyboard while its
+        # optional outline is absent; selected prompt work must not invent one.
+        write_json(project / '分镜.json', self.projects.normalize(pid, body['storyboard']))
+        plan = self.plan(pid, action='plan', internal_text='allowed', uids=['shot-1'])
+        self.assertTrue(plan['ready'], plan['blocked'])
+        self.assertEqual(plan['affected_uids'], ['shot-1'])
+        effect = next(item for item in plan['effects'] if item['kind'] == 'text')
+        self.assertEqual((effect['action'], effect['scope'], effect['uids']),
+                         ('compile_selected_prompts', 'selected_shots', ['shot-1']))
+        jid = self.run_plan(pid, plan).json()['job_id']
+        job = self.db.claim({jid})
+        before = read_json(project / '分镜.json')['shots'][1]
+
+        def compile_fixture(folder, story, shot, *args):
+            shot['prompt'] = 'offline compiled ' + shot['uid']
+            write_json(folder / '分镜.json', story)
+            return shot['prompt']
+
+        with patch.object(self.content, 'outline', side_effect=AssertionError('No project-wide outline work')), \
+                patch.object(self.content, 'storyboard', side_effect=AssertionError('No project-wide storyboard work')), \
+                patch.object(self.content, 'prompt_shot', side_effect=compile_fixture) as compile_shot:
+            self.assertEqual(self.worker.execute(job), 'done')
+        self.assertEqual([call.args[2]['uid'] for call in compile_shot.call_args_list], ['shot-1'])
+        after = read_json(project / '分镜.json')
+        self.assertEqual(after['shots'][1], before)
+        self.assertEqual(after['shots'][0]['prompt'], 'offline compiled shot-1')
+        self.assertFalse((project / 'outline.json').exists())
+
+    def test_whole_text_plan_without_story_compiles_all_new_shots(self):
+        body = copy.deepcopy(self.body)
+        storyboard = body.pop('storyboard')
+        body['options']['input_mode'] = 'idea'
+        for shot in storyboard['shots']:
+            shot['prompt'] = ''
+        pid = self.create(body=body)['id']
+        project = self.projects.path(pid)
+        plan = self.plan(pid, action='plan', internal_text='allowed')
+        self.assertTrue(plan['ready'], plan['blocked'])
+        self.assertEqual(plan['affected_uids'], [])
+        jid = self.run_plan(pid, plan).json()['job_id']
+        job = self.db.claim({jid})
+        with patch.object(self.content, 'outline', side_effect=lambda *args: write_json(project / 'outline.json', {'title': 'offline'})), \
+                patch.object(self.content, 'storyboard', side_effect=lambda *args, **kwargs: write_json(project / '分镜.json', storyboard)), \
+                patch.object(self.content, 'prompt_shot', return_value='offline') as compile_shot:
+            self.assertEqual(self.worker.execute(job), 'done')
+        self.assertEqual([call.args[2]['uid'] for call in compile_shot.call_args_list], ['shot-1', 'shot-2'])
+
+    def test_text_plan_reference_preparation_uses_expanded_approved_scope(self):
+        body = copy.deepcopy(self.body)
+        body['options']['reference_images'] = {'enabled': True}
+        for shot in body['storyboard']['shots']:
+            shot['prompt'] = ''
+        pid = self.create(body=body)['id']
+        plan = self.plan(pid, action='plan', internal_text='allowed', uids=['shot-1'])
+        self.assertTrue(plan['ready'], plan['blocked'])
+        self.assertEqual(plan['requested_uids'], ['shot-1'])
+        self.assertEqual(plan['affected_uids'], ['shot-1', 'shot-2'])
+        effect = next(item for item in plan['effects'] if item['action'] == 'fill_or_compile_story_and_prompts')
+        self.assertEqual(effect['scope'], 'project')
+        self.assertEqual(effect['uids'], ['shot-1', 'shot-2'])
+        jid = self.run_plan(pid, plan).json()['job_id']
+        job = self.db.claim({jid})
+        with patch.object(self.worker.images, 'ensure_references') as prepare, \
+                patch.object(self.content, 'prompt_shot', return_value='offline') as compile_shot:
+            self.assertEqual(self.worker.execute(job), 'done')
+        prepare.assert_called_once()
+        self.assertEqual([call.args[2]['uid'] for call in compile_shot.call_args_list], ['shot-1', 'shot-2'])
+
     def test_create_replay_and_conflict_preserve_one_project(self):
         result = self.create()
         self.assertEqual(self.create(), result)

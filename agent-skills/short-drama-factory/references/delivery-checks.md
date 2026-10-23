@@ -4,9 +4,25 @@
 
 先区别任务结束与交付完成：`done` 可能只是文字阶段；`scope_complete` 只表示选中镜头完成。部分范围不会合成整片，范围外原片即使存在也仍待验证。需要完整交付时先计划所有目标镜头，或在原片确实就绪时计划 `action:finish`。返回实际存在的产物，不根据项目标题或旧的 final:true 断言当前修改已经进入成片。
 
+## 先读取交付清单
+
+```powershell
+python scripts/sdf.py deliver PROJECT_ID --verify --output delivery-v1
+```
+
+4.0 的命令读取 `/api/v2/projects/{pid}/delivery?verify=true`。检查过程只读项目，使用 CPU 完整解码当前干净版及存在的字幕版；不触发生成、下载模型或修改验收状态。省略 --verify 时仅检查媒体头和已有记录，不能据此称全片可解码。
+
+清单包括实际存在的文件、大小、SHA256、媒体规格、当前版本与历史版本、镜头原片、审核图及检查结果。`scope:project` 才是整片状态；selected_shots／partial 仍是局部。`checks.recorded_provenance` 核对已记录配方、源片和成片哈希是否对应当前版本，失败时不能把旧验收报告套到新成片。
+
+`media_verified` 仅覆盖当前成片；`ready_for_delivery:true` 表示完整项目已空闲且当前成片通过技术检查，`delivery_scope:technical_integrity_only`。清单中画面、台词、字幕内容保持 `not_checked`、`content_review_complete:false`，不能把这一布尔值写成“已人工审片通过”。没有关联后期记录时，清单会明确记录缺失，不补造历史证据。
+
+--output 创建新目录，下载当前成片、字幕、已有报告和当前版本审核材料，并写入 delivery.json；已有目录不覆盖。下载逐文件核对大小和哈希，保留失败记录。需要分镜原片时加 --include-shots，历史版本视频不默认下载。清单仍包含历史文件索引，不能把未下载的历史条目当成本地已有文件。
+
+--verify 未满足技术交付条件时返回退出码 2，即使已下载部分材料也不是成功交付。按实际检查结果说明完整性、版本证据与尚未完成的内容验收。
+
 ## 完整媒体与接缝
 
-读取 quality 中的媒体验收报告，核对实际宽高、帧数、音频、时间戳与所选版本。正式交付可对每个候选文件再完整解码；使用当前应用 Python 获取自带 FFmpeg 的真实路径：
+读取交付清单与 quality 中的媒体验收报告，核对实际宽高、帧数、音频、时间戳与所选版本。`deliver --verify` 已完整解码当前成片；需要核对其他候选文件或单镜原片时，可使用当前应用 Python 获取自带 FFmpeg 的真实路径：
 
 ```powershell
 $ffmpeg = & $appPython -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"
