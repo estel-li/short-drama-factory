@@ -188,7 +188,7 @@ class Worker:
         def project_state():
             if job['project_id'] == '__environment':
                 write_json(self.config.root / 'data/installation_progress.json', {'status': status, 'message': message})
-            elif not job['project_id'].startswith(('__series_', '__image_', '__video_')):
+            elif not job['project_id'].startswith(('__series_', '__image_', '__video_', '__director_')):
                 path = self.projects.path(job['project_id']) / 'state.json'
                 state = read_json(path, {})
                 state.update(status=status, message=message, updated_at=now())
@@ -236,6 +236,41 @@ class Worker:
     def _execute(self, job):
         import pipeline
         pid, jid = job['project_id'], job['id']
+        if job['kind'] in ('director-prepare', 'director-clip') and pid.startswith('__director_'):
+            from .director_contracts import PrepareReference
+            from .director_media import prepare, extract_clip, source_path, sha256
+            from .director_styles import DirectorStyles
+            from .contracts import ContractError
+            payload = json.loads(job['payload'])
+            library = DirectorStyles(payload['library'])
+            aid = payload['analysis_id']
+            folder = library.analysis_path(aid)
+            request = PrepareReference.model_validate(read_json(folder / 'request.json')['request'])
+            cancel = lambda: self.shutdown.is_set() or self.db.cancelled(jid)
+            report = lambda message: self.db.update(jid, message=message, event={'message': message})
+            with library.lock('analysis-' + aid):
+                if job['kind'] == 'director-prepare':
+                    evidence = read_json(folder / 'evidence.json')
+                    if evidence and evidence.get('source_sha256') == request.source_sha256:
+                        from .storage import contained
+                        if all(contained(folder, item['path']).is_file() and sha256(contained(folder, item['path'])) == item['sha256']
+                               for item in evidence['artifacts']):
+                            return 'done'
+                    prepare(folder, request, report, cancel)
+                else:
+                    evidence = read_json(folder / 'evidence.json')
+                    source = source_path(request.source_path)
+                    if sha256(source) != request.source_sha256:
+                        raise ContractError('REFERENCE_CHANGED', '参考文件已改变，不能为原分析补充片段。', status=409)
+                    name = 'extra-' + payload['clip_id']
+                    items = extract_clip(source, folder, payload['clip']['start'], payload['clip']['end'],
+                                         evidence['media']['video'], cancel, name, evidence['media']['audio'])
+                    if sha256(source) != request.source_sha256:
+                        raise ContractError('REFERENCE_CHANGED', '提取过程中参考文件改变。', status=409)
+                    paths = {item['path'] for item in items}
+                    evidence['artifacts'] = [row for row in evidence['artifacts'] if row['path'] not in paths] + items
+                    write_json(folder / 'evidence.json', evidence)
+            return 'done'
         if job['kind'] == 'speech-prepare' and pid == '__environment':
             from .agent_environment import speech_plan
             from .speech import ensure_model
@@ -386,6 +421,10 @@ class Worker:
                     snap = s.get('prompt_snapshot')
                     if snap and snap.get('settings_hash') != prompt_settings_hash(options):
                         done = False
+                    if snap:
+                        from .director_styles import binding
+                        if snap.get('director_style', {}) != binding(project):
+                            done = False
             if done and not force:
                 continue
             report('正在执行 ' + stage + ' 阶段。', status='planning', current_stage=stage)

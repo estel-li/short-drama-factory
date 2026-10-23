@@ -60,7 +60,7 @@ async def lifespan(app):
 # renamed 413/422). Explicit descriptions also match the distributed OpenAPI.
 ERROR_RESPONSES = {
     400: 'Bad Request', 403: 'Forbidden', 404: 'Not Found', 409: 'Conflict',
-    413: 'Content Too Large', 422: 'Unprocessable Content',
+    413: 'Content Too Large', 422: 'Unprocessable Content', 503: 'Service Unavailable',
 }
 app = FastAPI(title='短剧工厂', version=VERSION, lifespan=lifespan,
               responses={status: {'model': ErrorView, 'description': description}
@@ -160,6 +160,12 @@ async def value_error(request, exc):
                 'message': safe_message(validation_message([e]))} for e in exc.errors()[:20]] if isinstance(exc, ValidationError) else []
     return JSONResponse(error_body('VALIDATION_ERROR' if details else 'OPERATION_REJECTED', message,
                                   details=details, next_actions=['inspect_request', 'inspect_project']), status_code=400)
+
+
+@app.exception_handler(OSError)
+async def storage_error(request, exc):
+    return JSONResponse(error_body('STORAGE_UNAVAILABLE', '本地文件操作未完成，请检查文件权限、磁盘空间与文件是否可访问。保留原请求键。',
+                                  next_actions=['inspect_storage', 'inspect_operation', 'retry_original_request']), status_code=503)
 
 
 @app.get('/')
@@ -773,7 +779,8 @@ def capabilities():
                          'execution_plans': True, 'idempotency': True, 'revisioned_edits': True,
                          'strict_render': True, 'serve_only': True, 'typed_images': True,
                          'configuration_patch': True, 'speech_prepare': True, 'prompt_compile': True,
-                         'delivery_manifest': True, 'delivery_verification': True},
+                         'delivery_manifest': True, 'delivery_verification': True,
+                         'director_styles': True, 'director_style_protocol': 1},
             'video': video_workflow_catalog(), 'images': image_model_catalog(),
             'schemas': '/openapi.json',
             'effects': {'/api/environment/verify': ['creates_project', 'gpu_render'],
@@ -987,6 +994,9 @@ install_prompt_routes(app, lambda: SimpleNamespace(config=config, db=db, project
                                                    assets=assets, content=content, worker=worker))
 from .agent_delivery import install_delivery_routes
 install_delivery_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
+                                                     assets=assets, content=content, worker=worker))
+from .director_api import install_director_routes
+install_director_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
                                                      assets=assets, content=content, worker=worker))
 
 if (ROOT / 'web').is_dir():

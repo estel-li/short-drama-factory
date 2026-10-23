@@ -16,8 +16,9 @@ TEXT_SUFFIXES = {'.json', '.txt', '.md', '.srt', '.ass'}
 MEDIA_SUFFIXES = {'.png', '.jpg', '.jpeg', '.webp', '.mp4', '.webm', '.wav', '.mp3', '.flac', '.m4a', '.ogg', '.mov'}
 PROJECT_FILES = {'大纲.txt', 'outline.json', '分镜.json', 'settings.json', 'state.json', 'assets.json', 'references.json', 'versions.json',
                  'renderer_snapshot.json', '媒体验收.json', '成片.mp4', '成片_字幕版.mp4', '字幕.srt', '字幕.ass', 'episode.json',
-                 'finishing-settings.json', 'current_edit.json', '出片预检.json', 'reference-images.json'}
-PROJECT_FOLDERS = {'assets', 'clips', 'versions', 'requests', 'prompts', 'takes', 'edits', 'source_cache', 'prompt_templates'}
+                 'finishing-settings.json', 'current_edit.json', '出片预检.json', 'reference-images.json',
+                 'director-style.json', 'director-style-review.json'}
+PROJECT_FOLDERS = {'assets', 'clips', 'versions', 'requests', 'prompts', 'takes', 'edits', 'source_cache', 'prompt_templates', 'director-styles'}
 
 
 class Transfer:
@@ -110,7 +111,7 @@ class Transfer:
                         raise ValueError('项目包含指向外部目录的文件，请先复制素材到项目内。')
                     if not (len(relative.parts) == 1 and path.name in PROJECT_FILES or relative.parts[0] in PROJECT_FOLDERS):
                         continue
-                    if path.suffix.lower() not in TEXT_SUFFIXES | MEDIA_SUFFIXES or not include_videos and relative.parts[0] != 'assets' and path.suffix.lower() in ('.mp4', '.webm', '.mov'):
+                    if path.suffix.lower() not in TEXT_SUFFIXES | MEDIA_SUFFIXES or not include_videos and relative.parts[0] not in ('assets', 'director-styles') and path.suffix.lower() in ('.mp4', '.webm', '.mov'):
                         continue
                     if not include_videos and (relative.parts[0] in ('edits', 'source_cache') or path.name in ('current_edit.json', '媒体验收.json')):
                         continue
@@ -130,6 +131,9 @@ class Transfer:
                         content = json.dumps(self.redact(state), ensure_ascii=False, indent=2).encode()
                     if path.name == 'references.json' and len(relative.parts) == 1:
                         content = json.dumps(self.redact(refs), ensure_ascii=False, indent=2).encode()
+                    if path.name in ('director-style.json', 'director-style-review.json') and len(relative.parts) == 1:
+                        content = json.dumps({key: value for key, value in read_json(path).items() if not key.startswith('_')},
+                                             ensure_ascii=False, indent=2).encode('utf-8')
                     if any(secret.encode() in content for secret in self.secrets()):
                         raise ValueError('素材包含私密认证信息，无法导出：' + str(relative))
                     archive.writestr(name, content)

@@ -36,7 +36,25 @@ def edit_plan(shot, frames, analysis, preset='gentle', fps=24, preserve_start=Fa
         protect = merge_frames(protect + [[math.floor(line['source_start']*fps), math.ceil(line['source_end']*fps)] for line in aligned])
     parameters = PRESETS[preset]
     reasons = []
-    if preset == 'original' or not shot.get('dialogue') or shot.get('preserve_performance'):
+    if shot.get('edit_ranges') is not None:
+        ranges = shot['edit_ranges']
+        if not isinstance(ranges, list) or not ranges or shot.get('preserve_performance'):
+            raise ValueError('明确后期选段须为非空区间，不能同时要求保留全部表演。')
+        keep = []
+        for item in ranges:
+            start, end = float(item['start']), float(item['end'])
+            if not math.isfinite(start) or not math.isfinite(end) or not 0 <= start < end <= frames / fps + .00001:
+                raise ValueError('后期选段必须在原片实际时长内。')
+            a, b = round(start * fps), round(end * fps)
+            if not 0 <= a < b <= frames or keep and a < keep[-1][1]:
+                raise ValueError('后期选段须按时间排序、不重叠，并至少保留一帧。')
+            keep.append([a, b])
+        if preserve_start and keep[0][0] != 0 or preserve_end and keep[-1][1] != frames:
+            raise ValueError('明确选段不能剪掉首帧接续所需的头尾帧；独立快切镜头请在创作时选择不接续。')
+        if shot.get('dialogue') and not protect:
+            raise ValueError('有对白的明确选段需要可靠语音区间或人工 dialogue_timings；不能猜测对白位置后裁剪。')
+        reasons.append('按用户/当前AI明确选定的原片区间剪辑，保持区间内原速。')
+    elif preset == 'original' or not shot.get('dialogue') or shot.get('preserve_performance'):
         keep = full
         reasons.append('保留原始表演与时间轴。')
     elif not (analysis.get('safe_for_auto_edit') or shot.get('dialogue_timings')) or not protect:

@@ -7,6 +7,22 @@ from app.speech import analyze_audio, intervals, rms_diagnostics
 
 
 class EditPlanTests(unittest.TestCase):
+    def test_explicit_quick_cuts_preserve_native_speed_and_speech_boundaries(self):
+        shot = {'edit_ranges': [{'start': 1, 'end': 1.5}, {'start': 2, 'end': 2.25}]}
+        plan = edit_plan(shot, 96, {}, 'original')
+        self.assertEqual(plan['keep_frames'], [[24, 36], [48, 54]])
+        self.assertEqual(plan['output_frames'], 18)
+        for kwargs in ({'preserve_start': True}, {'preserve_end': True}):
+            with self.assertRaises(ValueError):
+                edit_plan(shot, 96, {}, 'original', **kwargs)
+        with self.assertRaises(ValueError):
+            edit_plan({**shot, 'dialogue': [{'text': '不要切掉的话'}]}, 96, {}, 'original')
+        protected = {'speech_intervals': [[1.1, 1.8]], 'relaxed_speech_intervals': [[1, 1.9]], 'safe_for_auto_edit': True}
+        with self.assertRaises(RuntimeError):
+            edit_plan({**shot, 'dialogue': [{'text': '不要切掉的话'}]}, 96, protected, 'original')
+        with self.assertRaises(ValueError):
+            edit_plan({'edit_ranges': [{'start': 2, 'end': 3}, {'start': 1, 'end': 2}]}, 96, {}, 'original')
+
     def test_quieter_voice_protected_and_frame_mapping_is_exact(self):
         speech={'speech_intervals':[[2,3],[5,6]],'relaxed_speech_intervals':[[1.85,3.15],[4.85,6.15]],'safe_for_auto_edit':True}
         shot={'dialogue':[{'text':'第一句。'},{'text':'第二句。'}]}

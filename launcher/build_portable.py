@@ -50,9 +50,10 @@ def copy_agent_entrypoints(package):
     package = Path(package)
     for name in ('AGENTS.md', 'CLAUDE.md', 'GEMINI.md'):
         shutil.copy2(ROOT / name, package / name)
-    relative = Path('agent-skills/short-drama-factory')
-    shutil.copytree(ROOT / relative, package / relative,
-                    ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.tmp'))
+    for skill in ('short-drama-factory', 'director-style'):
+        relative = Path('agent-skills') / skill
+        shutil.copytree(ROOT / relative, package / relative,
+                        ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.tmp', '.sdf'))
 
 
 def copy_windows_batch(source, target):

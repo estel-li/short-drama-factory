@@ -228,6 +228,13 @@ def build_plan(projects, assets, content, config, pid, request, revision):
                          'field': 'settings.reference_images.enabled',
                          'message': '本次严格 render 跳过自动参考图准备，仅采用现有绑定。需要新参考图时，请先显式完成图片阶段，再重新计划。'})
     affected_uids = [uid for uid in known if uid in affected]
+    from .director_styles import style_check
+    director = style_check(projects, pid)
+    if director['selected']:
+        blocked.extend(director['issues'])
+        warnings.append({'code': 'DIRECTOR_CONTENT_NOT_VERIFIED', 'message': director.get('note', '导演风格内容尚未验收。')})
+        if director.get('timing') and not director['timing']['relative_rhythm_matches']:
+            warnings.append({'code': 'DIRECTOR_TIMING_ADAPTATION', 'message': '计划中的相对镜头时长偏离参考结构；先生成原片，再明确选择 edit_ranges 或调整镜长，最终对照实际成片验收。'})
     if not shots and (action != 'plan' or policy == 'forbid'):
         blocked.append({'code': 'EXTERNAL_CONTENT_REQUIRED', 'field': 'story', 'message': '请先提供分镜，或使用允许内部文字调用的 plan 阶段。'})
 
@@ -335,6 +342,19 @@ def build_plan(projects, assets, content, config, pid, request, revision):
             warnings.append({'code': 'OUTSIDE_SCOPE_CLIP_UNVERIFIED', 'uid': uid,
                              'message': '范围外镜头可作为已有内容来源，但本次不校验其完整渲染参数和媒体规格；仅交付所选镜头，不自动合片。'})
         count = frames(shot['duration'])
+        if shot.get('edit_ranges') is not None:
+            try:
+                from .editplan import edit_plan
+                validation_shot = copy.deepcopy(shot)
+                # Speech detection happens during finishing; retain authored
+                # timings when available and otherwise validate only the ranges.
+                if not shot.get('dialogue_timings'):
+                    validation_shot['dialogue'] = []
+                index = positions[uid]
+                edit_plan(validation_shot, count, {}, 'original', preserve_start=enabled(shot),
+                          preserve_end=index + 1 < len(shots) and enabled(shots[index + 1]))
+            except (ValueError, RuntimeError, TypeError, KeyError) as exc:
+                blocked.append({'code': 'EDIT_RANGE_INVALID', 'uid': uid, 'field': 'edit_ranges', 'message': str(exc)})
         rows.append({'uid': uid, 'affected': uid in affected, 'reasons': reasons.get(uid, []), 'cache': cache,
                      'cache_guaranteed': False, 'has_clip': clips[uid].get('exists', False),
                      'source_valid': current_clips[uid], 'assembly_ready': False,
@@ -349,7 +369,8 @@ def build_plan(projects, assets, content, config, pid, request, revision):
     finishing_settings = {**options.model_dump(), **(read_json(project / 'finishing-settings.json', {}) or {})}
     needs_speech = any(shot.get('dialogue') for shot in shots) and (
         finishing_settings.get('edit_preset', 'original') != 'original'
-        or finishing_settings.get('subtitle_alignment', 'approximate') == 'speech')
+        or finishing_settings.get('subtitle_alignment', 'approximate') == 'speech'
+        or any(shot.get('edit_ranges') and shot.get('dialogue') and not shot.get('dialogue_timings') for shot in shots))
     if (action == 'finish' or action == 'render' and can_assemble) and needs_speech:
         runtime = Path(renderer.get('runtime_root') or getattr(config, 'root', Path(__file__).resolve().parents[1]))
         manifest_path = runtime / 'manifests/quality.json'
@@ -394,6 +415,7 @@ def build_plan(projects, assets, content, config, pid, request, revision):
         'text_encoder', 'video_vae', 'audio_vae', 'fl_lora', 'ref_lora', 'comfy_dir', 'comfy_url')}
     environment_fingerprint = digest({'renderer': render_settings, 'model_files': models})
     inputs = {'story': story, 'settings': options.model_dump(), 'finishing': read_json(project / 'finishing-settings.json'),
+              'director_style': director,
               'assets': manifest, 'asset_files': asset_files, 'references': references, 'reference_files': reference_files,
               'clips': clips, 'renderer': render_settings, 'renderer_snapshot': snapshot, 'model_files': models,
               'records': {uid: {key: records.get(uid, {}).get(key) for key in ('status', 'signature', 'render_contract', 'model_versions', 'first_frame')}
@@ -408,6 +430,7 @@ def build_plan(projects, assets, content, config, pid, request, revision):
             'modes': sorted(selected_modes),
             'environment_fingerprint': environment_fingerprint,
             'effects': effects, 'workflow': check.get('workflow', preset.get('workflow', 'native')),
+            'director_style': director,
             'expected': {'fps': FPS, 'aligned_seconds': sum(row['aligned_seconds'] for row in rows),
                          'delivery_scope': 'project' if can_assemble else 'selected_shots',
                          'output_size': list(output_canvas(preset, options.ratio)) if preset else None},

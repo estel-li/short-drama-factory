@@ -285,5 +285,9 @@ def build_delivery(projects, pid, verify=False):
               'media_verified': verified, 'verification_scope': 'current_final_videos',
               'delivery_scope': 'technical_integrity_only', 'content_review_complete': False,
               'ready_for_delivery': bool(complete and not busy and verified and prior['status'] != 'failed')}
+    from .director_styles import binding, review_status
+    result['director_style'] = binding(project)
+    result['checks']['director_style'] = review_status(projects, pid, aliases['original']['sha256'] if aliases['original'] else None)
+    result['style_review_complete'] = result['checks']['director_style']['status'] == 'passed'
     result['fingerprint'] = digest(result)
     return result

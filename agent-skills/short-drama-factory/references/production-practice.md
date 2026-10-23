@@ -5,6 +5,7 @@
 | 用户想改变什么 | 修改与执行 |
 | --- | --- |
 | 字幕出现时间，台词正文不变 | 按 UID 修改 dialogue_timings；建 finish 计划，仅 CPU 后期 |
+| 明确选取原片区间、仿拍快切节奏 | 实际审看后按 UID 修改 edit_ranges；建 finish 计划，不重生成原片；对白和接续头尾保护仍有效 |
 | 要说的字、角色、动作、镜长 | 同时修改分镜语义与完整 prompt；建 render 计划 |
 | 一镜重新尝试 | shot regenerate；查看实际 affected_uids，不忽略接续及角色参考依赖 |
 | 画幅、质量方案 | 局部修改 settings；profile 是项目级，重新查看计划影响 |

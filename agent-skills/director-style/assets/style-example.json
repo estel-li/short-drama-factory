@@ -1,0 +1,17 @@
+{
+  "style_id": "example-director",
+  "expected_version": null,
+  "analysis_id": "REPLACE_WITH_REAL_ANALYSIS_ID",
+  "name": "示例：冷色铺垫与动作切点",
+  "summary": "仅为字段示例，发布前根据实际参考片重写；不是对用户影片的分析结论。",
+  "coverage": {"frames": [{"start": 0, "end": 4}], "motion": [], "audio": []},
+  "rules": [
+    {"id": "cool-space", "dimension": "visual", "observation": "示例观察，必须替换为实际所见。",
+     "guidance": "安静铺垫场景采用冷色环境与明确的主体明暗分离；保留新故事的人物与场景。",
+     "when": "安静铺垫", "avoid": ["把所有情绪场景都统一压暗"], "basis": "frames", "confidence": "medium",
+     "evidence": [{"start": 0, "end": 4}]}
+  ],
+  "scene_patterns": [{"name": "铺垫", "when": "介绍人物处境", "rules": ["cool-space"]}],
+  "shot_structure": [],
+  "limitations": ["示例未实际查看参考片，不能直接发布。", "未试听声音、未核对动态动作；不得声称已覆盖。"]
+}

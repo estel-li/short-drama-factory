@@ -7,7 +7,7 @@ import re
 from difflib import SequenceMatcher
 from .storage import digest
 
-POST_FIELDS = {'dialogue_timings', 'preserve_performance', 'annotations', 'masks'}
+POST_FIELDS = {'dialogue_timings', 'preserve_performance', 'annotations', 'masks', 'edit_ranges'}
 
 
 def _render_data(story, shot):

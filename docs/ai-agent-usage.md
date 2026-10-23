@@ -14,6 +14,8 @@ Codex 的目标通常是用户目录下 `.codex/skills/short-drama-factory`。Cl
 
 升级使用同一命令加 `--update`。安装器跟踪包文件、备份旧版并保留个人文件；本地改过的受管理文件需要先合并。不要把本机 .sdf、凭证或项目文件打进公共技能包。
 
+4.1 增加 [导演风格 Skill](../agent-skills/director-style/SKILL.md)，可用同一安装工具把 --source 改为应用目录中的 agent-skills/director-style、--target 改为用户技能目录/director-style。学习参考片时生成的个人风格包存入用户风格库，制作时使用 style bind 加载固定版本；详细流程见 [导演风格说明](director-style-4.1.md)。
+
 ## 绑定实例
 
 在固定制作工作目录中，用安装后的脚本绝对路径运行：

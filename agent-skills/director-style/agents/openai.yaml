@@ -1,0 +1,4 @@
+interface:
+  display_name: "导演风格"
+  short_description: "分析参考影片的视听语言，生成可复用的导演风格 Skill 并指导新故事制作"
+  default_prompt: "使用 $director-style 分析这部参考片，保存导演风格，再用它创作全新的故事。"

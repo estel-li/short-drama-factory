@@ -57,6 +57,12 @@ def bounded_wait(value):
     return number
 
 
+def style_version(value):
+    if not re.fullmatch(r'[a-f0-9]{20}', value):
+        raise argparse.ArgumentTypeError('风格版本必须为 style publish/show 返回的 20 位摘要。')
+    return value
+
+
 def same_path(first, second):
     return os.path.normcase(str(Path(first).resolve())) == os.path.normcase(str(Path(second).resolve()))
 
@@ -173,7 +179,11 @@ def replay_route_allowed(method, path):
         return False
     return path in ('/api/v2/projects', '/api/v2/images', '/api/v2/image-inputs', '/api/v2/environment/speech/prepare') or bool(
         re.fullmatch(r'/api/v2/projects/[A-Za-z0-9_-]+/(validate|plans|run|assets)', path)
-        or re.fullmatch(r'/api/v2/jobs/[A-Za-z0-9_-]+/(resume|stop)', path))
+        or re.fullmatch(r'/api/v2/jobs/[A-Za-z0-9_-]+/(resume|stop)', path)
+        or path in ('/api/v2/director/analyses', '/api/v2/director/styles', '/api/v2/director/styles/import')
+        or re.fullmatch(r'/api/v2/director/analyses/[A-Za-z0-9_-]+/clips', path)
+        or re.fullmatch(r'/api/v2/director/styles/[a-z0-9-]+/versions/[a-f0-9]{20}/install', path)
+        or re.fullmatch(r'/api/v2/projects/[A-Za-z0-9_-]+/director-style(?:/(clear|review))?', path))
 
 
 def read_receipt(args, key):
@@ -490,6 +500,59 @@ def parser():
     json_input(batch)
     batch.add_argument('--request-key', required=True, type=request_key)
     batch.add_argument('--retry-unknown', action='store_true', help='仅显式重发结果未知的原请求；不重发明确拒绝项')
+    style = commands.add_parser('style', help='导演风格：提取参考证据、发布 Skill、冻结加载与逐项验收')
+    styles = style.add_subparsers(dest='action', required=True)
+    prepare_style = styles.add_parser('prepare', help='提交参考音视频 CPU 证据提取；不调用模型，不等于语义分析完成')
+    prepare_style.add_argument('--video', required=True, help='服务所在本机的参考音视频文件')
+    prepare_style.add_argument('--start', type=float, default=0)
+    prepare_style.add_argument('--end', type=float)
+    prepare_style.add_argument('--sample-seconds', type=float, default=3)
+    prepare_style.add_argument('--max-frames', type=int, default=240)
+    prepare_style.add_argument('--max-clips', type=int, default=8)
+    write_options(prepare_style, wait=True)
+    analysis_style = styles.add_parser('analysis')
+    analysis_style.add_argument('id', type=identifier)
+    analysis_style.add_argument('--full', action='store_true', help='包含全部抽帧、候选切点与音频测量')
+    clip_style = styles.add_parser('clip', help='补充最多 60 秒连续参考片段')
+    clip_style.add_argument('id', type=identifier)
+    clip_style.add_argument('--start', type=float, required=True)
+    clip_style.add_argument('--end', type=float, required=True)
+    write_options(clip_style, wait=True)
+    styles.add_parser('list')
+    publish_style = styles.add_parser('publish', help='把当前 AI 根据已查看证据编写的规则发布为用户风格 Skill')
+    json_input(publish_style)
+    write_options(publish_style)
+    for action in ('show', 'brief'):
+        item = styles.add_parser(action)
+        item.add_argument('--style', type=identifier)
+        item.add_argument('--version', type=style_version)
+        if action == 'brief':
+            item.add_argument('--project', type=identifier)
+            item.add_argument('--mode', choices=('inspired', 'remake'), default='inspired')
+    bind_style = styles.add_parser('bind')
+    bind_style.add_argument('--project', required=True, type=identifier)
+    bind_style.add_argument('--style', required=True, type=identifier)
+    bind_style.add_argument('--version', required=True, type=style_version)
+    bind_style.add_argument('--mode', choices=('inspired', 'remake'), default='inspired')
+    bind_style.add_argument('--expected-revision')
+    write_options(bind_style)
+    for action in ('check', 'clear', 'review'):
+        item = styles.add_parser(action)
+        item.add_argument('--project', required=True, type=identifier)
+        if action != 'check':
+            item.add_argument('--expected-revision')
+            write_options(item)
+        if action == 'review':
+            json_input(item)
+    install_style = styles.add_parser('install')
+    install_style.add_argument('--style', required=True, type=identifier)
+    install_style.add_argument('--version', required=True, type=style_version)
+    install_style.add_argument('--target', required=True, help='新的技能目录；已有目录不覆盖')
+    write_options(install_style)
+    import_style = styles.add_parser('import', help='把完整导演风格包导入当前用户库，不需要原片或原分析目录')
+    import_style.add_argument('--folder', required=True)
+    import_style.add_argument('--expected-version', type=style_version)
+    write_options(import_style)
     return result
 
 
@@ -667,7 +730,80 @@ def recover_operation(args, client):
                     replayable=local.get('replayable', False))
 
 
+def director_task(args, client):
+    base = '/api/v2/director'
+    if args.action == 'prepare':
+        path = Path(args.video).expanduser().resolve()
+        checksum = hashlib.sha256()
+        with path.open('rb') as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b''):
+                checksum.update(block)
+        body = {'source_path': str(path), 'source_sha256': checksum.hexdigest(), 'start': args.start,
+                'end': args.end, 'sample_seconds': args.sample_seconds, 'max_frames': args.max_frames, 'max_clips': args.max_clips}
+        return mutation(args, client, 'POST', base + '/analyses', body)
+    if args.action == 'analysis':
+        value = client.request('GET', base + '/analyses/' + args.id)
+        if args.full:
+            return value
+        result = {k: v for k, v in value.items() if k not in ('artifacts', 'candidate_cuts', 'motion_measurements', 'audio_levels')}
+        result.update(frame_count=sum(item['kind'] == 'frame' for item in value.get('artifacts', [])),
+                      candidate_cut_count=len(value.get('candidate_cuts', [])),
+                      evidence_path=str(Path(value['directory']) / 'evidence.json'),
+                      viewing_materials=[item for item in value.get('artifacts', []) if item['kind'] != 'frame'])
+        return result
+    if args.action == 'clip':
+        return mutation(args, client, 'POST', base + '/analyses/' + args.id + '/clips', {'start': args.start, 'end': args.end})
+    if args.action == 'list':
+        return client.request('GET', base + '/styles')
+    if args.action == 'publish':
+        return mutation(args, client, 'POST', base + '/styles', body_file(args))
+    if args.action == 'import':
+        folder = Path(args.folder).expanduser().resolve()
+        profile = json.loads((folder / 'style.json').read_text(encoding='utf-8'))
+        if not isinstance(profile, dict):
+            raise APIError('风格包 style.json 必须是规则对象。', payload={'code': 'invalid_director_package'})
+        return mutation(args, client, 'POST', base + '/styles/import',
+                        {'package_directory': str(folder), 'manifest_sha256': hashlib.sha256((folder / 'manifest.json').read_bytes()).hexdigest(),
+                         'style_id': profile.get('style_id'), 'version': profile.get('version'), 'expected_version': args.expected_version})
+    if args.action in ('show', 'brief') and not getattr(args, 'project', None):
+        if not args.style or args.action == 'brief' and not args.version:
+            raise APIError('提供 --style；brief 还需固定 --version，或改用 --project 读取冻结版本。', payload={'code': 'invalid_arguments'})
+        query = {'version': args.version} if args.version else {}
+        suffix = ''
+        if args.action == 'brief':
+            query['mode'] = args.mode
+            suffix = '/brief'
+        value = client.request('GET', base + '/styles/' + args.style + suffix + '?' + urlencode(query))
+        if args.action == 'brief':
+            value.pop('profile', None)
+        return value
+    if args.action in ('brief', 'check'):
+        value = client.request('GET', '/api/v2/projects/' + args.project + '/director-style')
+        return {key: item for key, item in value.items() if key != 'profile' and (args.action == 'brief' or key != 'brief')}
+    if args.action == 'install':
+        return mutation(args, client, 'POST', base + '/styles/' + args.style + '/versions/' + args.version + '/install',
+                        {'target_directory': str(Path(args.target).expanduser().resolve())})
+    path = '/api/v2/projects/' + args.project + '/director-style'
+    body = {}
+    if args.action == 'bind':
+        body = {'style_id': args.style, 'version': args.version, 'mode': args.mode}
+    else:
+        path += '/' + args.action
+        if args.action == 'review':
+            body = body_file(args)
+    expected = args.expected_revision or body.get('expected_revision')
+    if not expected and args.request_key and ledger_path(args, args.request_key).is_file():
+        old = read_receipt(args, args.request_key)
+        previous = old.get('body') or {}
+        if old.get('path') == path and {k: v for k, v in previous.items() if k != 'expected_revision'} == body:
+            expected = previous.get('expected_revision')
+    body['expected_revision'] = expected or client.request('GET', '/api/v2/projects/' + args.project)['revision']
+    return mutation(args, client, 'POST', path, body)
+
+
 def execute_task(args, client):
+    if args.command == 'style':
+        return director_task(args, client)
     if args.command == 'deliver':
         return deliver_artifacts(args, client)
     if args.command == 'batch':

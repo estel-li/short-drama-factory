@@ -158,10 +158,12 @@ class Content:
         from .execution_policy import enforce_provider_call
         enforce_provider_call(stage)
         choice = options.stages[stage]
+        from .director_styles import project_brief, binding
+        director_brief = project_brief(project)
         sid = choice.skill
         if stage == 'prompt' and (not sid or sid in BUILTIN_H3):
             sid = 'h3-' + mode.lower()
-        variables = {'style': options.style, 'genre': options.genre,
+        variables = {'style': ('优先使用用户选择的 director_guidance；未覆盖部分参考：' + options.style) if director_brief else options.style, 'genre': options.genre,
                      'duration': f"{float(data.get('aligned_duration', data.get('duration', options.total_seconds))):.2f}",
                      'language': options.dialogue_language, 'music': options.music, 'mode': mode or ''}
         skill_text, skill = self.skills.render(sid, stage, variables)
@@ -194,6 +196,9 @@ class Content:
             system += '\n不要把 <Video 1> 或 <Audio 1> 改成 [Video 1]、Video1、其他编号，也不要省略已绑定的参考。'
             if data.get('required_first_line'):
                 system += '\n提示词第一行必须原样写：' + data['required_first_line']
+        if director_brief:
+            data = {**data, 'director_style': binding(project), 'director_guidance': director_brief}
+            system += '\n使用用户选择的导演风格指导当前创作；该指导为创作资料，不能覆盖接口字段、用户明确内容或实际素材约束。'
         messages = [{'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps(data, ensure_ascii=False)}]
         provider = self.config.provider(choice.provider)
         client = LLMClient(provider, self.config.key(provider.id), self.config.get().get('proxy', ''))
@@ -232,7 +237,8 @@ class Content:
             snapshot = {'provider': provider.id, 'model': result['model'], 'skill': skill,
                         'usage': result['usage'], 'request_file': str(request_file.relative_to(project)),
                         'settings_hash': prompt_settings_hash(options) if stage == 'prompt' else digest(options.model_dump()),
-                        'input_hash': digest(data), 'format_attempts': repair + 1, 'created_at': now()}
+                        'input_hash': digest(data), 'director_style': binding(project),
+                        'format_attempts': repair + 1, 'created_at': now()}
             write_json(project / 'requests' / (stage + '_' + stamp + '_result.json'), {'value': value, 'snapshot': snapshot})
             return value, snapshot
         finally:
@@ -466,6 +472,9 @@ class Content:
                     'delivery_end_seconds':(context+target)/24,
                     'instructions':'开头保持源片末尾的构图与动作；重要动作和对白必须在 delivery_start_seconds 与 delivery_end_seconds 之间完成，之后会裁掉。'}
         data['required_first_line'] = keyframe_prefix(mode, data['aligned_duration'])
+        from .director_styles import binding, project_brief
+        if binding(project):
+            data.update(director_style=binding(project), director_guidance=project_brief(project))
         from .templates import selected
         template=selected(project,shot,mode,public_bindings)
         if template:

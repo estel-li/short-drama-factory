@@ -2,6 +2,8 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 import zipfile
 
@@ -72,6 +74,24 @@ class SkillInstallTests(unittest.TestCase):
         value['files']['../outside'] = 'fake'
         marker.write_text(json.dumps(value), encoding='utf-8')
         with self.assertRaises(ValueError):
+            installer.tracked_install(self.source, self.target, update=True)
+
+    def test_director_skill_installs_independently_and_keeps_its_package_identity(self):
+        app = Path(__file__).resolve().parents[1]
+        director = app / 'agent-skills/director-style'
+        installed = installer.tracked_install(director, self.target)
+        self.assertTrue(installed['installed'])
+        archive = self.root / 'director.zip'
+        installer.build_zip(director, archive)
+        with zipfile.ZipFile(archive) as package:
+            self.assertIn('director-style/scripts/director.py', package.namelist())
+            self.assertIn('director-style/references/analysis.md', package.namelist())
+        result = subprocess.run([sys.executable, '-I', str(self.target / 'scripts/director.py'), '--app', str(app), '--', 'style', '--help'],
+                                cwd=self.root, capture_output=True, encoding='utf-8', timeout=15,
+                                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('prepare', result.stdout)
+        with self.assertRaisesRegex(ValueError, '另一种技能'):
             installer.tracked_install(self.source, self.target, update=True)
 
 

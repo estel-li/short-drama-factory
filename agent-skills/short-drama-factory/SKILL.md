@@ -2,7 +2,7 @@
 name: short-drama-factory
 license: MIT
 metadata:
-  version: "4.0.0"
+  version: "4.1.0"
   contract_version: 1
 description: 通过本地短剧工厂的命令行与 API，把当前 AI 编写的分镜和 H3 提示词制作成视频；支持真实素材绑定、图片生成、按镜头修改、断点恢复与交付检查。用于操作已安装的工厂制作或修复内容，不用于开发应用代码。
 ---
@@ -34,6 +34,7 @@ python scripts/sdf.py capabilities
 | 用户目标 | 读取与执行 |
 | --- | --- |
 | 从故事制作短片 | [分镜与 H3 契约](references/story-and-h3.md)，[请求模板](references/templates.md)；当前 AI 创作后走严格渲染 |
+| 学习参考片、使用导演风格或按结构仿拍 | [导演风格](references/director-styles.md)；默认用其视听语言讲新故事，仿拍需用户明确选择 |
 | 保留原声、原画面、关键帧或动作接续 | [工作流选择](references/workflow-selection.md)；仅涉及高级媒体槽时再读 [高级 H3](references/h3-advanced.md) |
 | 改一句台词、一个镜头、字幕或画幅 | [编辑与修复](references/production-practice.md)；按 UID 修改，重新计算影响范围 |
 | 接着旧项目做、请求超时或生成失败 | [诊断与恢复](references/recovery.md)；先定位原任务和回执 |
@@ -47,11 +48,11 @@ python scripts/sdf.py capabilities
 
 ## 默认制作路径
 
-1. **整理需求与素材。** 保留用户指定的台词、原声、角色与镜头目的。依据现有素材选择模式；没有素材时先完成可做的创作，缺项不能用虚构 ID 或静音替代。
+1. **整理需求与素材。** 保留用户指定的台词、原声、角色与镜头目的。用户指定导演风格时，先读取固定版本的 style brief，再创作分镜；参考片学习先走导演风格流程。依据现有素材选择模式；没有素材时先完成可做的创作，缺项不能用虚构 ID 或静音替代。
 2. **创作草稿。** 当前 AI 填写完整 Story 与每镜 H3 prompt。主模板为 [agent-storyboard.json](assets/agent-storyboard.json)；创建仅保存草稿，返回稳定项目 ID，不自动开始生成。
-3. **校验并计划。** 读取 `project validate` 的问题位置，再运行 `project plan`。查看 `ready`、`blocked`、`affected_uids`、`effects`、模型缺项与 `expected.delivery_scope`。计划中的缓存候选不是命中保证，未知时间／费用不能写成精确估计。
+3. **校验并计划。** 使用导演风格的项目先 style bind 冻结版本并读取项目 brief，确认规则已落实到分镜与提示词。读取 `project validate` 的问题位置，再运行 `project plan`。查看 `ready`、`blocked`、`affected_uids`、`effects`、模型缺项与 `expected.delivery_scope`。计划中的缓存候选不是命中保证，未知时间／费用不能写成精确估计。
 4. **执行与跟踪。** 计划满足需求后使用同一 `plan_id` 运行，保存 CLI 先输出的请求键和最终任务 ID。用有界 `job watch` 观察原任务；仍在运行就继续观察，不新建任务。
-5. **检查产物。** 使用 `deliver PROJECT_ID --verify` 核对当前成片，按需加 `--output 新目录` 取片。整片与所选镜头分别判断成功；媒体完整性通过不代表画面、台词或字幕已经验收，按交付检查记录已验证与未验证项。
+5. **检查产物。** 使用 `deliver PROJECT_ID --verify` 核对当前成片，按需加 `--output 新目录` 取片。整片与所选镜头分别判断成功；媒体完整性通过不代表画面、台词或字幕已经验收。使用导演风格时，实际查看/试听后逐规则 style review；未检查、失败或 stale 不能报告风格已通过。按交付检查记录已验证与未验证项。
 
 ```powershell
 python scripts/sdf.py project create --json project-request.json

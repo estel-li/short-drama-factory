@@ -216,6 +216,18 @@ class Dialogue(BaseModel):
     narration: bool = Field(default=False, strict=True, description='本句为画外旁白；需同时开启项目 narration。')
 
 
+class EditRange(BaseModel):
+    model_config = ConfigDict(extra='forbid', allow_inf_nan=False)
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+
+    @model_validator(mode='after')
+    def ordered(self):
+        if self.end <= self.start:
+            raise ValueError('后期选段 end 必须大于 start。')
+        return self
+
+
 class Shot(BaseModel):
     model_config = ConfigDict(extra='allow')
     id: int = 1
@@ -236,6 +248,8 @@ class Shot(BaseModel):
     mode: Literal['auto', 'T2VA', 'I2VA', 'FL2VA', 'L2VA', 'Ref2VA'] = Field(default='auto', description='逐镜 H3 模式；auto 由程序按实际素材绑定推断。')
     bindings: dict = Field(default_factory=dict)
     seed: int | None = Field(default=None, ge=0, le=2**63 - 1)
+    edit_ranges: list[EditRange] | None = Field(default=None, min_length=1, max_length=100,
+        description='明确保留的原片时间区间，按24fps取整，仅用于CPU后期；不改变生成镜长。')
 
 
 class Story(BaseModel):

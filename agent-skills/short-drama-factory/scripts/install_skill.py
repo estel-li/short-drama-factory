@@ -39,9 +39,12 @@ def source_manifest(source):
     match = re.search(r'(?m)^  contract_version:\s*[\"\']?(\d+)[\"\']?\s*$', header)
     if not match or int(match[1]) != CONTRACT_VERSION:
         raise ValueError('技能 metadata.contract_version 必须为 1；请使用兼容技能包。')
-    if not re.search(r'(?m)^name:\s*short-drama-factory\s*$', header):
-        raise ValueError('源目录不是 short-drama-factory 技能。')
-    for filename in ('scripts/sdf.py', 'scripts/factory_api.py'):
+    name_match = re.search(r'(?m)^name:\s*(short-drama-factory|director-style)\s*$', header)
+    if not name_match:
+        raise ValueError('源目录不是支持的短剧工厂或导演风格操作技能。')
+    skill_name = name_match[1]
+    required = ('scripts/sdf.py', 'scripts/factory_api.py') if skill_name == 'short-drama-factory' else ('scripts/director.py',)
+    for filename in required:
         if not (source / filename).is_file():
             raise ValueError('技能包缺少自包含的客户端脚本。')
     files = {}
@@ -58,7 +61,7 @@ def source_manifest(source):
                 raise ValueError('技能发布文件不能包含符号链接。')
             if path.is_file():
                 files[relative.as_posix()] = checksum(path)
-    return {'version': 1, 'contract_version': CONTRACT_VERSION, 'files': dict(sorted(files.items()))}
+    return {'version': 1, 'skill_name': skill_name, 'contract_version': CONTRACT_VERSION, 'files': dict(sorted(files.items()))}
 
 
 def tracked_install(source, target, update=False):
@@ -79,6 +82,8 @@ def tracked_install(source, target, update=False):
             old = json.loads(marker.read_text(encoding='utf-8'))
             if old.get('version') != 1 or not isinstance(old.get('files'), dict):
                 raise ValueError('安装记录无效，请保留现有目录并使用新目录安装。')
+            if old.get('skill_name', 'short-drama-factory') != manifest['skill_name']:
+                raise ValueError('目标属于另一种技能，请使用独立目录安装。')
             for name, digest in old['files'].items():
                 candidate = (target / name).resolve()
                 if not candidate.is_relative_to(target):
@@ -139,7 +144,7 @@ def build_zip(source, output):
             created = True
             with zipfile.ZipFile(stream, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
                 for name in manifest['files']:
-                    archive.write(source / name, 'short-drama-factory/' + name)
+                    archive.write(source / name, manifest['skill_name'] + '/' + name)
     except BaseException:
         if created:
             output.unlink(missing_ok=True)

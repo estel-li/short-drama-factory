@@ -212,7 +212,7 @@ def install_agent_routes(app, services):
                 s.worker.recover_orphaned_jobs(jid)
                 job = s.db.job(jid)
             if job['status'] in ('queued', 'running'):
-                if job['project_id'].startswith(('__environment', '__series_')):
+                if job['project_id'].startswith(('__environment', '__series_', '__director_')):
                     s.db.cancel(job['project_id'])
                 else:
                     s.worker.stop(job['project_id'])

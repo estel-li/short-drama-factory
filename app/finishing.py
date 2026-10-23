@@ -284,7 +284,8 @@ def build(project, story, clips, width, height, settings, status=lambda text:Non
     folder=project/'edits'/(time.strftime('%Y%m%d_%H%M%S')+'_'+uuid.uuid4().hex[:8]);folder.mkdir(parents=True)
     write_json(folder/'recipe.json',recipe)
     model=None
-    needs_speech=any(s.get('dialogue') for s in story['shots']) and (preset!='original' or subtitle_mode=='speech')
+    needs_speech=any(s.get('dialogue') for s in story['shots']) and (preset!='original' or subtitle_mode=='speech'
+        or any(s.get('edit_ranges') and s.get('dialogue') and not s.get('dialogue_timings') for s in story['shots']))
     frozen=recipe.get('finishing',[])
     if frozen and len(frozen)!=len(story['shots']):raise ValueError('冻结剪辑计划与镜头数量不一致。')
     if needs_speech and not frozen:model=ensure_model(status,cancel,proxy)

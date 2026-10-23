@@ -84,8 +84,9 @@ class Projects:
     def get(self, pid):
         project = self.path(pid)
         from .templates import listing
+        from .director_styles import binding
         return {'id': pid, 'title': self.title(project), 'settings': self.options(project).model_dump(),
-                'busy': self.db.busy(pid),
+                'busy': self.db.busy(pid), 'director_style': binding(project),
                 'episode': read_json(project / 'episode.json', {}),
                 'state': read_json(project / 'state.json', {}),
                 'outline': (project / '大纲.txt').read_text(encoding='utf-8') if (project / '大纲.txt').exists() else '',
@@ -259,7 +260,7 @@ class Projects:
                        'operation_id': operation['operation_id'], 'invalidated_prompts': invalidated,
                        'changed_shots': state.get('changed_shots', [])}}
 
-    def revision(self, pid):
+    def revision(self, pid, *, director_style=None):
         """Content revision includes legacy mutations; progress does not change it."""
         import hashlib
         from .storage import contained
@@ -268,6 +269,12 @@ class Projects:
             names = ('outline.json', '大纲.txt', 'assets.json',
                      'reference-images.json', 'finishing-settings.json', 'prompt-templates.json')
             files = {}
+            from .director_styles import binding
+            selected = binding(project) if director_style is None else director_style
+            if selected:
+                files['director_style'] = selected
+                profile = contained(project, selected['package']) / 'style.json'
+                files['director_profile'] = hashlib.sha256(profile.read_bytes()).hexdigest() if profile.is_file() else None
             files['settings'] = self.options(project).model_dump()
             raw_story = read_json(project / '分镜.json')
             if raw_story:
