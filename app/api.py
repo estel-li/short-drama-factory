@@ -56,8 +56,15 @@ async def lifespan(app):
     worker.wake.set()
 
 
+# Keep the published protocol independent of Python's HTTPStatus wording (3.13
+# renamed 413/422). Explicit descriptions also match the distributed OpenAPI.
+ERROR_RESPONSES = {
+    400: 'Bad Request', 403: 'Forbidden', 404: 'Not Found', 409: 'Conflict',
+    413: 'Content Too Large', 422: 'Unprocessable Content',
+}
 app = FastAPI(title='短剧工厂', version=VERSION, lifespan=lifespan,
-              responses={status: {'model': ErrorView} for status in (400, 403, 404, 409, 413, 422)})
+              responses={status: {'model': ErrorView, 'description': description}
+                         for status, description in ERROR_RESPONSES.items()})
 
 
 def project_mutation(function):

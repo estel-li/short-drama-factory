@@ -113,7 +113,9 @@ class ExecutionPolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, \
                 patch.object(loader, 'verified', return_value=False) as verified, \
                 patch('app.downloads.httpx.Client') as network:
-            target = Path(folder) / 'model.bin'
+            # Downloader returns canonical paths, including expansion of a
+            # Windows runner's short (8.3) TEMP directory name.
+            target = Path(folder).resolve() / 'model.bin'
             with execution_policy(allow_downloads=False):
                 with self.assertRaises(ContractError) as caught:
                     loader.fetch('https://invalid.test/model', target, 1, 'a' * 64)

@@ -197,6 +197,26 @@ class TaskCLITests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["job_status"], "done")
 
+    def test_copied_cli_works_with_isolated_interpreter_and_sibling_import(self):
+        portable = self.root / "independent-skill"
+        portable.mkdir()
+        for name in ("sdf.py", "factory_api.py"):
+            shutil.copyfile(SCRIPTS / name, portable / name)
+        # The caller's directory must never supply the companion module.
+        (self.root / "factory_api.py").write_text(
+            "raise RuntimeError('untrusted working-directory module imported')\n", encoding="utf-8")
+        command = [sys.executable, "-I", str(portable / "sdf.py")]
+        options = {"cwd": self.root, "text": True, "encoding": "utf-8", "capture_output": True,
+                   "timeout": 10, "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+        help_result = subprocess.run(command + ["--help"], **options)
+        self.assertEqual(help_result.returncode, 0, help_result.stderr)
+        self.assertIn("deliver", help_result.stdout)
+        self.assertEqual(self.calls, [])
+        result = subprocess.run(command + ["--base-url", self.url, "job", "get", "old"], **options)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["id"], "old")
+        self.assertEqual([path for _, path, _ in self.calls], ["/api/jobs/old"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,9 @@ import sys
 import uuid
 from urllib.parse import quote, urlencode
 
+# Embeddable Python and ``python -I`` omit the script directory from sys.path.
+# Trust only this script's own absolute directory when loading its sibling.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from factory_api import APIError, Client, emit, get_job, identifier, load_body, watch
 
 

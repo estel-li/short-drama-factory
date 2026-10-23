@@ -21,7 +21,7 @@ class DeliveryManifestTests(unittest.TestCase):
     def setUpClass(cls):
         cls.shared = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.shared.cleanup)
-        cls.video = Path(cls.shared.name) / 'fixture.mp4'
+        cls.video = Path(cls.shared.name).resolve() / 'fixture.mp4'
         pipeline.ffmpeg(['-f', 'lavfi', '-i', 'color=c=blue:s=96x64:r=24',
                          '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000',
                          '-c:v', 'libx264', '-bf', '0', '-c:a', 'aac', '-frames:v', '12', '-t', '0.5', cls.video])
@@ -29,7 +29,9 @@ class DeliveryManifestTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        # Windows runners may expose TEMP through an 8.3 alias. Production
+        # artifact paths are canonical, so compare against a canonical fixture.
+        self.root = Path(temp.name).resolve()
         self.project = self.root / 'project'
         self.project.mkdir()
         self.busy = False
