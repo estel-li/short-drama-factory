@@ -20,7 +20,7 @@ description: 旁白蒙太奇与声音推进；在短剧工厂 storyboard 阶段�
 ## 分镜产物与字段映射
 
 返回 Story JSON 的 title、style、aspect_ratio、characters、scenes、props、shots。
-只返回本批 required_shots 个镜头，顺序从 start_shot 开始；固定和手动镜长使用 shot_durations；对白拟合模式由程序按 dialogue_pacing 计算，台词必须能在单镜上限内完整说完。
+只返回本批 required_shots 个镜头，顺序从 start_shot 开始；固定和手动镜长使用 shot_durations；对白拟合模式由 AI 根据语境、场景和表演填写 duration，未填写时程序使用 dialogue_pacing 的估算建议。保留实际支持的单镜时长范围。
 本批与 previous_shots 衔接，existing_assets 的人物 id 与设定保持一致，prompt 此阶段留空。
 
 - characters：稳定 id、name、visual_description（英文外观）、voice_description。
@@ -32,7 +32,7 @@ description: 旁白蒙太奇与声音推进；在短剧工厂 storyboard 阶段�
 - shot.characters / props：只填本镜真实出场的 id；dialogue 保留原文与说话人。
 
 一个工作台镜头对应一段单独生成的视频。按当前时长保留一个主要动作及可读反应，
-默认最多两名可见人物，可连续至多三句短对白。按 dialogue_pacing 的语速、起手、句间和收尾预算装镜；长句按语义分到相邻镜头，不能强行快读或改词。角色至少用脸型/年龄、服装主色、配饰等多个外观锚点区分，不能只靠发长。
+默认最多两名可见人物，可连续至多三句短对白。中文台词建议每秒约 5.6 个字，可根据语境、场景、情绪、人物语速和动作动态调整。dialogue_pacing 中的语速、起手、句间和收尾均为估算参考，不是固定配额或最低留白；不因字数公式强制拆镜。结合实际表演决定是否加时或按语义拆镜，保留完整原词，生成后试听完整性与节奏。上游特定样本的语速也不作为本项目的硬性限制。角色至少用脸型/年龄、服装主色、配饰等多个外观锚点区分，不能只靠发长。
 不要把上游“首尾帧必须成对”的外部生产约束套到 H3 L2VA：本程序支持独立尾帧。
 不虚构 IMG/REF 文件或使用源套件的 SHOT 文档 id 代替本程序人物和场景 id。
 自检覆盖原文、镜头职责、空间轴线、双手/道具状态、光源关系及前后边界。

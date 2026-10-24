@@ -171,7 +171,7 @@ export function optionsEditor(
   container.append(
     section(
       "对白与节奏",
-      "对白拟合会按实际台词调整新分镜的镜长（4～8 秒）；没有对白的动作镜头沿用原计划。手动指定镜长始终优先，总时长为规划目标。",
+      "对白拟合由 AI 按语境、场景、情绪和动作调整镜长，未填写时采用估算建议。固定与手动镜长优先；语速、停顿和留白仅作参考，估算超时只提醒。",
       el(
         "div",
         { class: "grid three" },
@@ -179,13 +179,13 @@ export function optionsEditor(
           "镜长策略",
           dropdown("dialogue_timing", [
             { value: "fit", label: "按对白预算拟合（推荐）" },
-            { value: "fixed", label: "保持时长分配，检查对白能否说完" },
+            { value: "fixed", label: "保持时长分配，提示对白估算" },
           ]),
         ),
         field(
-          "目标语速（字 / 秒）",
+          "参考语速（字 / 秒）",
           input("speech_rate", "number", { min: 1, max: 12, step: 0.1 }),
-          "默认 5.6；这是预算，实际人声会在成片质检中测量。",
+          "建议每秒约 5.6 个字，可按语境和场景动态调整，生成后试听实际节奏。",
         ),
         field(
           "起手留白（秒）",

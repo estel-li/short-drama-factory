@@ -30,6 +30,8 @@ Story 必须有 `title` 和 1～150 条 `shots`；支持 `style`、`aspect_ratio
 
 画外音逐句标记 `dialogue[].narration:true`，同时启用项目 `options.narration:true`；speaker 保留真实说话人，该角色不必出现在本镜可见 characters。普通对白不使用该标记，不能借旁白选项掩盖人物出场错误。
 
+中文台词建议以**每秒约 5.6 个字**作为初步估算，可根据语境、场景、情绪、人物语速、停顿和动作动态调整。`speech_rate` 及起手／句间／收尾参数都是估算参考，不是固定配额或最低留白；不要仅凭字数公式认定台词超时。数字、外语按实际读法考虑，有真实音频时以实际发声区间为准，生成后试听对白完整性与节奏。
+
 H3 为 24fps，帧数对齐到 `17k+5`：`n=ceil(duration*24)`，补至 n%17==5。4 秒请求是 107 帧，即约 4.458333 秒，提示词时间轴用 4.46s。读取 duration-plan 的 frames 最稳妥。
 
 可让程序完成机械格式：`sdf prompt compile --project PID --shot UID --json sections.json`。文件仅含下面定义的三段或六段正文，程序按实际模式和素材生成标题、顺序及关键帧前缀，并核对原句对白与引用标签。结果包含当前 revision；它不写回项目、不生成缺失内容。查看结果后按 UID 保存返回的 prompt。未知／缺少／空段落返回 PROMPT_SECTIONS_INVALID，语义校验不符返回 PROMPT_INVALID。

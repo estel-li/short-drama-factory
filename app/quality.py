@@ -106,30 +106,27 @@ def dialogue_budget(dialogue, rate=5.6, lead=0.4, gap=0.3, tail=0.55):
 
 
 def fitted_duration(dialogue, options, fallback=4):
+    """Suggest a supported duration; a text estimate is never a capacity gate."""
     budget = dialogue_budget(dialogue, options.speech_rate, options.speech_lead, options.speech_gap, options.speech_tail)
     if not budget['lines']:
         return fallback
     maximum = 15 if options.allow_long_shots else 8
-    if budget['required_seconds'] > maximum:
-        raise ValueError(f"对白预计需要 {budget['required_seconds']:.2f} 秒，超过单镜 {maximum} 秒；请在语义边界分镜，不能删词或强行快读。")
-    return max(4.0, math.ceil(budget['required_seconds'] * 100) / 100)
+    return min(maximum, max(4.0, math.ceil(budget['required_seconds'] * 100) / 100))
 
 
 def pack_dialogue(lines, rate=5.6, maximum=8, lead=0.4, gap=0.3, tail=0.55, max_lines=3):
-    """Pack an authoritative transcript in order, without dropping/repeating text."""
+    """Suggest groups in transcript order, without rejecting lines by estimated rate."""
     groups = []
     for line in lines:
         if not line.get('text', '').strip():
             continue
         value = copy.deepcopy(line)
-        if dialogue_budget([value], rate, lead, gap, tail)['required_seconds'] > maximum:
-            raise ValueError('单句台词超出镜长上限，请先按语义拆成多句；程序不会自动删改原句。')
         candidate = (groups[-1] if groups else []) + [value]
         if not groups or len(candidate) > max_lines or len({x.get('speaker') for x in candidate if x.get('speaker')})>2 or dialogue_budget(candidate, rate, lead, gap, tail)['required_seconds'] > maximum:
             groups.append([value])
         else:
             groups[-1].append(value)
-    return [{'dialogue': group, 'duration': max(4, math.ceil(dialogue_budget(group, rate, lead, gap, tail)['required_seconds'] * 100) / 100)} for group in groups]
+    return [{'dialogue': group, 'duration': min(maximum, max(4, math.ceil(dialogue_budget(group, rate, lead, gap, tail)['required_seconds'] * 100) / 100))} for group in groups]
 
 
 def cast_issues(story):
@@ -153,8 +150,8 @@ def story_report(story, options):
         item = {'uid': shot.get('uid'), 'id': shot['id'], 'duration': shot['duration'], **budget}
         shots.append(item)
         if budget['required_seconds'] > shot['duration'] + 0.05:
-            issues.append({'kind': 'dialogue_overflow', 'severity': 'error', 'uid': shot.get('uid'), 'shot_id': shot['id'],
-                           'message': f"镜头 {shot['id']} 的对白预计需要 {budget['required_seconds']:.2f} 秒，目前只有 {shot['duration']:.2f} 秒。请增加镜长或拆镜。"})
+            issues.append({'kind': 'dialogue_overflow', 'severity': 'warning', 'uid': shot.get('uid'), 'shot_id': shot['id'],
+                           'message': f"镜头 {shot['id']} 按参考语速估算对白约 {budget['required_seconds']:.2f} 秒，镜长 {shot['duration']:.2f} 秒；仅供参考，可根据语境、场景、情绪和动作调整，生成后试听完整性与节奏。"})
         for line in shot.get('dialogue', []):
             speaker = line.get('speaker', '')
             cid = names.get(speaker, speaker if speaker in ids else None)
@@ -168,7 +165,7 @@ def story_report(story, options):
                 issues.append({'kind': 'offscreen_speaker', 'severity': 'error', 'uid': shot.get('uid'), 'shot_id': shot['id'],
                                'message': f"镜头 {shot['id']} 的说话人 {speaker} 没有出场。请确认出场人物；画外音需开启项目旁白并将本句 narration 设为 true。"})
     return {'version': 1, 'issues': issues, 'shots': shots, 'ready': not any(i['severity'] == 'error' for i in issues),
-            'measurement': '对白字数与目标语速的预算；实际语速以生成音频检测为准。'}
+            'measurement': '默认建议每秒约 5.6 个中文字，可按项目调整；字数、语速与留白仅作估算，不作为阻断条件，实际节奏需试听。'}
 
 
 def prompt_cast_valid(prompt, story, shot, bindings, mode):

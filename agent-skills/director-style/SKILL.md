@@ -2,7 +2,7 @@
 name: director-style
 description: 分析用户参考影片的美术、构图、运镜、剪辑、动作、特效与声音，将有时间码依据的规则保存为用户自己的导演风格 Skill，再指导短剧工厂创作新故事；用户明确要求时支持按参考镜头结构仿拍。
 metadata:
-  version: "4.1.0"
+  version: "4.1.1"
   contract_version: 1
 ---
 

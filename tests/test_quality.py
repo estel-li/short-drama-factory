@@ -36,7 +36,21 @@ class QualityTests(unittest.TestCase):
         self.assertAlmostEqual(budget['required_seconds'], .4 + 30/5.6 + .6 + .55, places=4)
         self.assertGreater(fitted_duration(lines[:3], Options()), 4)
         self.assertEqual(fitted_duration([], Options(), 6), 6)
-        with self.assertRaises(ValueError): pack_dialogue([{'text':'长'*100}])
+        long_line = [{'text':'长'*100}]
+        self.assertEqual(pack_dialogue(long_line), [{'dialogue':long_line, 'duration':8}])
+        self.assertEqual(fitted_duration(long_line, Options()), 8)
+        self.assertEqual(fitted_duration(long_line, Options(allow_long_shots=True)), 15)
+
+    def test_estimated_dialogue_overflow_is_advisory(self):
+        line = {'speaker':'a', 'text':'快'*30}
+        story = {'characters':[{'id':'a', 'name':'甲'}],
+                 'shots':[{'id':1, 'uid':'s1', 'duration':4, 'characters':['a'], 'dialogue':[line]}]}
+        report = story_report(story, Options())
+        self.assertTrue(report['ready'])
+        self.assertGreater(report['shots'][0]['required_seconds'], 4)
+        self.assertEqual([(issue['kind'], issue['severity']) for issue in report['issues']],
+                         [('dialogue_overflow', 'warning')])
+        self.assertEqual(story['shots'][0]['dialogue'], [line])
 
     def test_identity_and_speaker_issues_are_not_hidden_by_valid_media(self):
         story = {'characters':[{'id':'wang','name':'小王','visual_description':'blue uniform, round glasses, short hair'},
@@ -84,6 +98,60 @@ class QualityTests(unittest.TestCase):
             self.assertEqual(len(result['shots']),17)
             self.assertEqual([{'speaker':'王','text':line['text']} for shot in result['shots'] for line in shot['dialogue']],script_dialogue(source))
             self.assertTrue(all(4<=shot['duration']<=8 for shot in result['shots']))
+
+    def test_storyboard_accepts_scene_timing_and_preserves_fixed_durations(self):
+        base = {'duration_rule':'count', 'shot_count':1, 'total_seconds':4}
+        cases = [
+            ('scene', {**base, 'dialogue_timing':'fit'}, '4.25', 4.25),
+            ('fixed', {**base, 'dialogue_timing':'fixed'}, 7, 4),
+            ('manual', {'duration_rule':'manual', 'manual_durations':[4.5]}, 7, 4.5),
+            ('estimate', base, None, fitted_duration([{'text':'快'*30}], Options())),
+            ('long-shot', {**base, 'allow_long_shots':True}, 9, 9),
+            ('unsupported-long-shot', base, 9, None),
+        ]
+        for name, settings, chosen, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);write_json(root/'config.default.json',read_json(ROOT/'config.default.json'))
+                config=ConfigStore(root);projects=Projects(config,Database(root/'queue.sqlite3'))
+                options=Options(**settings);project=projects.create('决斗中快速反击',options.model_dump())
+                content=Content(config,Skills(),projects)
+                content.outline(project,options,lambda _:None,lambda:False)
+                def call(project,stage,options,data,schema,validate,status,cancel):
+                    self.assertTrue(data['dialogue_pacing']['advisory'])
+                    shot={'characters':['a'], 'dialogue':[{'speaker':'a','text':'快'*30}]}
+                    if chosen is not None:
+                        shot['duration']=chosen
+                    return validate({'title':'快速反击', 'characters':[{'id':'a','name':'甲','visual_description':'red coat'}],
+                                     'shots':[shot]}),{}
+                content.call=call
+                if expected is None:
+                    with self.assertRaisesRegex(ValueError, '超过单镜 8 秒'):
+                        content.storyboard(project,options,lambda _:None,lambda:False)
+                    continue
+                result=content.storyboard(project,options,lambda _:None,lambda:False)
+                self.assertEqual(result['shots'][0]['duration'], expected)
+                self.assertEqual(result['shots'][0]['dialogue'][0]['text'], '快'*30)
+
+    def test_long_original_line_is_not_rejected_by_text_estimate(self):
+        source='[王] '+'长'*100
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);write_json(root/'config.default.json',read_json(ROOT/'config.default.json'))
+            config=ConfigStore(root);projects=Projects(config,Database(root/'queue.sqlite3'))
+            options=Options(input_mode='script',dialogue_timing='fit')
+            project=projects.create(source,options.model_dump());content=Content(config,Skills(),projects)
+            content.outline(project,options,lambda _:None,lambda:False)
+            def call(project,stage,options,data,schema,validate,status,cancel):
+                return validate({'title':'原句保留','characters':[{'id':'wang','name':'王','visual_description':'red coat'}],
+                                 'shots':[{'characters':['wang'],'duration':7.5,
+                                           'dialogue':[{'speaker':'wang','text':line['text']} for line in group['dialogue']]}
+                                          for group in data['assigned_dialogue_groups']]}),{}
+            content.call=call
+            result=content.storyboard(project,options,lambda _:None,lambda:False)
+            self.assertEqual(result['shots'][0]['duration'], 7.5)
+            self.assertEqual(result['shots'][0]['dialogue'][0]['text'], '长'*100)
+            report=read_json(project/'出片预检.json')
+            self.assertTrue(report['ready'])
+            self.assertTrue(any(issue['kind']=='dialogue_overflow' for issue in report['issues']))
 
 
 if __name__ == '__main__': unittest.main()

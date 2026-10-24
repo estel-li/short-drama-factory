@@ -2,7 +2,7 @@
 name: short-drama-factory
 license: MIT
 metadata:
-  version: "4.1.0"
+  version: "4.1.1"
   contract_version: 1
 description: 通过本地短剧工厂的命令行与 API，把当前 AI 编写的分镜和 H3 提示词制作成视频；支持真实素材绑定、图片生成、按镜头修改、断点恢复与交付检查。用于操作已安装的工厂制作或修复内容，不用于开发应用代码。
 ---
@@ -49,7 +49,7 @@ python scripts/sdf.py capabilities
 ## 默认制作路径
 
 1. **整理需求与素材。** 保留用户指定的台词、原声、角色与镜头目的。用户指定导演风格时，先读取固定版本的 style brief，再创作分镜；参考片学习先走导演风格流程。依据现有素材选择模式；没有素材时先完成可做的创作，缺项不能用虚构 ID 或静音替代。
-2. **创作草稿。** 当前 AI 填写完整 Story 与每镜 H3 prompt。主模板为 [agent-storyboard.json](assets/agent-storyboard.json)；创建仅保存草稿，返回稳定项目 ID，不自动开始生成。
+2. **创作草稿。** 当前 AI 填写完整 Story 与每镜 H3 prompt。中文台词建议以每秒约 5.6 个字估算，可根据语境、场景、情绪、人物语速和动作动态调整；语速与停顿均为建议，不作为硬性时长限制。主模板为 [agent-storyboard.json](assets/agent-storyboard.json)；创建仅保存草稿，返回稳定项目 ID，不自动开始生成。
 3. **校验并计划。** 使用导演风格的项目先 style bind 冻结版本并读取项目 brief，确认规则已落实到分镜与提示词。读取 `project validate` 的问题位置，再运行 `project plan`。查看 `ready`、`blocked`、`affected_uids`、`effects`、模型缺项与 `expected.delivery_scope`。计划中的缓存候选不是命中保证，未知时间／费用不能写成精确估计。
 4. **执行与跟踪。** 计划满足需求后使用同一 `plan_id` 运行，保存 CLI 先输出的请求键和最终任务 ID。用有界 `job watch` 观察原任务；仍在运行就继续观察，不新建任务。
 5. **检查产物。** 使用 `deliver PROJECT_ID --verify` 核对当前成片，按需加 `--output 新目录` 取片。整片与所选镜头分别判断成功；媒体完整性通过不代表画面、台词或字幕已经验收。使用导演风格时，实际查看/试听后逐规则 style review；未检查、失败或 stale 不能报告风格已通过。按交付检查记录已验证与未验证项。
