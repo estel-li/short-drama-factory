@@ -8,9 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 def valid_image_model(value):
-    if value != 'qwen-image-2.1':
-        from .image_models import model_spec
-        model_spec(value)
+    from .image_models import model_spec
+    model_spec(value)
     return value
 
 

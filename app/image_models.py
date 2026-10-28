@@ -4,6 +4,32 @@ from __future__ import annotations
 from .storage import ROOT, read_json
 
 QWEN_MODEL = 'qwen-image-2.1'
+QWEN_UD_MODEL = 'qwen-image-2.1-ud'
+
+
+def is_qwen_model(model_id):
+    return model_id in (QWEN_MODEL, QWEN_UD_MODEL)
+
+
+def qwen_manifest(model_id):
+    if not is_qwen_model(model_id):
+        raise ValueError('不是受支持的 Qwen 生图模型。')
+    base = read_json(ROOT / 'manifests/qwen-image-2.1.json')
+    return {**base, **read_json(ROOT / 'manifests/qwen-image-2.1-ud.json')} if model_id == QWEN_UD_MODEL else base
+
+
+def qwen_catalog():
+    result = {}
+    for model_id in (QWEN_MODEL, QWEN_UD_MODEL):
+        manifest = qwen_manifest(model_id)
+        result[model_id] = {
+            'name': manifest['name'] if model_id == QWEN_UD_MODEL else 'Qwen-Image 2.1 · 多图参考与编辑',
+            'architecture': 'qwen_image_21', 'source': manifest['source'],
+            'sampling': manifest.get('sampling', {'steps': None, 'cfg': 1, 'sampler': 'euler', 'scheduler': 'auto'}),
+            'reference_modes': ['reference', 'edit'], 'max_reference_images': 10, 'transparent_support': True,
+            'variants': manifest['variants'], 'auto_prepare_on_select': model_id == QWEN_UD_MODEL,
+        }
+    return result
 
 
 def model_catalog():
@@ -11,6 +37,8 @@ def model_catalog():
 
 
 def model_spec(model_id):
+    if is_qwen_model(model_id):
+        return qwen_catalog()[model_id]
     try:
         return model_catalog()[model_id]
     except KeyError:

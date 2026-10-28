@@ -4,7 +4,7 @@ license: MIT
 metadata:
   version: "4.1.1"
   contract_version: 1
-description: 通过本地短剧工厂的命令行与 API，把当前 AI 编写的分镜和 H3 提示词制作成视频；支持真实素材绑定、图片生成、按镜头修改、断点恢复与交付检查。用于操作已安装的工厂制作或修复内容，不用于开发应用代码。
+description: 通过本地短剧工厂的命令行与 API，把当前 AI 编写的分镜和 H3 提示词制作成视频；支持真实素材绑定、图片生成与多图参考、按镜头修改、断点恢复与交付检查。用于操作已安装的工厂制作或修复内容，不用于开发应用代码。
 ---
 
 # 短剧工厂：从 AI 对话制作视频
@@ -38,7 +38,7 @@ python scripts/sdf.py capabilities
 | 保留原声、原画面、关键帧或动作接续 | [工作流选择](references/workflow-selection.md)；仅涉及高级媒体槽时再读 [高级 H3](references/h3-advanced.md) |
 | 改一句台词、一个镜头、字幕或画幅 | [编辑与修复](references/production-practice.md)；按 UID 修改，重新计算影响范围 |
 | 接着旧项目做、请求超时或生成失败 | [诊断与恢复](references/recovery.md)；先定位原任务和回执 |
-| 生成独立图片或人物／场景参考图 | [图片接口](references/images.md)；外部提示词默认 `optimize:false` |
+| 生成独立图片、用多张参考图创作或编辑原图、制作人物／场景参考图 | [图片接口](references/images.md)；按模型能力选择多图模式，外部提示词默认 `optimize:false` |
 | 准备模型或配置环境 | [资源准备](references/workflow-models.md)；只在确有缺项时读取 |
 | 验收、取片、CPU 后期 | [交付检查](references/delivery-checks.md) |
 | 按已有计划提交多个项目 | [CLI 的批量提交](references/cli.md#批量提交已有计划)；逐项目保存结果，分别跟踪任务 |

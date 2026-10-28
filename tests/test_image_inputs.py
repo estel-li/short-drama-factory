@@ -97,6 +97,30 @@ class ImageInputTests(unittest.TestCase):
                 self.studio.upload_references(self.studio.get(task['id']), 'http://image.test', lambda *a, **k: None, lambda: False)
             client.assert_not_called()
 
+    def test_ten_references_keep_order_from_snapshot_through_upload_to_graph(self):
+        inputs = [self.input((i * 20, 30, 200)) for i in range(10)]
+        ordered = list(reversed(inputs))
+        task = self.studio.create({'prompt': '角色参考 <image1>，场景参考 <image10>', 'optimize': False,
+                                  'reference_images': [item['id'] for item in ordered]})
+        record = self.studio.get(task['id'])
+        self.assertEqual([item['id'] for item in record['reference_inputs']], [item['id'] for item in ordered])
+        uploads = []
+        def transport(request):
+            uploads.append(request.read())
+            return httpx.Response(200, json={'name': f'reference-{len(uploads)}.png', 'subfolder': 'refs', 'type': 'input'})
+        real_client = httpx.Client
+        with patch('app.image_studio.httpx.Client', side_effect=lambda **kw: real_client(transport=httpx.MockTransport(transport), **kw)):
+            uploaded = self.studio.upload_references(record, 'http://image.test', lambda *a, **k: None, lambda: False)
+        self.assertEqual(len(uploads), 10)
+        for body, item in zip(uploads, ordered):
+            self.assertIn(self.studio.inputs.file(item['id']).read_bytes(), body)
+        request = ImageRequest.model_validate(record['request'])
+        graph, _, _ = image_graph(request, request.prompt, self.plan, self.studio.environment.manifest, 'test', uploaded)
+        for index in range(1, 11):
+            node = str(20 + index)
+            self.assertEqual(graph['3']['inputs'][f'images.image_{index}'], [node, 0])
+            self.assertEqual(graph[node]['inputs']['image'], f'refs/reference-{index}.png')
+
     def test_upload_failure_retries_same_image_then_resume_does_not_upload_or_submit_again(self):
         item = self.input()
         task = self.studio.create({'prompt': 'edit <image1>', 'optimize': False, 'reference_images': [item['id']], 'reference_mode': 'edit'})

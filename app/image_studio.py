@@ -19,6 +19,7 @@ from .comfyio import download_file
 from .content import json_text
 from .image_environment import ImageEnvironment, image_size
 from .image_inputs import ImageInputs
+from .image_models import is_qwen_model
 from .image_sampling import resolve_sampling, sampling_for_plan, validate_sampling_support
 from .image_schemas import ImageRequest, ReferenceSourceSelection
 from .providers import Cancelled, LLMClient
@@ -27,7 +28,7 @@ from .storage import contained, digest, identifier, now, read_json, write_json
 
 
 def image_graph(request, prompt, plan, manifest, prefix, references=None):
-    if plan.get('image_model', 'qwen-image-2.1') != 'qwen-image-2.1':
+    if not is_qwen_model(plan.get('image_model', 'qwen-image-2.1')):
         from .image_models import library_image_graph
         return library_image_graph(request, prompt, plan, prefix, references)
     sampling = resolve_sampling(request, plan['variant'])
@@ -240,7 +241,7 @@ class ImageStudio:
         if isinstance(raw.get('sampling', {}), dict):
             raw = {**raw, 'sampling': {**sampling, **raw.get('sampling', {})}}
         request = ImageRequest.model_validate(raw)
-        if request.image_model != 'qwen-image-2.1':
+        if not is_qwen_model(request.image_model):
             from .image_models import model_spec, validate_model_inputs
             validate_model_inputs(request, model_spec(request.image_model))
         return request
@@ -320,7 +321,7 @@ class ImageStudio:
         messages = [{'role': 'system', 'content': skill + '\n输出 JSON，字段为 prompt（生图提示词）和 summary（中文优化说明）。'},
                     {'role': 'user', 'content': json.dumps({'prompt': request.prompt, 'style': request.style,
                      'purpose': request.purpose, 'ratio': request.ratio, 'transparent': request.transparent}, ensure_ascii=False)}]
-        if request.image_model != 'qwen-image-2.1':
+        if not is_qwen_model(request.image_model):
             from .image_models import model_spec
             spec = model_spec(request.image_model)
             messages[0]['content'] += ('\n当前目标生图模型：' + spec['name'] + '，架构：' + spec['architecture'] +
@@ -328,7 +329,7 @@ class ImageStudio:
             if request.image_model == 'animagine-xl-4':
                 messages[0]['content'] += ' 使用清晰的动漫标签式描述，明确人物数量、外观、服装、场景和构图。'
         if request.reference_images:
-            if request.image_model == 'qwen-image-2.1':
+            if is_qwen_model(request.image_model):
                 messages[0]['content'] += ('\n用户提供了参考图，使用 <image1>、<image2> 等编号引用。保留用户指定的身份、服装、风格或编辑范围；'
                                            '你没有看到图片，不要臆造图片细节。编辑模式仅描述要修改的部分，其余保持。')
             else:

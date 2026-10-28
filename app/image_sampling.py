@@ -1,6 +1,9 @@
 """Resolve model defaults and validate against the selected ComfyUI, without loading weights."""
+from .image_models import QWEN_UD_MODEL, is_qwen_model, model_spec
+
+
 def sampling_for_plan(request, plan):
-    if plan.get('image_model', 'qwen-image-2.1') != 'qwen-image-2.1':
+    if not is_qwen_model(plan.get('image_model', 'qwen-image-2.1')):
         from .image_models import model_spec, model_sampling
         return model_sampling(request, model_spec(plan['image_model']))
     return resolve_sampling(request, plan['variant'])
@@ -9,7 +12,10 @@ def sampling_for_plan(request, plan):
 def resolve_sampling(request, variant):
     sampling = request.sampling.model_dump()
     turbo = variant.startswith('turbo')
-    sampling['steps'] = sampling['steps'] or (8 if turbo else 40)
+    ud = request.image_model == QWEN_UD_MODEL
+    if ud and turbo:
+        raise ValueError('Qwen2.1 UD版使用标准采样，不支持 Turbo 方案。')
+    sampling['steps'] = sampling['steps'] or (model_spec(QWEN_UD_MODEL)['sampling']['steps'] if ud else 8 if turbo else 40)
     official = turbo and sampling['steps'] == 8 and sampling['scheduler'] == 'auto' and sampling['denoise'] == 1
     sampling['scheduler'] = 'official_turbo' if official else ('simple' if sampling['scheduler'] == 'auto' else sampling['scheduler'])
     sampling['initial_latent'] = 'source_image' if sampling['denoise'] < 1 else 'empty'

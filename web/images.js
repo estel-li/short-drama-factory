@@ -1,6 +1,6 @@
 import { api, el, field, select } from "./api.js?v=3.9.0";
 import { badge, dialog, icon } from "./ui.js?v=3.9.0";
-import { ImageInputPicker, imageFileData } from "./image-inputs.js?v=3.9.0";
+import { ImageInputPicker, imageFileData, referenceCapabilities, isQwenModel } from "./image-inputs.js?v=3.9.0";
 import { ImageSamplingControls, samplingSummary } from "./image-sampling.js?v=3.9.0";
 
 const kinds = { general: "自由创作", character: "角色参考", scene: "场景参考", prop: "道具参考" };
@@ -60,11 +60,19 @@ export class ImageWorkspace {
       act: work => this.services.act(work),
       onBusy: busy => { this.referencesBusy = busy; this.syncButtons(); },
     });
+    this.multiReferenceButton = this.button("切换到 Qwen 多图参考", () => {
+      const target = this.modelCatalog["qwen-image-2.1"];
+      if (!target) throw Error("当前实例未提供 Qwen 多图参考模型。");
+      c.image_model.value = "qwen-image-2.1";
+      c.image_model.dispatchEvent(new Event("input", { bubbles: true }));
+      c.image_model.dispatchEvent(new Event("change", { bubbles: true }));
+      this.services.toast(`已切换到 ${target.name}，可以继续添加多张参考图。`);
+    });
     const form = el("div", { class: "card image-prompt-card" },
-      el("h2", {}, "描述你想看到的画面"), field("生图模型", c.image_model), this.modelNote, field("自然语言描述", c.prompt),
+      el("h2", {}, "描述你想看到的画面"), field("生图模型", c.image_model, "选择 Qwen2.1 UD版会自动下载缺失模型，已下载文件校验后复用；可在进度窗口暂停。"), this.modelNote, field("自然语言描述", c.prompt),
       el("div", { class: "grid three" }, field("用途", c.purpose), field("画幅", c.ratio), field("风格", c.style)),
-      el("details", { class: "option-section image-reference-options" }, el("summary", {}, "参考图 / 图生图"),
-        this.referencePicker.root, field("参考方式", c.reference_mode),
+      el("details", { class: "option-section image-reference-options", open: true }, el("summary", {}, "参考图 / 多图参考 / 图生图"),
+        this.multiReferenceButton, this.referencePicker.root, field("参考方式", c.reference_mode),
         el("p", { class: "field-help" }, "无参考图时按文字生成。参考图上传到所选图片引擎；提示词优化只发送文字和图片编号。")),
       el("label", { class: "image-switch" }, c.optimize, el("span", {}, "优化提示词", el("small", {}, "默认开启；保留原意，补充构图、光影和可辨识细节。"))),
       field("优化后的提示词（可编辑）", c.optimized_prompt),
@@ -99,7 +107,7 @@ export class ImageWorkspace {
       this.sampling.load(this.modelCatalog[c.image_model.value]?.sampling);
       c.variant.value = "auto";
       this.syncReferenceMode();
-      this.services.act(() => this.refreshEnvironment());
+      this.services.act(() => this.prepareSelectedModel());
     });
     for (const control of Object.values(this.modelControls)) control.addEventListener("change", () => {
       this.dirty = true; this.revision++;
@@ -115,25 +123,37 @@ export class ImageWorkspace {
     this.syncReferenceMode();
   }
   syncReferenceMode() {
-    const c = this.controls, qwen = c.image_model.value === "qwen-image-2.1";
+    const c = this.controls, qwen = isQwenModel(c.image_model.value, this.modelCatalog[c.image_model.value]);
     const spec = this.modelCatalog[c.image_model.value] || {};
-    c.variant.disabled = !qwen;
+    const { maxItems, modes } = referenceCapabilities(c.image_model.value, spec);
+    c.variant.disabled = !qwen || Object.keys(spec.variants || {}).length === 1;
+    for (const option of c.variant.options || []) {
+      option.disabled = option.value !== "auto" && !!spec.variants && !spec.variants[option.value];
+      option.textContent = spec.variants?.[option.value]?.name || variants.find(item => item.value === option.value)?.label || option.textContent;
+    }
     c.transparent.disabled = !qwen;
     if (!qwen) {
       c.transparent.checked = false;
-      if (this.references.length) c.reference_mode.value = "edit";
     }
-    for (const option of c.reference_mode.options) option.disabled = !qwen && option.value === "reference";
-    if (this.modelNote) this.modelNote.textContent = qwen ? "支持最多 10 张语义参考图、编辑原图及原生透明通道。" :
+    if (this.references.length && !modes.includes(c.reference_mode.value)) c.reference_mode.value = modes[0];
+    for (const option of c.reference_mode.options) option.disabled = !modes.includes(option.value);
+    if (this.modelNote) this.modelNote.textContent = maxItems > 1 ? `支持最多 ${maxItems} 张参考图，按上传顺序使用；编辑时第一张为原图。` :
       `${spec.name || "所选模型"}：支持文字生图和单张原图重绘；重绘强度越低通常保留越多。${spec.validation === "pending" ? " 本机生成测试进行中。" : ""}`;
-    if (this.referencePicker && this.referencePicker.maxItems !== (qwen ? 10 : 1)) {
-      this.referencePicker.maxItems = qwen ? 10 : 1;
+    if (this.referencePicker && this.referencePicker.maxItems !== maxItems) {
+      this.referencePicker.maxItems = maxItems;
       this.referencePicker.render();
     }
+    if (this.multiReferenceButton) {
+      this.multiReferenceButton.hidden = maxItems > 1 || !this.modelCatalog["qwen-image-2.1"];
+      this.multiReferenceButton.disabled = !!(this.referencesBusy || this.submitting || this.draftBusy);
+    }
+    c.image_model.disabled = !!(this.referencesBusy || this.submitting || this.draftBusy);
+    const incompatible = this.references.length > maxItems;
+    this.optimizeButton.disabled = this.generateButton.disabled = incompatible || !!(this.submitting || this.draftBusy || this.referencesBusy);
     this.controls.reference_mode.disabled = !this.references.length || !!this.referencesBusy;
     if (!this.references.length) this.controls.reference_mode.value = "reference";
     this.controls.ratio.disabled = this.references.length > 0 && this.controls.reference_mode.value === "edit";
-    this.sampling?.setModel(qwen ? null : spec);
+    this.sampling?.setModel(c.image_model.value === "qwen-image-2.1" ? null : spec);
     this.sampling?.setContext(this.references.length > 0 && this.controls.reference_mode.value === "edit", this.plan?.variant);
   }
   referencesChanged() {
@@ -148,7 +168,8 @@ export class ImageWorkspace {
     if (values.seed !== null && (!Number.isSafeInteger(values.seed) || values.seed < 0)) throw Error("随机种子请输入非负安全整数，或留空。");
     if (!values.optimize) values.optimized_prompt = "";
     values.models = this.readModels();
-    if (values.image_model !== "qwen-image-2.1" && this.references.length > 1) throw Error("当前模型仅支持一张原图；请移除多余图片，或选择 Qwen 多图参考。");
+    const { maxItems } = referenceCapabilities(values.image_model, this.modelCatalog[values.image_model]);
+    if (this.references.length > maxItems) throw Error(`当前模型最多使用 ${maxItems} 张参考图；请移除多余图片，或切换多图参考模型。`);
     values.reference_images = this.references.map(item => item.id);
     values.sampling = this.sampling.read();
     return values;
@@ -240,7 +261,7 @@ export class ImageWorkspace {
     const s = this.engineDraft || this.settings;
     const engine = select([{ value: "auto", label: "自动选择兼容引擎" }, { value: "shared", label: "复用指定 ComfyUI" }, { value: "managed", label: "独立图片引擎" }], s.engine || "auto");
     const url = el("input", { value: s.comfy_url || "", placeholder: "留空使用视频引擎地址" });
-    const directoryKey = this.controls.image_model.value === "qwen-image-2.1" ? "models_dir" : "library_models_dir";
+    const directoryKey = isQwenModel(this.controls.image_model.value, this.modelCatalog[this.controls.image_model.value]) ? "models_dir" : "library_models_dir";
     const directory = el("input", { value: s[directoryKey] || "", placeholder: "留空使用推荐目录" });
     const port = el("input", { type: "number", min: 1024, max: 65535, value: s.managed_port || 8190 });
     for (const control of [engine, url, directory, port]) control.addEventListener("input", () => {
@@ -251,6 +272,7 @@ export class ImageWorkspace {
       el("p", {}, plan.gpu?.name?.replace(/^cuda:\d+\s*:?\s*/, "").replace(/\s*:\s*cudaMallocAsync.*$/, "") || "显卡信息暂不可用", plan.vram_mb ? ` · ${(plan.vram_mb / 1024).toFixed(1)} GB` : ""),
       el("p", { class: "muted" }, plan.recommendation.message),
       el("p", {}, `本次方案：${plan.variants[plan.variant].name}`),
+      ...(plan.source ? [el("p", {}, el("a", { href: plan.source, target: "_blank", rel: "noopener noreferrer" }, "模型下载来源"))] : []),
       el("p", {}, plan.engine === "managed" ? "使用独立图片引擎" : "复用已有 ComfyUI"),
       el("p", {}, plan.download_bytes ? `待下载 ${bytes(plan.download_bytes)} · 磁盘剩余 ${bytes(plan.free_disk_bytes)}` : plan.verify_bytes ? "本地模型需要校验，校验通过后直接启动引擎。" : plan.ready ? "所选模型已就绪，无需下载。" : "所选模型已在本地，启动引擎即可使用，无需下载。"),
       ...(plan.selection_errors?.length ? [el("p", { class: "notice warning" }, plan.selection_errors.join("；"))] : []),
@@ -268,6 +290,22 @@ export class ImageWorkspace {
           await this.services.reloadConfig(); await this.refreshEnvironment();
           this.services.toast("图片引擎设置已保存。");
         })));
+    return plan;
+  }
+  async prepareSelectedModel() {
+    const modelId = this.controls.image_model.value;
+    const plan = await this.refreshEnvironment();
+    if (!plan || this.controls.image_model.value !== modelId || !this.modelCatalog[modelId]?.auto_prepare_on_select || plan.ready) return;
+    if (plan.selection_errors?.length) throw Error(plan.selection_errors.join("；"));
+    if (!plan.local_download) throw Error("所选图片服务需要在远端安装模型；请使用本地自动或独立图片引擎下载 UD 版。");
+    if (this.autoPreparing) return;
+    this.autoPreparing = true;
+    try {
+      // Selecting this catalog entry explicitly starts preparation, never image generation.
+      const result = await api("/api/images/environment/prepare", { image_model: modelId, variant: plan.variant,
+        models: plan.selection, download_confirmation: plan.confirmation_token });
+      this.showProgress({ environment: true, jobId: result.job_id });
+    } finally { this.autoPreparing = false; }
   }
   async prepareEnvironment() {
     const request = { image_model: this.controls.image_model.value, variant: this.controls.variant.value, models: this.readModels() };
@@ -404,6 +442,7 @@ export async function renderReferenceImages(workspace, box) {
   const preparation = new ImageWorkspace(null, workspace.services);
   const imageModel = workspace.current.settings.reference_images?.image_model || "qwen-image-2.1";
   const imageSpec = workspace.services.config().image_models?.[imageModel];
+  const referenceSupport = referenceCapabilities(imageModel, imageSpec);
   const referenceSampling = imageModel === (workspace.services.config().image_generation?.image_model || "qwen-image-2.1") ? workspace.services.config().image_generation?.sampling : imageSpec?.sampling;
   const modelRequest = { image_model: imageModel, variant: workspace.current.settings.reference_images?.variant || "auto", models: null };
   const block = el("section", { class: "reference-studio" }, el("h2", {}, "用本地模型生成项目参考图"),
@@ -420,7 +459,7 @@ export async function renderReferenceImages(workspace, box) {
     await workspace.services.refresh();
   }, true, { disabled: blocked || !data.candidates.length });
   block.append(batchGenerate);
-  const unsupportedNote = el("p", {class:"notice warning",hidden:true}, "所选模型只支持一张原图重绘。请移除多余参考图，并将有原图的项目改为“编辑第一张原图”后生成。");
+  const unsupportedNote = el("p", {class:"notice warning",hidden:true}, `所选模型最多使用 ${referenceSupport.maxItems} 张参考图。请在项目设置中选择支持多图的生图模型，或移除多余参考图并选择支持的参考方式后生成。`);
   block.append(unsupportedNote);
   let savingSources = 0;
   const generateButtons = [batchGenerate];
@@ -428,7 +467,7 @@ export async function renderReferenceImages(workspace, box) {
   workspace.imageSamplingDrafts ||= new Map();
   const syncGeneration = () => {
     const dirtySampling = [...workspace.imageSamplingDrafts.entries()].some(([key, value]) => key.startsWith(pid + "/") && value.dirty);
-    const incompatible = imageModel !== "qwen-image-2.1" && data.candidates.some(item=>item.source_assets?.length && (item.source_assets.length>1 || item.reference_mode!=="edit"));
+    const incompatible = data.candidates.some(item=>item.source_assets?.length && (item.source_assets.length > referenceSupport.maxItems || !referenceSupport.modes.includes(item.reference_mode || "reference")));
     unsupportedNote.hidden = !incompatible;
     for (const button of generateButtons) button.disabled = blocked || savingSources > 0 || dirtySampling || incompatible;
   };
@@ -444,8 +483,8 @@ export async function renderReferenceImages(workspace, box) {
         await workspace.services.refresh();
       }, false, { disabled: blocked });
     generateButtons.push(generate);
-    const mode = select([{ value: "reference", label: "参考图创作" }, { value: "edit", label: "编辑第一张原图" }], item.source_assets?.length ? item.reference_mode || "reference" : imageModel === "qwen-image-2.1" ? "reference" : "edit");
-    if (imageModel !== "qwen-image-2.1") mode.options[0].disabled = true;
+    const mode = select([{ value: "reference", label: "参考图创作" }, { value: "edit", label: "编辑第一张原图" }], item.source_assets?.length ? item.reference_mode || "reference" : referenceSupport.modes[0]);
+    for (const option of mode.options) option.disabled = !referenceSupport.modes.includes(option.value);
     mode.disabled = blocked || !item.source_assets?.length;
     const assetItem = asset => ({ id: asset.id, name: asset.name, url: `/media/${pid}/` + asset.file.split("/").map(encodeURIComponent).join("/") });
     const available = select([{ value: "", label: "选择项目已有图片……" }, ...Object.values(workspace.current.assets).filter(a => a.type === "image").map(a => ({ value: a.id, label: a.name }))], "");
@@ -456,12 +495,12 @@ export async function renderReferenceImages(workspace, box) {
       const saved = await api(`/api/projects/${pid}/image-references/${item.key}/sources`, { asset_ids: items.map(a => a.id), reference_mode: items.length ? selectedMode : "reference", sampling: sampling || null });
       item.sampling = saved.sampling; item.reference_mode = saved.reference_mode;
       item.source_assets = saved.asset_ids;
-      mode.value = !items.length && imageModel !== "qwen-image-2.1" ? "edit" : saved.reference_mode; mode.disabled = blocked || !items.length;
+      mode.value = !items.length ? referenceSupport.modes[0] : saved.reference_mode; mode.disabled = blocked || !items.length;
       syncSampling(); syncGeneration();
       note.textContent = items.length ? `已保存 ${items.length} 张参考图；单项及批量生成都会使用。` : "无参考图，按文字生成。项目素材仍保留。";
     };
     const picker = new ImageInputPicker({
-      maxItems: imageModel === "qwen-image-2.1" ? 10 : 1,
+      maxItems: referenceSupport.maxItems,
       items: (item.source_assets || []).map(id => workspace.current.assets[id] ? assetItem(workspace.current.assets[id]) : { id, name: "参考素材缺失，请移除或重选", url: "" }),
       disabled: blocked, act: work => workspace.services.act(work), onChange: items => persist(items),
       onBusy: busy => {

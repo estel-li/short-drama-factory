@@ -1,0 +1,34 @@
+{
+  "id": "qwen-image-2.1-ud",
+  "name": "Qwen2.1 UD版",
+  "revision": "7959e658915f52274897fb573ffeda49de8dc16b",
+  "source": "https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-Quantized",
+  "default_variant": "quality-int8",
+  "sampling": {"steps": 25, "cfg": 1, "sampler": "euler", "scheduler": "simple"},
+  "models": {
+    "quality": {
+      "name": "qwen-image-2.1-UC-int8_convrot.safetensors",
+      "category": "diffusion_models",
+      "size": 7256796840,
+      "sha256": "5bc5a6c007eff1e0d4004344a24c4af966b9d2c83d142e613b0d456ccceb19ae",
+      "url": "https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-Quantized/resolve/7959e658915f52274897fb573ffeda49de8dc16b/qwen-image-2.1-UC-int8_convrot.safetensors"
+    },
+    "encoder": {
+      "name": "qwen3vl_8b_int8_convrot.safetensors",
+      "category": "text_encoders",
+      "size": 9350798360,
+      "sha256": "8bfd0f6e12abf2d2d697ecc888e5e90b0d6741d6708f05799f53afa560452e8f",
+      "url": "https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-Quantized/resolve/7959e658915f52274897fb573ffeda49de8dc16b/text_encoders/qwen3vl_8b_int8_convrot.safetensors"
+    },
+    "vae": {
+      "name": "qwen_image_2.1_vae_bf16.safetensors",
+      "category": "vae",
+      "size": 675509688,
+      "sha256": "bb21f7473051e1ac368515dd3f2e15cd44d7a11748ee8823e1ddca3e4876b7c9",
+      "url": "https://huggingface.co/abenzerps/Qwen-Image-2.1-Uncensored-Quantized/resolve/7959e658915f52274897fb573ffeda49de8dc16b/vae/qwen_image_2.1_vae_bf16.safetensors"
+    }
+  },
+  "variants": {
+    "quality-int8": {"name": "UD INT8 · 标准采样", "files": ["quality", "encoder", "vae"], "steps": 25}
+  }
+}

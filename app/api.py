@@ -546,10 +546,8 @@ def image_environment(variant: str = 'auto', image_model: str = 'qwen-image-2.1'
 
 @app.get('/api/images/models')
 def image_model_catalog():
-    from .image_models import model_catalog
-    return {'models': {'qwen-image-2.1': {'name': 'Qwen-Image 2.1 · 多图参考与编辑',
-             'architecture': 'qwen_image_21', 'sampling': {'steps': None, 'cfg': 1, 'sampler': 'euler', 'scheduler': 'auto'},
-             'reference_modes': ['reference', 'edit'], 'max_reference_images': 10, 'transparent_support': True},
+    from .image_models import model_catalog, qwen_catalog
+    return {'models': {**qwen_catalog(),
              **{key: {**value, 'max_reference_images': 1, 'transparent_support': False} for key,value in model_catalog().items()}}}
 
 

@@ -17,6 +17,7 @@ import httpx
 from .downloads import Downloader
 from .environment import hardware, extract_portable
 from .image_schemas import ImageSettings, ImageModels
+from .image_models import QWEN_UD_MODEL, is_qwen_model, qwen_manifest
 from .processes import run_process
 from .providers import Cancelled
 from .storage import ROOT, contained, digest, read_json, write_json
@@ -115,9 +116,10 @@ class ImageEnvironment:
     def plan(self, variant='auto', models=None, image_model=None):
         settings = self.settings()
         image_model = image_model or settings.image_model
-        if image_model != 'qwen-image-2.1':
+        if not is_qwen_model(image_model):
             from .image_library import library_plan
             return library_plan(self, image_model, models)
+        manifest = qwen_manifest(image_model) if image_model == QWEN_UD_MODEL else self.manifest
         env = self.config.renderer_config()
         shared_url = settings.comfy_url or env.get('comfy_url', 'http://127.0.0.1:8188')
         shared = self.probe(shared_url)
@@ -132,31 +134,35 @@ class ImageEnvironment:
             device = (available.get('gpu') or [None])[0]
             vram = device.get('vram_mb') if device else None
         recommended = recommendation(vram)
-        selected = variant if variant != 'auto' else settings.variant if settings.variant != 'auto' else recommended['variant']
-        if selected not in self.manifest['variants']:
-            raise ValueError('图片模型方案不存在。')
+        if image_model == QWEN_UD_MODEL:
+            recommended = {**recommended, 'variant': manifest['default_variant'],
+                           'message': 'UD 版使用 INT8 主模型与 INT8 文本编码器，标准 25 步采样；支持多图参考和原图编辑。'}
+        default_variant = settings.variant if settings.image_model == image_model else 'auto'
+        selected = variant if variant != 'auto' else default_variant if default_variant != 'auto' else recommended['variant']
+        if selected not in manifest['variants']:
+            raise ValueError('所选生图模型不支持该精度方案，请选择自动或该模型提供的方案。')
         model_root = Path(settings.models_dir or (self.root / 'models/qwen-image-2.1' if managed else Path(env.get('comfy_dir') or self.root / 'engines/ComfyUI') / 'models')).resolve()
         local_files = managed or (local and bool(settings.models_dir or (shared_url == env.get('comfy_url') and env.get('comfy_dir'))))
         available = self.inventory(model_root, current, local_files)
-        selection = ImageModels.model_validate(models).model_dump() if models is not None else settings.models.model_dump() if settings.image_model == 'qwen-image-2.1' else ImageModels().model_dump()
+        selection = ImageModels.model_validate(models).model_dump() if models is not None else settings.models.model_dump() if settings.image_model == image_model else ImageModels().model_dump()
         main_name = selection['diffusion_models'].rsplit('/', 1)[-1]
-        known_variant = next((key for key, spec in self.manifest['variants'].items()
-                              if main_name == self.manifest['models'][spec['files'][0]]['name']), None)
+        known_variant = next((key for key, spec in manifest['variants'].items()
+                              if main_name == manifest['models'][spec['files'][0]]['name']), None)
         if known_variant:
             if variant != 'auto' and selected != known_variant:
                 raise ValueError('所选主模型与采样方案不一致，请选择自动方案或对应的 Turbo／标准方案。')
             selected = known_variant
         rows = []
         selection_errors = []
-        for role in self.manifest['variants'][selected]['files']:
-            model = self.manifest['models'][role]
+        for role in manifest['variants'][selected]['files']:
+            model = manifest['models'][role]
             category = model['category']
             chosen = selection[category]
             missing = chosen and chosen not in {item['name'] for item in available[category]}
             if missing:
                 selection_errors.append('所选模型文件不存在或尚未被目标服务识别：' + chosen)
             if chosen:
-                known = next((m for m in self.manifest['models'].values() if m['category'] == category and m['name'] == chosen.rsplit('/', 1)[-1]), None)
+                known = next((m for m in manifest['models'].values() if m['category'] == category and m['name'] == chosen.rsplit('/', 1)[-1]), None)
                 target = contained(model_root, category + '/' + chosen)
                 size = target.stat().st_size if local_files and target.is_file() else 0
                 model = {**(known or {}), 'name': chosen, 'category': category,
@@ -194,18 +200,19 @@ class ImageEnvironment:
         source_bytes = self.manifest['comfyui']['size'] if source_needed else 0
         ready = current['connected'] and not current['missing_nodes'] and not selection_errors and all(m['comfy_name'] and m['action'] == 'available' for m in rows)
         requires_confirmation = not ready and (model_bytes > 0 or bootstrap_needed or source_needed)
-        token = digest({'url': url, 'variant': selected, 'directory': str(model_root), 'revision': self.manifest['comfyui']['revision'],
+        token = digest({'image_model': image_model, 'model_revision': manifest['revision'],
+                        'url': url, 'variant': selected, 'directory': str(model_root), 'revision': self.manifest['comfyui']['revision'],
                         'models': [{k: m.get(k) for k in ('name', 'category', 'sha256', 'size')} for m in rows],
                         'downloads': [m['target'] for m in rows if m['action'] == 'download'],
                         'bootstrap_needed': bootstrap_needed, 'source_needed': source_needed})
-        return {'image_model': 'qwen-image-2.1', 'architecture': 'qwen_image_21',
+        return {'image_model': image_model, 'architecture': 'qwen_image_21', 'source': manifest['source'],
                 'reference_modes': ['reference', 'edit'], 'max_reference_images': 10, 'transparent_support': True,
                 'engine': 'managed' if managed else 'shared', 'comfy_url': url,
                 'connected': current['connected'], 'missing_nodes': current['missing_nodes'],
                 'reference_support': current.get('reference_support', False),
                 'sampling_support': current.get('sampling_support'),
                 'gpu': device, 'vram_mb': vram, 'recommendation': recommended, 'variant': selected,
-                'variants': self.manifest['variants'], 'models': rows, 'models_dir': str(model_root),
+                'variants': manifest['variants'], 'models': rows, 'models_dir': str(model_root),
                 'download_bytes': model_bytes + runtime_bytes + source_bytes, 'models_download_bytes': model_bytes,
                 'runtime_download_bytes': runtime_bytes, 'bootstrap_needed': bootstrap_needed,
                 'source_download_bytes': source_bytes, 'available_models': available, 'selection': selection,
@@ -215,7 +222,7 @@ class ImageEnvironment:
                 'free_disk_bytes': shutil.disk_usage(disk).free,
                 'ready': ready,
                 'local_download': local_files,
-                'license': self.manifest['license'], 'auto_download': settings.auto_download}
+                'license': manifest['license'], 'auto_download': settings.auto_download}
 
     def prepare(self, variant, report, cancel, models=None, confirmation='', image_model=None):
         def current_plan(selected=variant, selection=models):
@@ -337,7 +344,7 @@ class ImageEnvironment:
         settings = self.settings()
         qwen_root = Path(settings.models_dir or self.root / 'models/qwen-image-2.1')
         library_root = Path(settings.library_models_dir or self.root / 'models/image-library')
-        if plan.get('image_model', 'qwen-image-2.1') == 'qwen-image-2.1':
+        if is_qwen_model(plan.get('image_model', 'qwen-image-2.1')):
             qwen_root = Path(plan['models_dir'])
         else:
             library_root = Path(plan['models_dir'])
