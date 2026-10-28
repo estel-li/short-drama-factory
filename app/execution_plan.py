@@ -45,7 +45,7 @@ def clip_evidence(project, record):
 def _model_observations(renderer, profile, modes):
     """Local file stats only. Missing/remote models require separate preparation."""
     from .rendering import ROLES
-    from .video_workflows import LIGHTX2V_8, PDD_FL, PDD_REF, UPSCALER
+    from .video_workflows import LIGHTX2V_8, LARRY_TURBO, PDD_FL, PDD_REF, UPSCALER
     modes = set(modes)
     if not modes:
         return []
@@ -62,9 +62,10 @@ def _model_observations(renderer, profile, modes):
         if workflow == 'native' and preset.get('turbo'):
             required.add('fl_lora')
     roles = {role: ROLES[role] for role in required}
-    if workflow == 'lightx2v-8':
+    if workflow in ('lightx2v-8', 'larry-turbo'):
         roles['workflow_lora'] = 'loras'
-        names['workflow_lora'] = preset.get('workflow_lora') or LIGHTX2V_8
+        names['workflow_lora'] = preset.get('workflow_lora') or (
+            LARRY_TURBO if workflow == 'larry-turbo' else LIGHTX2V_8)
     elif workflow.startswith('pdd'):
         if modes - {'Ref2VA'}:
             roles['pdd_fl'] = 'pdd_acc'

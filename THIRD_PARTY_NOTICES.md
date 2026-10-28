@@ -16,7 +16,7 @@
 
 新增图片权重及其固定版本和原始页面记录在 `manifests/image-models.json`。SDXL 和 Animagine 使用 OpenRAIL++，FLUX Schnell 和 Z-Image 使用 Apache-2.0；DreamShaper 的限制以作者原始页面为准。源码和便携包均不包含这些权重。
 
-可选 PDD 节点来自 [Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc](https://github.com/Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc)，采用 Apache-2.0；神经潜空间放大节点来自 [LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler](https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler)，采用 MIT。它们独立下载，安装目录保留原许可证和固定提交收据；不会被重新授权为本项目 MIT。固定提交、归档摘要及关联 H3 适配权重见 `manifests/video-workflows.json`。
+可选 PDD 节点来自 [Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc](https://github.com/Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc)，采用 Apache-2.0；神经潜空间放大节点来自 [LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler](https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler)，采用 MIT；Turbo v4 快速方案使用 [Larryvrh/ComfyUI-MiniMax-H3-Turbo](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo) 节点和 [Larryvrh/MiniMax-H3-Turbo-Lora](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) 权重，均采用 Apache-2.0。它们独立下载，安装目录保留原许可证和固定提交收据；不会被重新授权为本项目 MIT。固定提交、归档摘要及关联 H3 适配权重见 `manifests/video-workflows.json`。
 
 4 个 `image-qwen-*` 提示词 Skill 为本项目原创适配规则，使用 MIT；其许可不替代生成模型的使用条款。
 

@@ -10,6 +10,15 @@
       "revision": "30f485ed874aa44c8183348ad361c5eabad318da",
       "source": "https://huggingface.co/lightx2v/Minimax-h3-Turbo"
     },
+    "larry_turbo": {
+      "name": "minimax_h3_turbo_v4_step600_ema.safetensors",
+      "category": "loras",
+      "size": 779849816,
+      "sha256": "5f3a626cd72c93a8b9318d6760c510bc5092d2ab13aaba1f932c5bab07a416d3",
+      "url": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora/resolve/43a74557ac3f6539db8e0f2a959d03feb7a81480/minimax_h3_turbo_v4_step600_ema.safetensors",
+      "revision": "43a74557ac3f6539db8e0f2a959d03feb7a81480",
+      "source": "https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora"
+    },
     "pdd_fl": {
       "name": "minimax_h3_fl2va_pdd_acc_8step_comfyui.safetensors",
       "category": "pdd_acc",
@@ -48,6 +57,19 @@
     }
   },
   "plugins": {
+    "h3-turbo": {
+      "name": "ComfyUI-MiniMax-H3-Turbo",
+      "repo": "Larryvrh/ComfyUI-MiniMax-H3-Turbo",
+      "revision": "4274783a23afcfdbea3b4876cb79effd6c510785",
+      "license": "Apache-2.0",
+      "url": "https://codeload.github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo/zip/4274783a23afcfdbea3b4876cb79effd6c510785",
+      "size": 6150578,
+      "sha256": "1c9bba371cb63fb83a937f9bf428946cd548516e752c078e38743a369ddee464",
+      "required_nodes": [
+        "MiniMaxH3TurboLoRA",
+        "MiniMaxH3TurboSampler"
+      ]
+    },
     "pdd-acc": {
       "name": "ComfyUI-MiniMax-H3-PDD-Acc",
       "repo": "Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc",
@@ -109,6 +131,37 @@
       ],
       "description": "快速生成文字或首尾帧镜头，偏重动作表现。",
       "limitation": "固定 8 步；不支持多模态 Ref2VA。",
+      "cost": "轻量",
+      "required_slots": []
+    },
+    "larry-turbo": {
+      "profile": {
+        "label": "Turbo v4 8步 · 快速音画 / 0.4MP",
+        "workflow": "larry-turbo",
+        "megapixels": 0.4,
+        "steps": 8,
+        "turbo": false,
+        "sampler": "euler",
+        "scheduler": "simple"
+      },
+      "files": [
+        "larry_turbo"
+      ],
+      "plugins": [
+        "h3-turbo"
+      ],
+      "required_nodes": [
+        "MiniMaxH3TurboLoRA",
+        "MiniMaxH3TurboSampler"
+      ],
+      "supported_modes": [
+        "T2VA",
+        "I2VA",
+        "L2VA",
+        "FL2VA"
+      ],
+      "description": "6–8 步快速生成带同步音画的高质量镜头，适合试镜、批量草稿和快速交付。",
+      "limitation": "使用 6 或 8 步；不支持多模态 Ref2VA。4 步重动作可能出现拖影，本方案默认 8 步。",
       "cost": "轻量",
       "required_slots": []
     },

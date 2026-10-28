@@ -6,7 +6,7 @@
 
 默认由当前 AI 编写分镜和 H3 提示词，严格渲染不会调用内部文字模型。需要工厂代写时，可显式选择 DeepSeek、Ollama、LM Studio 或兼容服务，分别配置大纲、分镜与提示词阶段。
 
-**当前版本：4.1.1。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+**当前版本：4.2.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 ![2.3 创作工作台](docs/images/ui-workspace.jpg)
 
@@ -19,8 +19,8 @@
 - 四种输入：一句话灵感、已有大纲、完整剧本、分镜 JSON。
 - 全自动生成，或在大纲、分镜、提示词阶段暂停检查。
 - 4 个大纲、4 个分镜、5 个 H3 提示词及 4 个图片提示词 Skill；可复制、编辑、导入和导出。
-- **7 种生图模型**：Qwen-Image 2.1、SDXL、Animagine XL、DreamShaper 8 / XL Turbo、FLUX Schnell 和 Z-Image Turbo，使用各自的原生 ComfyUI 图。支持原图重绘；Qwen 额外支持多图语义参考和透明通道。保留提示词、种子、参考图快照和实际采样参数。
-- **新增 3 条视频工作流**：LightX2V 8步、PDD Acc、PDD 神经潜空间放大与轻精修；优先复用已有 H3 模型，可另存参数组合。缺资源时确认下载、查看进度、暂停续传。详见 [工作流与模型指南](docs/advanced-workflows.md)。
+- **8 种生图模型**：Qwen-Image 2.1、Qwen2.1 UD版、SDXL、Animagine XL、DreamShaper 8 / XL Turbo、FLUX Schnell 和 Z-Image Turbo，使用各自的原生 ComfyUI 图。支持原图重绘；两种 Qwen 均支持最多 10 张语义参考图和透明通道。选择 Qwen2.1 UD版可自动下载缺失模型。保留提示词、种子、参考图快照和实际采样参数。
+- **新增 4 条视频工作流**：Turbo v4 快速音画（6–8 步）、LightX2V 8步、PDD Acc、PDD 神经潜空间放大与轻精修；优先复用已有 H3 模型，可另存参数组合。缺资源时确认下载、查看进度、暂停续传。详见 [工作流与模型指南](docs/advanced-workflows.md)。
 - **5 类 H3 专用媒体工作流**：原声驱动数字人、锁画面拟音、中段关键帧、音画多帧接续与视频轮廓控制；按单镜绑定源素材，支持独立配置。详见 [3.3 高级工作流](docs/h3-advanced-3.3.md)。
 - **项目参考图**：可选自动生成角色、场景和道具图，绑定到对应分镜，支持单项重生成及采用历史版本。详见 [图片生成指南](docs/image-studio.md)。
 - 3.0.1：缺模型先确认并显示下载进度，可选已有模型文件、删除图片；优化后沿用原任务生成。

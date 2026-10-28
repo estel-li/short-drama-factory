@@ -11,7 +11,8 @@ import yaml
 from .downloads import Downloader
 from .storage import ROOT, contained, digest, read_json, write_json
 
-MODEL_FIELDS = {'lightx2v_8': 'workflow_lora', 'pdd_fl': 'pdd_fl', 'pdd_ref': 'pdd_ref',
+MODEL_FIELDS = {'lightx2v_8': 'workflow_lora', 'larry_turbo': 'workflow_lora',
+                'pdd_fl': 'pdd_fl', 'pdd_ref': 'pdd_ref',
                 'upscaler': 'upscale_model', 'controlnet': 'control_model'}
 
 

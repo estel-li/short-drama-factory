@@ -293,6 +293,10 @@ class RenderModelScopeTests(unittest.TestCase):
         self.assertEqual(self.fingerprint({'Ref2VA'}, workflow='pdd-upscale'),
                          {'text_encoder', 'video_vae', 'audio_vae', 'ref_model', 'pdd_ref', 'upscaler'})
 
+    def test_larry_turbo_probes_only_its_own_adapter(self):
+        self.assertEqual(self.fingerprint({'T2VA'}, workflow='larry-turbo', turbo=False),
+                         {'text_encoder', 'video_vae', 'audio_vae', 'fl_model', 'workflow_lora'})
+
     def test_empty_modes_do_not_probe_models_and_legacy_none_keeps_all(self):
         from app.rendering import ROLES
         self.assertEqual(self.fingerprint(set()), set())

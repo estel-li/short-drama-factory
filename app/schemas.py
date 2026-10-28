@@ -67,7 +67,8 @@ class Quality(BaseModel):
     scheduler: str = 'simple'
     denoise: float = Field(default=1, ge=0, le=1)
     lora_strength: float = Field(default=1, ge=-2, le=2)
-    workflow: Literal['native', 'lightx2v-8', 'pdd-8', 'pdd-upscale', 'h3-audio-drive',
+    low_vram: bool = False
+    workflow: Literal['native', 'lightx2v-8', 'larry-turbo', 'pdd-8', 'pdd-upscale', 'h3-audio-drive',
         'h3-foley', 'h3-keyframe-guide', 'h3-motion-context', 'h3-canny-control'] = 'native'
     workflow_lora: str = Field(default='', max_length=500)
     pdd_fl: str = Field(default='', max_length=500)
@@ -99,12 +100,16 @@ class Quality(BaseModel):
             raise ValueError('PDD 工作流采样步数只能为 4、6 或 8。')
         if self.workflow=='lightx2v-8' and self.steps!=8:
             raise ValueError('LightX2V 8步工作流请使用 8 步。')
+        if self.workflow=='larry-turbo' and self.steps not in (6,8):
+            raise ValueError('Turbo v4 快速工作流使用 6 或 8 步。')
         if self.workflow=='pdd-upscale' and self.steps!=8:
             raise ValueError('神经放大工作流首遍使用 8 步，精修使用最后一个训练块。')
         if self.workflow.startswith('pdd') and (self.turbo or self.sampler != 'euler' or self.denoise != 1):
             raise ValueError('PDD 必须使用 Euler、完整首遍采样且关闭旧 Turbo。')
         if self.workflow=='lightx2v-8' and (self.sampler != 'res_multistep' or self.denoise != 1):
             raise ValueError('LightX2V 8步使用 res_multistep 与完整采样。')
+        if self.workflow=='larry-turbo' and (self.turbo or self.scheduler != 'simple' or self.denoise != 1):
+            raise ValueError('Turbo v4 使用专用采样器、simple 调度与完整采样，不叠加旧 Turbo。')
         if self.workflow.startswith('h3-') and (self.turbo or self.denoise != 1):
             raise ValueError('H3 高级媒体方案使用完整原生采样，不叠加旧 Turbo 或局部 denoise。')
         if self.control_start >= self.control_end:

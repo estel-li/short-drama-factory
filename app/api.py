@@ -872,7 +872,7 @@ def video_workflow_profile(body: dict):
     base = profiles.get(str(body.get('base_profile', '')))
     if not base:raise ValueError('原视频工作流不存在。')
     changes = body.get('changes', {})
-    allowed = {'megapixels','steps','lora_strength','head_strength','upscale_by','refine_denoise',
+    allowed = {'megapixels','steps','lora_strength','low_vram','head_strength','upscale_by','refine_denoise',
         'source_start_seconds','guide_position','context_frames','audio_context_frames',
         'control_strength','control_start','control_end','canny_low','canny_high'}
     if not isinstance(changes,dict) or set(changes)-allowed:raise ValueError('工作流参数不支持。')

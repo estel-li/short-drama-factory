@@ -72,6 +72,8 @@ def ensure_comfy(status=None, profile=None, cancel=lambda: False):
         args.append('Comfyui_Minimax_h3_latent_Upscaler')
     if (task_root / 'data/comfy-runtime/custom_nodes/ComfyUI-H3-Motion-Context/__init__.py').is_file():
         args.append('ComfyUI-H3-Motion-Context')
+    if (task_root / 'data/comfy-runtime/custom_nodes/ComfyUI-MiniMax-H3-Turbo/__init__.py').is_file():
+        args.append('ComfyUI-MiniMax-H3-Turbo')
     if CONFIG.get('fast_disk', True):
         args.append('--fast-disk')
     if CONFIG.get('disable_dynamic_vram', False):

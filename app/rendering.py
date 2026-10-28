@@ -19,10 +19,11 @@ def fingerprint_models(config, report, cancel, profile=None, modes=None):
     workflow = preset.get('workflow', 'native')
     if workflow != 'native':
         roles.pop('fl_lora', None); roles.pop('ref_lora', None)
-        from .video_workflows import LIGHTX2V_8, PDD_FL, PDD_REF, UPSCALER
-        if workflow == 'lightx2v-8':
+        from .video_workflows import LIGHTX2V_8, LARRY_TURBO, PDD_FL, PDD_REF, UPSCALER
+        if workflow in ('lightx2v-8', 'larry-turbo'):
             roles['workflow_lora'] = 'loras'
-            config['workflow_lora'] = preset.get('workflow_lora') or LIGHTX2V_8
+            config['workflow_lora'] = preset.get('workflow_lora') or (
+                LARRY_TURBO if workflow == 'larry-turbo' else LIGHTX2V_8)
         elif workflow.startswith('pdd'):
             roles.update(pdd_fl='pdd_acc', pdd_ref='pdd_acc')
             config.update(pdd_fl=preset.get('pdd_fl') or PDD_FL, pdd_ref=preset.get('pdd_ref') or PDD_REF)
@@ -99,6 +100,7 @@ def fingerprint_models(config, report, cancel, profile=None, modes=None):
 def used_models(graph, model_version):
     fields = {'UNETLoader': ('diffusion_models', 'unet_name'), 'CLIPLoader': ('text_encoders', 'clip_name'),
               'VAELoader': ('vae', 'vae_name'), 'LoraLoaderModelOnly': ('loras', 'lora_name'),
+              'MiniMaxH3TurboLoRA': ('loras', 'lora_name'),
               'MiniMaxH3PDDAccApply': ('pdd_acc', 'pdd_file'), 'MinimaxH3LatentUpscaler3D': ('latent_upscale_models','model_name'),
               'ModelPatchLoader': ('model_patches','name')}
     wanted = {(fields[node['class_type']][0], node['inputs'].get(fields[node['class_type']][1]))

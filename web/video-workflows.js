@@ -12,9 +12,9 @@ export function parameterSpecs(base) {
   const specs = [{key: "megapixels", title: "生成分辨率（百万像素）", min: .1, max: 4, step: .1,
     help: "16GB 显存从 0.4MP 起步；长镜头和放大会增加内存需求。"},
     {key: "steps", title: "采样步数", min: 1, max: 100, step: 1,
-      choices: workflow === "pdd-8" ? [4, 6, 8] : ["lightx2v-8", "pdd-upscale"].includes(workflow) ? [8] : null}];
+      choices: workflow === "pdd-8" ? [4, 6, 8] : workflow === "larry-turbo" ? [6, 8] : ["lightx2v-8", "pdd-upscale"].includes(workflow) ? [8] : null}];
   const number = (key, title, min, max, step, fallback, help = "") => specs.push({key, title, min, max, step, fallback, help});
-  if (!workflow.startsWith("h3-") && (base.turbo || workflow.startsWith("pdd") || workflow === "lightx2v-8")) number("lora_strength", "LoRA 强度", -2, 2, .05, 1);
+  if (!workflow.startsWith("h3-") && (base.turbo || workflow.startsWith("pdd") || ["lightx2v-8", "larry-turbo"].includes(workflow))) number("lora_strength", "LoRA 强度", -2, 2, .05, 1);
   if (workflow.startsWith("pdd")) number("head_strength", "PDD 头强度", 0, 2, .05, 1);
   if (workflow === "pdd-upscale") {
     number("upscale_by", "神经放大倍数", 1, 2, .25, 1.25);

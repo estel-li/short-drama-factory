@@ -4,12 +4,14 @@ import copy
 from functools import lru_cache
 
 LIGHTX2V_8 = 'minimax_h3_fl2v_turbo_8step_v1.0_768p_comfyui_bf16.safetensors'
+LARRY_TURBO = 'minimax_h3_turbo_v4_step600_ema.safetensors'
 PDD_FL = 'minimax_h3_fl2va_pdd_acc_8step_comfyui.safetensors'
 PDD_REF = 'minimax_h3_ref2va_pdd_acc_8step_comfyui.safetensors'
 UPSCALER = 'minimax_h3_latent_upscaler_3d_fp16.safetensors'
 
 BUILTIN_PROFILES = {
     'lightx2v-8': {'label': 'LightX2V 8步 · 稳定动作 / 0.4MP', 'workflow': 'lightx2v-8', 'megapixels': 0.4, 'steps': 8, 'turbo': True, 'sampler': 'res_multistep'},
+    'larry-turbo': {'label': 'Turbo v4 8步 · 快速音画 / 0.4MP', 'workflow': 'larry-turbo', 'megapixels': 0.4, 'steps': 8, 'turbo': False, 'sampler': 'euler', 'scheduler': 'simple'},
     'pdd-8': {'label': 'PDD Acc 8步 · 音画加速 / 0.4MP', 'workflow': 'pdd-8', 'megapixels': 0.4, 'steps': 8, 'turbo': False, 'sampler': 'euler'},
     'pdd-upscale': {'label': 'PDD 神经放大 · 3D放大 + 轻精修', 'workflow': 'pdd-upscale', 'megapixels': 0.4, 'steps': 8, 'turbo': False, 'sampler': 'euler', 'upscale_by': 1.25, 'refine_denoise': 0.125},
 }
@@ -81,6 +83,21 @@ def apply_workflow(graph, preset, is_reference, shot=None, bindings=None, mode='
         node(5,'LoraLoaderModelOnly',model=['1',0],lora_name=preset.get('workflow_lora') or LIGHTX2V_8,strength_model=preset.get('lora_strength',1))
         if '6' in graph:graph['6']['inputs']['model']=['5',0]
         else:graph['9']['inputs']['model']=['5',0]
+        return graph
+    if workflow=='larry-turbo':
+        if is_reference:
+            raise ValueError('Turbo v4 快速方案用于文字、首帧或首尾帧生成；多参考素材请选择 PDD 或原生方案。')
+        if preset['steps'] not in (6,8):
+            raise ValueError('Turbo v4 快速方案使用 6 或 8 步。')
+        node(5,'MiniMaxH3TurboLoRA',model=['1',0],lora_name=preset.get('workflow_lora') or LARRY_TURBO,
+             strength=preset.get('lora_strength',1),low_vram=bool(preset.get('low_vram',False)))
+        if '6' in graph:
+            graph['6']['inputs']['model']=['5',0]
+        else:
+            graph['9']['inputs']['model']=['5',0]
+            graph['11']['inputs']['model']=['5',0]
+        node(10,'MiniMaxH3TurboSampler')
+        graph['11']['inputs'].update(scheduler='simple',steps=preset['steps'],denoise=1.0)
         return graph
     if workflow not in ('pdd-8','pdd-upscale'):
         raise ValueError('视频工作流不存在。')

@@ -65,6 +65,15 @@ class VideoEnvironmentTests(unittest.TestCase):
         self.assertTrue(self.environment.plan('draft')['ready'])
         with self.assertRaises(ValueError):self.environment.plan('../outside')
 
+    def test_larry_turbo_plan_requires_its_adapter_and_pinned_plugin(self):
+        plan=self.environment.plan('larry-turbo')
+        self.assertEqual([f['role'] for f in plan['models']],['larry_turbo'])
+        self.assertEqual([f['name'] for f in plan['models']],['minimax_h3_turbo_v4_step600_ema.safetensors'])
+        self.assertEqual([p['name'] for p in plan['plugins']],['ComfyUI-MiniMax-H3-Turbo'])
+        self.assertEqual(set(plan['missing_nodes']),{'MiniMaxH3TurboLoRA','MiniMaxH3TurboSampler'})
+        self.assertFalse(plan['ready'])
+        self.assertTrue(plan['requires_confirmation'])
+
     def test_receipts_do_not_require_write_access_to_shared_model_folders(self):
         self.existing()
         for f in self.environment.manifest['models'].values():

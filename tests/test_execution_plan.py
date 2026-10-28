@@ -220,6 +220,17 @@ class ExecutionPlanTests(unittest.TestCase):
         self.assertEqual(ref, {'ref_model', 'pdd_ref', 'upscaler'})
         self.assertEqual(_model_observations(self.renderer, 'draft', set()), [])
 
+    def test_larry_turbo_observes_its_own_adapter_without_the_old_turbo_stack(self):
+        from app.video_workflows import BUILTIN_PROFILES
+        self.renderer.update(fl_model='fl.safetensors', fl_lora='old-turbo.safetensors')
+        self.renderer['mode'] = 'remote'
+        self.renderer['profiles']['draft'] = copy.deepcopy(BUILTIN_PROFILES['larry-turbo'])
+        rows = _model_observations(self.renderer, 'draft', {'T2VA'})
+        by_role = {row['role']: row for row in rows}
+        self.assertEqual(by_role['workflow_lora']['name'], 'minimax_h3_turbo_v4_step600_ema.safetensors')
+        self.assertNotIn('fl_lora', by_role)
+        self.assertNotIn('ref_model', by_role)
+
     def test_partial_scope_never_promises_current_full_assembly_after_settings_change(self):
         self.completed()
         for change in ('unchanged', 'ratio', 'profile'):

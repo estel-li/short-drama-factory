@@ -8,9 +8,10 @@ from app.video_workflows import BUILTIN_PROFILES, subgraph, replace_link
 
 
 class VideoWorkflowTests(unittest.TestCase):
-    def graph(self, workflow, reference=False):
+    def graph(self, workflow, reference=False, **changes):
         config = copy.deepcopy(pipeline.CONFIG)
         config['profiles'].update(copy.deepcopy(BUILTIN_PROFILES))
+        config['profiles'][workflow].update(changes)
         config['attention'] = 'comfy kitchen attention'
         shot = {'id':1,'duration':4,'prompt':'A woman opens a book in a warm quiet bookstore.'}
         with patch.dict(pipeline.CONFIG, config, clear=True):
@@ -32,6 +33,26 @@ class VideoWorkflowTests(unittest.TestCase):
         self.assertEqual(graph['11']['inputs']['steps'],8)
         with self.assertRaisesRegex(ValueError,'Ref2VA'):
             self.graph('lightx2v-8',True)
+
+    def test_larry_turbo_uses_dedicated_lora_and_sampler_at_six_or_eight_steps(self):
+        for steps in (6,8):
+            graph=self.graph('larry-turbo', steps=steps)
+            self.assertEqual(graph['5']['class_type'],'MiniMaxH3TurboLoRA')
+            self.assertEqual(graph['5']['inputs']['lora_name'],'minimax_h3_turbo_v4_step600_ema.safetensors')
+            self.assertEqual(graph['5']['inputs']['strength'],1)
+            self.assertFalse(graph['5']['inputs']['low_vram'])
+            self.assertEqual(graph['6']['inputs']['model'],['5',0])
+            self.assertEqual(graph['9']['inputs']['model'],['6',0])
+            self.assertEqual(graph['10'],{'class_type':'MiniMaxH3TurboSampler','inputs':{}})
+            self.assertEqual(graph['12']['inputs']['sampler'],['10',0])
+            self.assertEqual(graph['11']['inputs']['steps'],steps)
+            self.assertEqual(graph['11']['inputs']['scheduler'],'simple')
+            self.assertNotIn('LoraLoaderModelOnly',{n['class_type'] for n in graph.values()})
+        with self.assertRaisesRegex(ValueError,'Ref2VA'):
+            self.graph('larry-turbo',True)
+        for steps in (4,7,12):
+            with self.subTest(steps=steps),self.assertRaises(ValueError):
+                Quality.model_validate({**BUILTIN_PROFILES['larry-turbo'],'steps':steps})
 
     def test_two_pass_graph_retains_original_audio_and_cache_all_dependencies(self):
         graph=self.graph('pdd-upscale')

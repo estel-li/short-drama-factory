@@ -2,7 +2,7 @@
 name: short-drama-factory
 license: MIT
 metadata:
-  version: "4.1.1"
+  version: "4.2.0"
   contract_version: 1
 description: 通过本地短剧工厂的命令行与 API，把当前 AI 编写的分镜和 H3 提示词制作成视频；支持真实素材绑定、图片生成与多图参考、按镜头修改、断点恢复与交付检查。用于操作已安装的工厂制作或修复内容，不用于开发应用代码。
 ---
@@ -34,6 +34,7 @@ python scripts/sdf.py capabilities
 | 用户目标 | 读取与执行 |
 | --- | --- |
 | 从故事制作短片 | [分镜与 H3 契约](references/story-and-h3.md)，[请求模板](references/templates.md)；当前 AI 创作后走严格渲染 |
+| 用户说“快速生成／加速生成／快点出片” | [快速生成](#快速生成)：默认选 `larry-turbo` 的 Turbo v4 6–8 步方案 |
 | 学习参考片、使用导演风格或按结构仿拍 | [导演风格](references/director-styles.md)；默认用其视听语言讲新故事，仿拍需用户明确选择 |
 | 保留原声、原画面、关键帧或动作接续 | [工作流选择](references/workflow-selection.md)；仅涉及高级媒体槽时再读 [高级 H3](references/h3-advanced.md) |
 | 改一句台词、一个镜头、字幕或画幅 | [编辑与修复](references/production-practice.md)；按 UID 修改，重新计算影响范围 |
@@ -66,6 +67,16 @@ python scripts/sdf.py deliver PROJECT_ID --verify --output delivery-v1
 `render` 计划始终严格：不补大纲、不重写分镜、不优化图片提示词、不生成隐藏参考图，也不隐式下载。缺失或失效的 prompt 由当前 AI 补齐后重新计划。已有下载或全自动制作授权继续有效；计划是机器执行契约，不要求每一步都再次询问用户。
 
 只有用户选择工厂内部文字模型时，才使用 [agent-outline.json](assets/agent-outline.json) 并请求 `project plan PROJECT_ID --action plan --allow-internal-text`。该内部规划阶段可能调用文字模型；启用了自动参考图时还可能使用 GPU。规划完成后另建 `render` 计划。
+
+## 快速生成
+
+用户说“快速生成”“加速生成”“快点出片”或明确要求少步数时，默认使用实例提供的 `larry-turbo` 方案（Larryvrh MiniMax-H3 Turbo v4 LoRA + 专用采样器），不要按旧名称猜参数。
+
+1. 用 `sdf capabilities` 或 `/api/video/workflows` 确认当前实例存在 `larry-turbo` 及支持模式；不存在时说明实例未安装该方案，改用实例已就绪的加速方案或原生方案，不自造 ID。
+2. `larry-turbo` 默认 8 步，推荐范围 6–8 步；需要更快时用 `POST /api/video/workflows/profiles` 以 `base_profile:"larry-turbo"`、`changes:{"steps":6}` 另存 6 步方案。不要使用 4 步或 8 步以上，也不要叠加旧 Turbo。
+3. 该方案支持 T2VA、I2VA、L2VA、FL2VA；需要 Ref2VA 多图／视频／声音参考时，先说明边界，再改用 PDD 或原生方案，不静默切换。
+4. 先 `GET /api/video/workflows/plan?profile=larry-turbo` 查看 LoRA、节点和下载量；按 [资源准备](references/workflow-models.md) 取得用户对新增下载的确认后调用 `prepare`。准备完成不等于已生成。
+5. 把 `settings.profile` 设为 `larry-turbo`（或另存的 6 步方案 ID），再 `project plan`／`project run`；不要与 LightX2V、PDD 或高级媒体工作流在同一项目内混用。
 
 ## 修改与恢复的关键约定
 

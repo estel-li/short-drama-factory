@@ -1,6 +1,6 @@
 # 视频工作流与多模型生图
 
-3.2.0 在原有 H3 方案外新增三条工作流，并将图片工作室扩展为不同架构的模型适配器。模型文件仍保存在用户选择的目录，应用通过 ComfyUI HTTP 接口串行生成，不在工作台进程中加载推理框架。
+本页列出 H3 的加速与放大方案；3.2.0 新增 LightX2V、PDD 与神经放大，之后新增 Turbo v4 快速音画。模型文件仍保存在用户选择的目录，应用通过 ComfyUI HTTP 接口串行生成，不在工作台进程中加载推理框架。
 
 ## 视频方案
 
@@ -8,16 +8,18 @@
 
 | 方案 | 用途 | 默认配置 |
 | --- | --- | --- |
+| Turbo v4 快速音画 | 用 Larryvrh Turbo LoRA 在 6–8 步生成带同步音画的镜头，适合快速试镜和批量草稿 | 0.4MP、8 步、v4-600 EMA LoRA、专用采样器、simple 调度 |
 | LightX2V 8步 | 比原四步草稿更完整的运动采样 | 0.4MP、8 步、专用 768p LoRA |
 | PDD Acc 8步 | 音画加速，支持基础和参考模型 | 0.4MP、8 步、Euler、训练 sigma 网格、12/3 偏移 |
 | PDD 神经放大 | 先生成再放大，轻量恢复细节 | 首遍 0.4MP / 8 步、3D 神经放大 1.25 倍、一个训练块精修 |
 
-“自定义参数 / 另存方案”可保存独立的分辨率、步数与 LoRA 强度；PDD 还支持头强度，神经放大支持倍数和是否精修。自定义方案有独立 ID，项目保存后使用该组合。LightX2V 专用方案保持 8 步；PDD 基础方案可选 4、6、8 步；神经放大首遍保持 8 步。
+“自定义参数 / 另存方案”可保存独立的分辨率、步数与 LoRA 强度；PDD 还支持头强度，神经放大支持倍数和是否精修。自定义方案有独立 ID，项目保存后使用该组合。Turbo v4 快速方案可选 6 或 8 步；LightX2V 专用方案保持 8 步；PDD 基础方案可选 4、6、8 步；神经放大首遍保持 8 步。
 
-LightX2V 此方案接受文字、首帧、尾帧和首尾帧；多图、视频和音频参考使用 PDD 或原生方案。PDD 的两个主干必须分别配对 FL2VA / Ref2VA 头，程序不会把它们当成普通 Turbo LoRA 混用。放大只改变空间尺寸，不补帧、不变速；原始音频保留。
+Turbo v4 使用专用 LoRA 采样器，不叠加旧 Turbo；接受文字、首帧、尾帧和首尾帧，多图、视频和音频参考使用 PDD 或原生方案。上游说明指出 4 步在大幅快速动作下可能出现拖影，6–8 步明显更稳，因此本方案默认 8 步并限制为 6/8 步。显存不足时可通过 `/api/video/workflows/profiles` 另存 `low_vram:true` 的方案，节点会合并 LoRA 以降低峰值显存，量化底模上画质会略软。LightX2V 此方案接受文字、首帧、尾帧和首尾帧；多图、视频和音频参考使用 PDD 或原生方案。PDD 的两个主干必须分别配对 FL2VA / Ref2VA 头，程序不会把它们当成普通 Turbo LoRA 混用。放大只改变空间尺寸，不补帧、不变速；原始音频保留。
 
 上游固定来源及摘要见 `manifests/video-workflows.json`：
 
+- [MiniMax-H3 Turbo LoRA](https://huggingface.co/larryvrh/MiniMax-H3-Turbo-Lora) 与 [H3 Turbo 专用节点](https://github.com/Larryvrh/ComfyUI-MiniMax-H3-Turbo)。
 - [LightX2V](https://github.com/ModelTC/LightX2V) 与 [H3 Turbo 权重](https://huggingface.co/lightx2v/Minimax-h3-Turbo)。
 - [PDD Acc 节点及官方 Acc 格式适配](https://github.com/Jalen-Brunson/ComfyUI-MiniMax-H3-PDD-Acc)。
 - [H3 神经潜空间放大节点](https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler) 与 [放大权重](https://huggingface.co/LBH-123-AI/Minimax_h3_latent_Upscaler)。
@@ -47,5 +49,7 @@ Qwen 可用最多十张语义参考图；其余模型支持一张原图的 VAE �
 ## 本机测试
 
 实测与筛选过程见 [验收记录](workflow-expansion.md)。测试硬件为 RTX 5060 Ti 16GB、32GB 系统内存、Thunderbolt 显卡坞，主要使用 INT8 / W4A8 及分阶段卸载。每个测试保存独立的 prompt_id、请求、图和输出；具体耗时会受分辨率、缓存、磁盘和显卡连接带宽影响。
+
+Turbo v4 快速方案在该硬件上用 8 步、0.4MP、4 秒 T2VA 单镜实测：832×480、107 帧、24fps、同步立体声；编码约 23.7 秒、采样约 76.1 秒、解码约 25.1 秒，含单镜合片总计约 139 秒。静态场景画面连续，未观察到明显拖影；实际耗时随分辨率、帧数、显存与冷加载变化。
 
 最初的纯插值加两步精修候选出现明显重影，未作为推荐实现保留；最终采用已下载的神经放大权重和较轻的精修。结构校验和绿灯测试不能代替画面验收，建议正式短剧先做一个镜头，确认角色、动作和对白后再批量生成。
