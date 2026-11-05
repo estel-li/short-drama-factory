@@ -17,6 +17,7 @@ import uvicorn
 import pipeline
 from app import api
 from app.finishing import build
+from app.quality import render_contract
 from app.storage import ROOT, digest, read_json, write_json
 import tests.test_agent_api as api_fixture
 
@@ -53,6 +54,38 @@ class AgentDeliveryTests(unittest.TestCase):
     def snapshot(self):
         return {p.relative_to(self.project).as_posix(): (hashlib.sha256(p.read_bytes()).hexdigest(), p.stat().st_mtime_ns)
                 for p in self.project.rglob('*') if p.is_file()}
+
+    def test_finish_after_selected_render_publishes_full_project_delivery(self):
+        uids = [shot['uid'] for shot in self.story['shots']]
+        source = self.project / 'source.mp4'
+        original = (hashlib.sha256(source.read_bytes()).hexdigest(), source.stat().st_mtime_ns)
+        write_json(self.project / 'state.json', {
+            'status': 'ready', 'current_stage': 'scope_complete', 'scope_complete': True,
+            'completed_uids': uids[-1:], 'pending_uids': uids[:-1], 'pending_count': len(uids) - 1,
+            'unverified_uids': uids[:-1], 'pending_reasons': {uid: 'not_validated_in_scope' for uid in uids[:-1]},
+            'unselected_count': len(uids) - 1,
+            'shots_by_uid': {shot['uid']: {'status': 'done', 'clip_relative': 'source.mp4',
+                            'render_contract': render_contract(self.story, shot)} for shot in self.story['shots']},
+        })
+        before = self.client.get(f'/api/v2/projects/{self.pid}/delivery?verify=true').json()
+        self.assertFalse(before['ready_for_delivery'])
+        self.assertEqual(before['scope'], 'selected_shots')
+        jid = self.db.enqueue(self.pid, 'finish', {'internal_text': 'forbid', 'edit_preset': 'original'})
+        job = self.db.claim({jid})
+        with patch('pipeline.output_canvas', return_value=(96, 64)):
+            result = self.worker.execute(job)
+        self.db.update(jid, result)
+        after = self.client.get(f'/api/v2/projects/{self.pid}/delivery?verify=true').json()
+        self.assertTrue(after['ready_for_delivery'], after['checks'])
+        self.assertEqual(after['scope'], 'project')
+        self.assertEqual(original, (hashlib.sha256(source.read_bytes()).hexdigest(), source.stat().st_mtime_ns))
+        state = read_json(self.project / 'state.json')
+        self.assertEqual(state['completed_uids'], uids)
+        self.assertEqual(state['pending_uids'], [])
+        self.assertEqual(state['unverified_uids'], [])
+        self.assertEqual(state['pending_reasons'], {})
+        self.assertEqual(state['pending_count'], 0)
+        self.assertEqual(state['unselected_count'], 0)
 
     def test_http_manifest_preserves_fingerprint_and_downloads_only_artifacts(self):
         before = self.snapshot()

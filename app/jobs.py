@@ -389,7 +389,15 @@ class Worker:
                 settings=options.model_dump();settings.update({k:payload[k] for k in ('edit_preset','notes','masks','review_interval') if k in payload})
             report('开始 CPU 质检与后期，原镜头不会重生成。',status='assembling',current_stage='finishing')
             output=build(project,story,clips,width,height,settings,lambda text:report(text),cancelled,recipe,proxy=self.config.renderer_config().get('proxy',''))
-            report('质检与后期已完成，原片和历史版本已保留。',status='complete',current_stage='done',output=str(output))
+            # Current-story finishing validates every clip. Clear an earlier
+            # selected-render scope only after the full build succeeds; a
+            # historical recipe rebuild does not prove the current story complete.
+            completed_scope = ({'scope_complete': False,
+                                'completed_uids': [shot.get('uid') or str(shot['id']) for shot in story['shots']],
+                                'pending_uids': [], 'pending_count': 0, 'unverified_uids': [],
+                                'pending_reasons': {}, 'unselected_count': 0}
+                               if requested == 'finish' else {})
+            report('质检与后期已完成，原片和历史版本已保留。',status='complete',current_stage='done',output=str(output),**completed_scope)
             return 'done'
         if requested not in ('all', 'plan', 'outline', 'storyboard', 'prompt', 'render'):
             raise ValueError('未知任务类型。')
