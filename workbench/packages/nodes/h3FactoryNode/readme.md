@@ -57,7 +57,9 @@ ssh -N -L 127.0.0.1:18765:127.0.0.1:8765 gpu-host
 | 节点工具 | 行为 |
 | --- | --- |
 | `connectFactory` | 核对实例、协议、能力和引擎连通情况 |
+| `getWorkflowPlan` | 创建项目前核对候选 profile 是否已就绪，返回模型缺项及下载量，不启动安装 |
 | `createProject` / `bindProject` | 创建完整分镜草稿，或连接已有项目、镜头 |
+| `importReference` | 将工作区 PNG、JPEG、WebP 导入已绑定项目，返回真实素材 ID 和 revision；最大 8 MB，原请求键重试核对文件哈希 |
 | `expandShots` | 展开镜头节点及接续关系，不生成 |
 | `getFactoryState` | 读取实时项目、revision、镜头和节点草稿 |
 | `compilePrompt` | 格式化外部编写的 H3 段落，不生成文字、不保存 |
@@ -69,6 +71,8 @@ ssh -N -L 127.0.0.1:18765:127.0.0.1:8765 gpu-host
 | `collectResult` | 校验并导入镜头原片或当前成片 |
 
 提交工具必须提供唯一 `requestKey`。响应不明时保留它，用 `getSubmissionHistory` 和 `retrySubmission` 查询原操作，不改键重新生成。`updateShot` 的 `expectedRevision` 防止覆盖并发修改；冲突后读取最新项目并合并。
+
+一句话加参考图时，先用 `getWorkflowPlan` 确认所选 profile 已就绪。由 Agent 填写 `storyboard.title` 和至少一个含 `id/duration/prompt` 的镜头，先创建无 `bindings` 的 I2VA 草稿。随后 `importReference` 导入原图，`expandShots` 取得镜头节点，在该镜头节点 `updateShot` 中将 `bindings.first_frame` 设为返回的 `asset.id`。回执 `invalidated_prompts` 非空时，先读取最新 revision，再单独提交完整 `prompt`。工作区图片路径不能直接充当素材 ID，`storyboard.assets` 也不能替代真实导入。创建和镜头修改工具会公开具体字段结构，空分镜在提交工厂之前被拒绝。
 
 ## 保存与恢复
 

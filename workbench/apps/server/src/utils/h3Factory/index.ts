@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
-import { dirname, extname } from "node:path";
-import { mkdir, readFile, readdir, writeAtomic } from "@toonflow/file";
+import { basename, dirname, extname } from "node:path";
+import { mkdir, open, readFile, readdir, writeAtomic } from "@toonflow/file";
 import { factoryRequest, type FactoryRequest, type FactoryDelivery, type FactoryArtifact } from "@toonflow/node-h3-factory/contracts";
 import { lockWorkspaceFiles, resolveWorkspacePath } from "@/utils/workspace/files";
 
 import { localModelsConfig } from "@/utils/localModels";
 
-type Journal = { request: FactoryRequest; instance: string; nodeId: string; createdAt: string; result?: unknown; status: "pending" | "completed" | "failed"; failure?: { message: string; status: number; factoryError?: unknown } };
+type Journal = { request: FactoryRequest; instance: string; nodeId: string; createdAt: string; sourceSha256?: string; result?: unknown; status: "pending" | "completed" | "failed"; failure?: { message: string; status: number; factoryError?: unknown } };
 
 export function connection() {
   const { factoryUrl: address, applicationRoot: root } = localModelsConfig();
@@ -104,7 +104,7 @@ function verifyBytes(bytes: Uint8Array, artifact: FactoryArtifact) {
   }
 }
 
-async function dispatch(directory: string, config: ReturnType<typeof connection>, input: FactoryRequest): Promise<unknown> {
+async function dispatch(directory: string, config: ReturnType<typeof connection>, input: FactoryRequest, reference?: Buffer): Promise<unknown> {
   const projectId = "projectId" in input ? input.projectId : "";
   const projectPath = `/api/v2/projects/${projectId}`;
   if ("jobId" in input) {
@@ -112,7 +112,13 @@ async function dispatch(directory: string, config: ReturnType<typeof connection>
     if (job.project_id !== projectId) throw Object.assign(new Error("任务不属于当前工厂项目"), { status: 409 });
   }
   switch (input.action) {
+    case "workflowPlan": return requestJson(config, `/api/video/workflows/plan?profile=${encodeURIComponent(input.profile)}`);
     case "create": return requestJson(config, "/api/v2/projects", "POST", input.body, input.requestKey);
+    case "importReference": {
+      if (!reference) throw new Error("参考图片尚未读取");
+      const asset = await requestJson(config, `${projectPath}/assets`, "POST", { type: "image", name: basename(input.path), data: reference.toString("base64") }, input.requestKey);
+      return { project_id: projectId, asset, revision: asset.revision, request_key: input.requestKey };
+    }
     case "read": return requestJson(config, projectPath);
     case "updateShot": return requestJson(config, projectPath, "PATCH", { expected_revision: input.expectedRevision, shots: [{ uid: input.shotUid, changes: input.changes }] }, input.requestKey);
     case "validate": return requestJson(config, `${projectPath}/validate`, "POST", {});
@@ -171,15 +177,37 @@ export async function executeFactory(directory: string, nodeId: string, input: F
     }
     if (saved?.status === "completed") return saved.result;
     if (saved?.status === "failed" && saved.failure) throw Object.assign(new Error(saved.failure.message), saved.failure);
+    let reference: Buffer | undefined;
+    let sourceSha256: string | undefined;
+    if (input.action === "importReference") {
+      const source = await resolveWorkspacePath(directory, input.path);
+      if (![".png", ".jpg", ".jpeg", ".webp"].includes(extname(source.path).toLowerCase())) throw Object.assign(new Error("参考图仅支持 PNG、JPEG、WebP"), { status: 400 });
+      const file = await open(source.path, "r");
+      try {
+        const info = await file.stat();
+        if (!info.isFile() || !info.size || info.size > 8000000) throw Object.assign(new Error("参考图片必须为非空文件且不超过 8 MB"), { status: 400 });
+        const bytes = Buffer.alloc(8000001);
+        let size = 0;
+        while (size < bytes.length) {
+          const chunk = await file.read(bytes, size, bytes.length - size, size);
+          if (!chunk.bytesRead) break;
+          size += chunk.bytesRead;
+        }
+        if (!size || size > 8000000) throw Object.assign(new Error("参考图片必须为非空文件且不超过 8 MB"), { status: 400 });
+        reference = bytes.subarray(0, size);
+      } finally { await file.close(); }
+      sourceSha256 = createHash("sha256").update(reference).digest("hex");
+      if (saved && saved.sourceSha256 !== sourceSha256) throw Object.assign(new Error("参考图已变化，不能用原请求键补交不同文件，请先核对原提交记录"), { status: 409 });
+    }
     if (!saved) {
-      saved = { request: input, instance: config.identity, nodeId, createdAt: new Date().toISOString(), status: "pending" };
+      saved = { request: input, instance: config.identity, nodeId, createdAt: new Date().toISOString(), status: "pending", ...(sourceSha256 ? { sourceSha256 } : {}) };
       await writeAtomic(path, JSON.stringify(saved, null, 2), { exclusive: true, mode: 0o600 });
     }
     // ACT: 超时仍保留原请求；只以同一请求键补交，由工厂回执防止重复生成。
     let result: unknown;
     try {
       await verifyConnection(config, directory);
-      result = await dispatch(directory, config, input);
+      result = await dispatch(directory, config, input, reference);
     } catch (cause) {
       const problem = cause as Error & { status?: number; factoryError?: unknown };
       if (problem.status && problem.status >= 400 && problem.status < 500 && problem.status !== 408 && problem.status !== 429) {

@@ -147,7 +147,7 @@ export function createCanvasQueries(source: {
   const sessionId = crypto.randomUUID();
   function findNode(id: string) {
     const node = source.findNode(id);
-    if (!node) throw new Error(`节点不存在：${id}`);
+    if (!node) throw new Error(`节点不存在：${id}。画布可能已变化，请先调用 getCanvas 确认当前画布，再用 findCanvasNodes 获取实时节点 ID；不要继续使用此旧 ID 或直接改写画布文件。`);
     return node;
   }
 

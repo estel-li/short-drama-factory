@@ -67,7 +67,7 @@ import { useVueFlow } from "@vue-flow/core";
 import { IconMovie } from "@tabler/icons-vue";
 import { ElButton, ElInput, ElInputNumber, ElCheckbox } from "element-plus";
 import { nodeSkeleton, useNode, nodeTools, z, validateConnection, type NodeHandle, type NodeOutputs, type NodeMediaValue } from "@toonflow/nodes-scaffold/runtime";
-import { createProjectBody, factoryId, shotChanges, type FactoryProject, type FactoryShot, type FactoryPlan, type FactoryReceipt, type FactoryDelivery, type FactoryJob, type FactoryRequest } from "./contracts";
+import { createProjectBody, importReferenceBody, factoryId, shotChanges, type FactoryProject, type FactoryShot, type FactoryPlan, type FactoryReceipt, type FactoryDelivery, type FactoryJob, type FactoryRequest } from "./contracts";
 
 defineOptions({
   inheritAttrs: false,
@@ -447,10 +447,16 @@ nodeEvent.on("copy", () => ({ jobId: undefined, pendingKey: undefined, plan: und
 
 nodeTools.register({ name: "getFactoryState", description: "读取本节点的实时工厂项目、镜头 UID、revision、任务、计划和未保存草稿。修改前先读；不生成。", parameters: z.object({}), execute: () => perform(async () => { await refreshProject(); return { nodeId: id, project: project.value, shotUid: data.value.shotUid, draft: data.value.draft, plan: data.value.plan, jobId: data.value.jobId, pendingKey: data.value.pendingKey }; }) });
 nodeTools.register({ name: "connectFactory", description: "只读核对本地工厂目录、协议、能力及 H3 引擎连接，不启动生成。", parameters: z.object({}), execute: () => perform(() => factory({ action: "connect" })) });
+nodeTools.register({ name: "getWorkflowPlan", description: "创建项目之前，检查候选 profile 的模型、插件是否已就绪，返回 ready 与缺项和下载量。connectFactory 中列出不代表已安装。ready:false 时检查其他兼容方案，不能用创建项目试探，也不自动下载。", parameters: z.object({ profile: factoryId }), execute: args => perform(() => factory({ action: "workflowPlan", profile: args.profile })) });
 nodeTools.register({ name: "bindProject", description: "将空节点绑定到实际工厂项目；传 shotUid 作为镜头节点，省略作为项目节点。", parameters: z.object({ projectId: factoryId, shotUid: factoryId.optional() }), execute: args => perform(() => bindProject(args.projectId, args.shotUid)) });
-nodeTools.register({ name: "createProject", description: "保存外部 AI 编写的完整分镜和 H3 提示词；不生成。requestKey 为本次唯一键，超时用同一键复查。", parameters: z.object({ body: createProjectBody, requestKey: factoryId }), execute: args => perform(() => createProject(args.body, args.requestKey)) });
+nodeTools.register({ name: "createProject", description: "保存当前 AI 根据用户需求编写的完整分镜；必填 storyboard.title、非空 shots，每镜提供 id、duration、完整 prompt。不能用空对象探测字段。有参考图时先创建无 bindings 的 I2VA 草稿，再 importReference 导入、expandShots 并 updateShot 绑定返回的 asset.id。仅保存，不生成。超时以同一 requestKey 复查。", parameters: z.object({ body: createProjectBody, requestKey: factoryId }), execute: args => perform(() => createProject(args.body, args.requestKey)) });
+nodeTools.register({ name: "importReference", description: "将工作区真实参考图片导入此节点已绑定的工厂项目，返回 asset.id 与最新 revision；不生成。之后在镜头节点 updateShot 中将 bindings.first_frame 设为 asset.id。重复查询用同一 requestKey，不能把工作区路径直接当素材 ID。", parameters: importReferenceBody.extend({ requestKey: factoryId }), execute: args => perform(async () => {
+  const receipt = await mutate({ action: "importReference", projectId: boundProject(), path: args.path, requestKey: args.requestKey });
+  await refreshProject();
+  return receipt;
+}) });
 nodeTools.register({ name: "expandShots", description: "将当前项目展开为可编辑镜头节点，连接项目和真实末帧接续关系；复用已存在节点，不生成。", parameters: z.object({}), execute: () => perform(expandShots) });
-nodeTools.register({ name: "updateShot", description: "按本节点镜头 UID 保存修改；必须使用最近读取的 expectedRevision。改动作、场景、时长或对白时同时提供完整 prompt。不会自动生成。", parameters: z.object({ changes: shotChanges, expectedRevision: z.string().min(1), requestKey: factoryId }), execute: args => perform(() => updateShot(args.changes, args.expectedRevision, args.requestKey)) });
+nodeTools.register({ name: "updateShot", description: "仅在 expandShots 返回的镜头节点操作，按其 UID 保存修改；必须使用最近读取的 expectedRevision。导入参考图后 changes 可为 {bindings:{first_frame:真实asset.id},mode:'I2VA'}。修改素材或剧情可能使旧提示词失效；回执 invalidated_prompts 非空时，先 getFactoryState 读取最新 revision，再单独提交 changes.prompt 后才 planGeneration。不会自动生成。", parameters: z.object({ changes: shotChanges, expectedRevision: z.string().min(1), requestKey: factoryId }), execute: args => perform(() => updateShot(args.changes, args.expectedRevision, args.requestKey)) });
 nodeTools.register({ name: "compilePrompt", description: "将外部编写的 H3 段落按本镜实际模式编译；不调用文字模型、不保存。返回 prompt 和 revision 后通过 updateShot 保存。", parameters: z.object({ sections: z.record(z.string(), z.string()) }), execute: args => perform(() => { if (!data.value.shotUid) throw new Error("请选择镜头节点"); return factory({ action: "compile", projectId: boundProject(), shotUid: data.value.shotUid, sections: args.sections }); }) });
 nodeTools.register({ name: "planGeneration", description: "计算本镜或整片的严格执行计划和接续影响范围；render 生成，finish 仅后期。不调用内部文字模型，不下载资源。", parameters: z.object({ kind: z.enum(["render", "finish"]).default("render"), regenerate: z.boolean().default(false) }), execute: args => perform(() => makePlan(args.kind, args.regenerate)) });
 nodeTools.register({ name: "runPlan", description: "提交刚读取的 ready 计划，立即返回持久任务 ID。后续用 getJobStatus 观察，不能以超时为由另建任务。", parameters: z.object({ planId: z.string().regex(/^[a-f0-9]{64}$/), requestKey: factoryId }), execute: args => perform(() => runPlan(args.planId, args.requestKey)) });
