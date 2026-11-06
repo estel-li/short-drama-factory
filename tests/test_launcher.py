@@ -3,6 +3,7 @@ import unittest
 import json
 import os
 import subprocess
+import shutil
 import venv
 import threading
 import time
@@ -39,7 +40,9 @@ class LauncherTests(unittest.TestCase):
             root.mkdir()
             venv.EnvBuilder(with_pip=False).create(root / '.venv')
             (root / 'launcher').mkdir()
-            (root / 'launcher/start.py').write_text(
+            source_root = Path(__file__).resolve().parent.parent
+            shutil.copy2(source_root / 'launcher/start_windows.ps1', root / 'launcher/start_windows.ps1')
+            (root / 'launcher/prepare.py').write_text(
                 'import json,os,sys\nfrom pathlib import Path\n'
                 'Path("called.json").write_text(json.dumps(sys.argv[1:]),encoding="utf-8")\n'
                 'print("launcher reached",flush=True)\nsys.exit(int(os.environ["FACTORY_STUB_EXIT"]))\n', encoding='utf-8')

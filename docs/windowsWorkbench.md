@@ -14,7 +14,20 @@ git log -1 --oneline
 
 使用新目录可保留原有安装与项目。源码包含 Silero VAD CPU 质检模型，不包含生图／视频大模型、私人配置、API Key、运行环境和之前生成的媒体。
 
-## 2. 准备 Python 后端
+## 2. 双击自动准备并启动
+
+Windows x64 直接双击根目录 `启动短剧工厂.cmd`。首次启动自动完成：
+
+1. 复用本目录 `runtime/python.exe` 或 `.venv/Scripts/python.exe`；都不存在时，从 Python 官方下载并校验 Python 3.13.16 嵌入式运行库，放入 `runtime/`。
+2. 核对 `requirements.lock.txt`，安装缺少或版本不一致的 Python 依赖。
+3. 复用 Bun；需要源码构建时使用 `workbench/package.json` 锁定的版本（当前 1.4.3）。缺少时从 Bun 官方下载 Windows x64 baseline 版本并核对 SHA256，存为 `runtime/bun.exe`。
+4. 工作台尚未完整构建或上次构建中断时，执行 `bun --bun install --frozen-lockfile` 与 `bun --bun run build:server`，使用 Bun 执行构建工具，随后启动生产 API 和新画布并打开浏览器。
+
+无需预装 Python、Bun、Node.js 或管理员权限。首次准备需要联网和目录写入权限，下载、Python 安装缓存及临时文件在 `data/`，应用运行环境在 `runtime/`；不改系统 Python 或系统 PATH。启动器不会下载 ComfyUI 或生成模型，也不修改用户模型连接。完整便携包、手动配置好的环境与现有完整构建会直接复用。
+
+准备过程显示在启动窗口并记录到 `logs/startup.log`。失败或关闭窗口后可再次双击重试；成功下载的运行库和安装缓存会复用。初始化期间再次双击会提示已有启动窗口正在准备。`--serve-only` 仅准备 Python 后端，不下载 Bun 或构建画布。更新源码后已有完整构建不会自动重建，开发者应按下一节显式重新构建。
+
+### 可选：手动准备 Python 后端
 
 准备 Python 3.13，然后在仓库根目录执行：
 
@@ -25,14 +38,14 @@ py -3.13 -m venv .venv
 
 没有 `py` 命令时，可用已有 Python 3.13 的完整路径替换 `py -3.13`。新版便携包已包含 Python 和依赖，可跳过源码准备步骤。
 
-## 3. 构建并启动画布工作台
+## 3. 可选：手动构建并启动画布工作台
 
 安装 [Bun](https://bun.sh/docs/installation)。本次开发验证使用 Bun 1.4.3；可先执行 `bun --version` 核对。在仓库根目录执行：
 
 ```powershell
 cd .\workbench
-bun install --frozen-lockfile
-bun run build:server
+bun --bun install --frozen-lockfile
+bun --bun run build:server
 ```
 
 构建成功后，在同一个终端执行：
@@ -56,7 +69,7 @@ cd ..
 
 新画布入口启动后端时不自动恢复旧队列；复用已经运行的后端时保留其现有队列模式。仅启动服务不提交生成或模型下载任务。重复启动会通过 `/api/launcher/status` 核对画布目录、数据目录和工厂连接，并通过 Python `/api/health` 核对实际应用目录。其他目录的实例或旧版画布占用端口时，明确提示冲突，不终止或接管其进程。
 
-启动器优先寻找 `runtime/bun.exe`、`runtime/bun/bun.exe`、`runtime/bun/node_modules/bun/bin/bun.exe`，最后寻找 PATH 中的 Bun。缺少依赖或构建时提示上述准备命令，不在双击启动时安装软件。后端日志为 `logs/panel.stdout.log`、`logs/panel.stderr.log`；画布日志为 `logs/workbench.stdout.log`、`logs/workbench.stderr.log`。浏览器关闭后服务继续运行。
+启动器优先寻找 `runtime/bun.exe`、`runtime/bun/bun.exe`、`runtime/bun/node_modules/bun/bin/bun.exe`，最后寻找 PATH 中的 Bun。CMD 入口会自动补齐首次启动所需环境；直接运行 `launcher/start.py` 或 `server.py` 仍只使用已有环境，缺少时提示手动准备命令。后端日志为 `logs/panel.stdout.log`、`logs/panel.stderr.log`；画布日志为 `logs/workbench.stdout.log`、`logs/workbench.stderr.log`。浏览器关闭后服务继续运行。
 
 开发时仍可在 `workbench/` 使用 `bun run start:server` 或 `bun run dev`，并显式设置 `SDF_BASE_URL`、`SDF_APPLICATION_ROOT`、`SDF_COMFY_URL` 与 `TOONFLOW_SERVER_PORT` 等变量；保存的模型连接优先于环境变量。ComfyUI 在新画布设置页按需启动。
 
@@ -122,6 +135,8 @@ Qwen 图生图用法：单独选择“Qwen Image 2.1 Turbo · 图生图（单图
 这两套是整图重绘流程，不是蒙版局部编辑，也不保证像 Qwen 编辑模型一样精确执行对象修改。未接图、接入多张图片或重绘强度超出范围时，在提交 GPU 任务前明确报错。再次加入同名方案可更新其 Checkpoint；默认文生图及视频设置保留。
 
 ## 当前验证边界与已知问题
+
+2026-11-06 补充源码首次双击验证：在没有项目 Python、Bun、依赖和构建的克隆目录，CMD 自动完成运行环境下载、锁定依赖安装、完整工作台构建及两个服务启动，页面显示“快速开始”。随后从本次启动进程的 PATH 中移除系统 Python、Bun 和 Node.js，使用项目内运行库再次完整构建并启动成功；重复启动复用服务，`--serve-only --port 8770` 正常，生产队列保持 stopped。启动器现有 7 项回归检查通过，覆盖中文／空格／特殊字符路径、参数与失败退出码传递。本轮验证范围为安装与启动，不代表重新验证模型生成或完整便携包发行。
 
 根目录启动已在本机实际验证：从无 3001／8770 服务的状态启动两个服务，画布身份接口核对正确的工作台、数据目录及工厂目录；重复执行 CMD 与 `server.py` 复用同一进程。占用画布端口、API 端口与保存配置冲突、无效端口均返回失败；`--serve-only --port 8770` 仍正常复用 API，队列保持 stopped。当前轮次未构建完整 Windows 便携包，打包和发布脚本变更还需随下一次发行验证。
 

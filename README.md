@@ -6,9 +6,11 @@
 
 ## 启动
 
-双击根目录 **`启动短剧工厂.cmd`**，自动打开新工作台（默认 http://127.0.0.1:3001），并启动本目录生产 API（首次默认 8770）。`python server.py` 使用同一入口。重复启动会核对并复用实例，不自动恢复旧队列。
+双击根目录 **`启动短剧工厂.cmd`** 即可。Windows x64 源码首次启动会自动下载项目专用 Python 和 Bun、安装锁定依赖并构建工作台；请联网并保持窗口打开，首次准备可能需要数分钟。不需要提前安装 Python、Bun 或 Node.js，也不需要管理员权限。完整便携包与已准备好的源码直接复用现有环境。
 
-源码首次安装，在 PowerShell 执行：
+准备完成后自动打开新工作台（默认 http://127.0.0.1:3001），并启动本目录生产 API（首次默认 8770）。重复启动会核对并复用实例，不自动恢复旧队列。安装中断或失败后可再次双击重试，详情见 `logs/startup.log`。自动准备只包含应用运行依赖；ComfyUI、生成模型及认证在工作台中另行配置。
+
+开发者也可手动准备环境，在 PowerShell 执行：
 
 ```powershell
 git clone https://github.com/estel-li/short-drama-factory.git
@@ -16,13 +18,13 @@ cd short-drama-factory
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
 cd workbench
-bun install --frozen-lockfile
-bun run build:server
+bun --bun install --frozen-lockfile
+bun --bun run build:server
 cd ..
 .\启动短剧工厂.cmd
 ```
 
-Bun 需先安装；本项目当前验证版本为 1.4.3。新版便携包构建包含 Python、Bun、新工作台和 Silero VAD CPU 质检模型；ComfyUI、生成大模型及认证另行配置。源码不包含这些大型运行库。
+手动安装需先准备 Python 3.13 和 Bun 1.4.3；`python server.py` 复用已准备的环境。自动准备的运行环境、下载缓存和依赖保存在本项目目录，不修改系统 Python 或系统 PATH。新版便携包构建包含 Python、Bun、新工作台和 Silero VAD CPU 质检模型。
 
 参数：`--no-browser` 不打开浏览器；`--workbench-port 3002` 指定画布端口；`--port` 指定与保存配置一致的生产 API 端口。`--serve-only --port 8770` 仅启动 API，省略端口仍兼容外部 CLI 的原默认 8765。
 
