@@ -41,8 +41,10 @@ import * as directoryPicker from "@/utils/directoryPicker";
 import * as comfyEnvironment from "@/utils/comfyEnvironment";
 import * as modelSearch from "@/utils/modelSearch";
 import * as comfyWorkflows from "@/utils/comfyWorkflows";
+import * as h3Factory from "@/utils/h3Factory";
 
 export default {
+  h3Factory,
   comfyWorkflows,
   modelSearch,
   comfyEnvironment,

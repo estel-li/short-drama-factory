@@ -2,13 +2,13 @@
 
 > **让 AI 操作本项目：先读 [AGENTS.md](AGENTS.md)，再按 [视频制作 Skill](agent-skills/short-drama-factory/SKILL.md) 执行。** 内含调用脚本、请求模板、故障诊断与成片验收。Claude、Gemini 也有根目录入口文件。
 
-一个由 AI 工具驱动的本地视频生产服务。用户在 Codex、Claude、Gemini 或其他本机 AI 中提出需求，通过 Skill、命令行与 API 完成创作、素材绑定、生成、修复和交付。图形工作台作为可选的审片与高级编辑界面。
+以画布工作流为主入口的本地短剧创作工作台。用户在画布连接图片、文本、生成节点和 H3 工厂节点，通过内置 Agent 完成创作、素材绑定、生成、修复和交付；也可在 Codex、Claude、Gemini 等外部 AI 中通过 Skill、命令行与 API 操作同一生产后端。
 
 默认由当前 AI 编写分镜和 H3 提示词，严格渲染不会调用内部文字模型。需要工厂代写时，可显式选择 DeepSeek、Ollama、LM Studio 或兼容服务，分别配置大纲、分镜与提示词阶段。
 
-**当前版本：4.2.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+**当前画布里程碑：5.0.0 Beta 1；Python 生产 API 版本：4.2.0。** 应用代码采用 [MIT 协议](LICENSE)。模型、上游参考文档与第三方工具分别遵循其自身许可，详见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
-![2.3 创作工作台](docs/images/ui-workspace.jpg)
+双击根目录 **`启动短剧工厂.cmd`** 打开新画布（默认 `http://127.0.0.1:3001`），启动器同时启动本目录的 Python 生产 API；默认不恢复旧队列。源码首次使用需要先构建工作台，见 [安装与启动](docs/windowsWorkbench.md)。
 
 ## 功能
 
@@ -94,13 +94,13 @@
 
 多个项目可用 `batch --json batches.json --request-key batch-1` 逐项提交已创建的计划。批次不是原子事务：某项失败不取消其他项，输出独立回执；仅显式 `--retry-unknown` 才补交未知结果。输入格式及恢复方式见 [CLI 参考](agent-skills/short-drama-factory/references/cli.md#批量提交已有计划)。
 
-## 安装应用与可选工作台
+## 安装应用与画布工作台
 
 ### 新画布工作台（Windows 测试版）
 
 新版画布、预装插件以及文本／视频／图片模型配置位于 [`workbench/`](workbench/README.md)，与 Python 生产后端一起收录在本仓库。重新克隆 `main` 即可取得两部分源码，不需要单独克隆上游项目。
 
-Windows 全新目录安装、启动端口和已知问题见 [Windows 工作台测试说明](docs/windowsWorkbench.md)。新工作台使用 Bun 构建，Python 后端与 ComfyUI 分别运行；原有入口仍在下文。
+Windows 全新目录安装、启动端口和已知问题见 [Windows 工作台说明](docs/windowsWorkbench.md)。根目录入口统一启动 Bun 画布服务与 Python 后端，ComfyUI 在设置页按需启动。
 
 ### 1. 从源码安装应用
 
@@ -111,16 +111,22 @@ git clone https://github.com/estel-li/short-drama-factory.git
 cd short-drama-factory
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
-.\.venv\Scripts\python.exe .\launcher\start.py --serve-only
+cd workbench
+bun install --frozen-lockfile
+bun run build:server
+cd ..
+.\启动短剧工厂.cmd
 ```
 
---serve-only 启动 API 后，按前文绑定 Skill 即可制作。需要图形工作台时访问 <http://127.0.0.1:8765>；关闭网页后任务仍会继续。再次启动会复用同目录服务，端口冲突时指定 --port 8770。启动入口直接使用应用 Python，无需修改 PowerShell 执行策略。
+需预先安装 Bun。画布默认端口为 `3001`，Python API 沿用工作台保存的本机连接，首次默认 `8770`。再次启动会核对目录并复用同一实例。`--workbench-port 3002` 可指定画布端口；`--port` 指定生产 API 端口，不能与已保存连接冲突。关闭网页后已提交任务继续运行。
 
-Windows 便携包包含应用 Python 和依赖，解压到可写目录后可从前文的 CLI 启动；ComfyUI、模型和认证信息另行配置。双击 `启动短剧工厂.cmd` 使用传统启动方式并打开工作台，也会恢复旧队列。仓库不包含这些大型运行文件。
+外部 AI 的 `--serve-only` 用法保持兼容，仅启动 API（未指定端口时仍为 `8765`）；连接默认画布的后端时使用 `--serve-only --port 8770`。旧页面通过 `启动短剧工厂.cmd --legacy-ui --port 8770` 显式访问。新入口与 `python server.py` 均默认打开画布，不自动安装依赖或下载生成模型。
+
+新版 Windows 便携包打包链路包含 Python、Bun、工作台构建和 Silero VAD 质检模型。源码仓库不包含这些大型运行库；ComfyUI、生成模型和认证信息另行配置。
 
 ### 2. 连接生成环境
 
-打开“模型与环境”，选择一种方式：
+新画布在“设置 → ComfyUI 环境”中管理安装与启动，在图片／视频模型设置中选择内置工作流，具体见 [工作台模型配置](docs/windowsWorkbench.md#4-配置模型)。下述“模型与环境”等页面名称属于旧页面的兼容功能参考：
 
 - **已有本地环境**：填写 ComfyUI 根目录、它的 Python 路径、服务地址和模型搜索目录。预览安装清单后复用模型，工作台自启引擎时会加载随包缓存节点。已有服务需重新启动以加载新增模型路径；手动启动 ComfyUI 的用户仍需自行安装或更新缓存节点。
 - **从零安装**：指定安装目录、模型目录和已有模型搜索目录，预览下载清单后开始安装。按清单下载官方 ComfyUI、需要的模型与推理依赖；支持校验和断点恢复。

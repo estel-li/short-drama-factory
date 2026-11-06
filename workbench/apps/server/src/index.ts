@@ -22,6 +22,7 @@ const app = await createApp({
   providersRoot: resolve(appDirectory, fromSource ? "packages/providers/src" : "build/providers"),
   skillsRoot: resolve(appDirectory, fromSource ? "packages/skills" : "build/skills"),
 });
+app.locals.workbenchRoot = appDirectory;
 const { initializeMcpRuntime } = await import("./utils/mcp/runtime");
 const { startMobileLinkRuntime } = await import("./utils/mobileLink");
 const { startMultiTenantRuntime } = await import("./utils/multiTenant");

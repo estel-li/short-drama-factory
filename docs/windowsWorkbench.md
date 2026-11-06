@@ -1,6 +1,6 @@
-# Windows 新工作台测试
+# Windows 画布工作台安装与启动
 
-本仓库包含两部分：根目录是 Python H3 生产后端；`workbench/` 是新画布工作台，包含预装插件和文本／视频／图片模型配置。工作台是测试版本，已知问题列在文末。
+本仓库包含两部分：根目录的 Python H3 后端提供生产 API；`workbench/` 新画布承载交互、Agent、预装插件和文本／视频／图片模型配置。根目录 `启动短剧工厂.cmd` 与 `server.py` 默认启动新画布，已知问题列在文末。
 
 ## 1. 在新目录拉取主线
 
@@ -12,25 +12,22 @@ cd short-drama-factory-test
 git log -1 --oneline
 ```
 
-使用新目录可保留原有安装与项目。源码不包含模型、私人配置、API Key、运行环境和之前生成的媒体。
+使用新目录可保留原有安装与项目。源码包含 Silero VAD CPU 质检模型，不包含生图／视频大模型、私人配置、API Key、运行环境和之前生成的媒体。
 
-## 2. 启动 Python 后端
+## 2. 准备 Python 后端
 
 准备 Python 3.13，然后在仓库根目录执行：
 
 ```powershell
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.lock.txt
-.\.venv\Scripts\python.exe .\launcher\start.py --serve-only --port 8770
 ```
 
-没有 `py` 命令时，可用已有 Python 3.13 的完整路径替换 `py -3.13`。保留此终端运行。这里使用 `8770`，以便与旧实例常用的 `8765` 区分。
-
-在 `http://127.0.0.1:8770` 配置已有 ComfyUI 的安装目录、Python 路径和模型搜索目录。复用已安装的模型即可；需要生成时再启动相应 ComfyUI 服务。
+没有 `py` 命令时，可用已有 Python 3.13 的完整路径替换 `py -3.13`。新版便携包已包含 Python 和依赖，可跳过源码准备步骤。
 
 ## 3. 构建并启动画布工作台
 
-安装 [Bun](https://bun.sh/docs/installation)。本次开发验证使用 Bun 1.4.3；可先执行 `bun --version` 核对。打开第二个 PowerShell 终端，在刚克隆的仓库根目录执行：
+安装 [Bun](https://bun.sh/docs/installation)。本次开发验证使用 Bun 1.4.3；可先执行 `bun --version` 核对。在仓库根目录执行：
 
 ```powershell
 cd .\workbench
@@ -41,15 +38,34 @@ bun run build:server
 构建成功后，在同一个终端执行：
 
 ```powershell
-$env:TOONFLOW_SERVER_HOST = '127.0.0.1'
-$env:TOONFLOW_SERVER_PORT = '3001'
-$env:SDF_BASE_URL = 'http://127.0.0.1:8770'
-$env:SDF_APPLICATION_ROOT = (Resolve-Path ..).Path
-$env:SDF_COMFY_URL = 'http://127.0.0.1:8188'
-bun run start:server
+cd ..
+.\启动短剧工厂.cmd
 ```
 
-浏览器打开 `http://127.0.0.1:3001`。以上环境变量沿用兼容名称；设置页保存的连接优先于环境变量。工作台配置与画布存放在 `workbench/data/`，不会读取另一安装目录的配置。
+启动器自动启动生产 API 和画布服务，浏览器打开 `http://127.0.0.1:3001`。生产 API 默认沿用 `workbench/data/settings.json` 中保存的工厂连接，未保存时使用 `8770`；只允许启动当前应用目录的本机 HTTP 工厂。工作台数据固定使用本目录 `workbench/data/`，Python 配置与项目仍使用根目录 `config/`、`data/`、`projects/`。
+
+| 参数 | 行为 |
+| --- | --- |
+| 不带参数 | 启动／复用当前目录的两个服务，打开新画布 |
+| `--no-browser` | 启动两个服务，不打开浏览器 |
+| `--workbench-port 3002` | 指定画布端口，默认 3001 |
+| `--port 8770` | 指定生产 API 端口；与已保存连接冲突时明确报错，不覆盖设置 |
+| `--serve-only --port 8770` | 仅启动 API，不要求 Bun 或画布构建；省略端口仍保持 CLI 原默认 8765 |
+| `--legacy-ui --port 8770` | 显式打开旧页面；新启动后端时沿用旧队列恢复行为 |
+
+新画布入口启动后端时不自动恢复旧队列；复用已经运行的后端时保留其现有队列模式。仅启动服务不提交生成或模型下载任务。重复启动会通过 `/api/launcher/status` 核对画布目录、数据目录和工厂连接，并通过 Python `/api/health` 核对实际应用目录。其他目录的实例或旧版画布占用端口时，明确提示冲突，不终止或接管其进程。
+
+启动器优先寻找 `runtime/bun.exe`、`runtime/bun/bun.exe`、`runtime/bun/node_modules/bun/bin/bun.exe`，最后寻找 PATH 中的 Bun。缺少依赖或构建时提示上述准备命令，不在双击启动时安装软件。后端日志为 `logs/panel.stdout.log`、`logs/panel.stderr.log`；画布日志为 `logs/workbench.stdout.log`、`logs/workbench.stderr.log`。浏览器关闭后服务继续运行。
+
+开发时仍可在 `workbench/` 使用 `bun run start:server` 或 `bun run dev`，并显式设置 `SDF_BASE_URL`、`SDF_APPLICATION_ROOT`、`SDF_COMFY_URL` 与 `TOONFLOW_SERVER_PORT` 等变量；保存的模型连接优先于环境变量。ComfyUI 在新画布设置页按需启动。
+
+### 项目结构与后续迁移边界
+
+- `workbench/`：交互主入口、画布、Agent、模型设置和节点插件。新增交互优先落在这里。
+- `app/`、`pipeline.py`、`workflows/`：保留生产 API、任务持久化、缓存、续跑、后期及交付。画布通过 H3 工厂节点调用，避免维护第二套渲染状态。
+- `web/`：旧页面兼容层，不再作为默认入口。整剧批量、部分高级后期与旧配置编辑尚未完整迁到画布，暂通过 API／Skill 或旧页面使用。
+- `agent-skills/`：外部 AI 的独立接口，`--serve-only` 与 agent 协议保持兼容。
+- 发布链路先显式安装 Bun、构建工作台，再打包 Python、Bun、`workbench/build` 和固定 VAD 文件。启动器不会把用户 `workbench/data` 打入包；发布校验仅放行指定 VAD 文件。完整便携包需在发布前单独构建验证。
 
 ## 4. 配置模型
 
@@ -105,6 +121,8 @@ Qwen 图生图用法：单独选择“Qwen Image 2.1 Turbo · 图生图（单图
 这两套是整图重绘流程，不是蒙版局部编辑，也不保证像 Qwen 编辑模型一样精确执行对象修改。未接图、接入多张图片或重绘强度超出范围时，在提交 GPU 任务前明确报错。再次加入同名方案可更新其 Checkpoint；默认文生图及视频设置保留。
 
 ## 当前验证边界与已知问题
+
+根目录启动已在本机实际验证：从无 3001／8770 服务的状态启动两个服务，画布身份接口核对正确的工作台、数据目录及工厂目录；重复执行 CMD 与 `server.py` 复用同一进程。占用画布端口、API 端口与保存配置冲突、无效端口均返回失败；`--serve-only --port 8770` 仍正常复用 API，队列保持 stopped。当前轮次未构建完整 Windows 便携包，打包和发布脚本变更还需随下一次发行验证。
 
 显卡命令面板已验证功率／频率切换、GPU 编号、命令复制与恢复命令生成；非法编号、负功率和小数频率被拦截。当前进程执行只读 `nvidia-smi` 查询提示权限不足，未实际执行功率或频率修改，也未验证硬件限频效果。Silero VAD 文件与既有清单大小、SHA256 一致，`ensure_model(download=False)` 已确认直接复用本地文件。
 

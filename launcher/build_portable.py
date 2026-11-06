@@ -63,6 +63,13 @@ def copy_windows_batch(source, target):
 
 
 def build():
+    from launcher.start import findBun, workbenchBuild
+    workbench = workbenchBuild(ROOT)
+    bun = Path(findBun(ROOT)).resolve()
+    qualityModel = read_json(ROOT / 'manifests/quality.json')['model']
+    qualityPath = ROOT / 'data/quality' / qualityModel['filename']
+    if not Downloader().verified(qualityPath, qualityModel['size'], qualityModel['sha256']):
+        raise RuntimeError('仓库内 Silero VAD 模型缺失或校验失败，请先恢复已跟踪的模型文件。')
     dist = ROOT / 'dist'
     build = dist / ('build-' + time.strftime('%Y%m%d_%H%M%S') + '-' + uuid.uuid4().hex[:6])
     package = build / '短剧工厂'
@@ -115,6 +122,12 @@ def build():
                     path.write_bytes(source.read(item))
     for name in ('app', 'web', 'presets', 'manifests', 'nodes', 'launcher', 'tools', 'resources', 'docs'):
         shutil.copytree(ROOT / name, package / name, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.tmp'))
+    shutil.copytree(workbench / 'build', package / 'workbench/build')
+    shutil.copy2(workbench / 'LICENSE', package / 'workbench/LICENSE')
+    shutil.copy2(workbench / 'README.md', package / 'workbench/README.md')
+    shutil.copy2(bun, runtime / 'bun.exe')
+    (package / 'data/quality').mkdir(parents=True)
+    shutil.copy2(qualityPath, package / 'data/quality' / qualityModel['filename'])
     from launcher.seed_resources import seed
     seed(package)
     copy_agent_entrypoints(package)
@@ -127,8 +140,8 @@ def build():
             shutil.copy2(ROOT / name, package / name)
     write_json(package / 'package.json', {'version': VERSION, 'python': PYTHON_VERSION, 'python_sha256': checksum,
         'created_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'platform': 'Windows x64', 'models_included': False,
-        'credentials_included': False})
-    (package / 'README.md').write_text('# 短剧工厂便携版\n\n> **AI 操作入口：[AGENTS.md](AGENTS.md) → [操作技能](agent-skills/short-drama-factory/SKILL.md)。**\n\n解压到可写目录后，让本机 AI 读取技能。可用 `runtime/python.exe agent-skills/short-drama-factory/scripts/sdf.py start --app .` 启动仅提供 API 的服务，再用 doctor 检查环境。图形工作台可通过“启动短剧工厂.cmd”打开；普通启动会恢复旧队列。模型、ComfyUI、API key 和 HF token 单独配置，标准包不含模型、凭证或私人项目。详见技能中的连接、资源准备与制作说明。\n', encoding='utf-8')
+        'credentials_included': False, 'workbench_included': True, 'quality_models': [qualityModel['filename']]})
+    (package / 'README.md').write_text('# 短剧工厂便携版\n\n双击“启动短剧工厂.cmd”打开新版画布工作台（默认 http://127.0.0.1:3001），同时启动本目录生产 API（默认 8770）；不自动恢复旧队列。包含 Python、Bun、画布构建及 Silero VAD CPU 质检模型。ComfyUI、生图／视频大模型和认证信息单独配置。\n\n外部 AI 操作入口：[AGENTS.md](AGENTS.md) → [操作技能](agent-skills/short-drama-factory/SKILL.md)。`runtime/python.exe agent-skills/short-drama-factory/scripts/sdf.py start --app . --port 8770` 可仅启动 API。详见 [使用说明](使用说明.md)。\n', encoding='utf-8')
     subprocess.run([str(runtime / 'python.exe'), '-c', 'import fastapi,uvicorn,av,httpx,psutil,numpy,onnxruntime; import app.api; print("portable imports passed")'], cwd=package, check=True, env=build_env)
     output = dist / (f'短剧工厂-v{VERSION}-Windows-x64-' + time.strftime('%Y%m%d_%H%M%S') + '.zip')
     with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=5) as archive:
@@ -136,7 +149,8 @@ def build():
             if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':
                 if any(name in path.parts for name in ('.secrets', 'projects', 'logs', 'data', 'config')):
                     # 顶层业务数据；第三方库中的同名目录不在此范围内。
-                    if path.relative_to(package).parts[0] in ('.secrets', 'projects', 'logs', 'data', 'config'):
+                    if (path.relative_to(package).parts[0] in ('.secrets', 'projects', 'logs', 'data', 'config')
+                            and path.relative_to(package).as_posix() != 'data/quality/' + qualityModel['filename']):
                         continue
                 archive.write(path, str(path.relative_to(build)))
     receipt = {'archive': str(output), 'build': str(package), 'size': output.stat().st_size,

@@ -6,6 +6,8 @@
 
 默认由当前 AI 编写分镜与 H3 提示词，使用 `scripts/sdf.py` 连接指定实例并创建严格执行计划。接口 agent 协议为 1；核对 health.application_root 与 capabilities，不将发布源码目录误当正在运行的实例。图形工作台用于可选预览和编辑，不是必需步骤。
 
+交互式主入口是根目录 `启动短剧工厂.cmd`，默认启动 `workbench/` 新画布与本目录 Python 生产 API；`server.py` 使用同一入口。外部 AI 的 `--serve-only` 保持仅 API 模式。启动、构建及兼容页面边界见 [Windows 工作台说明](docs/windowsWorkbench.md)。
+
 - 首次接入／安装：[AI 接入说明](docs/ai-agent-usage.md)。
 - 学习参考影片并生成用户风格技能：[导演风格 Skill](agent-skills/director-style/SKILL.md)；默认风格迁移到新故事，仿拍需用户明确要求。
 - CLAUDE.md、GEMINI.md 只指向本入口，不维护另一套操作流程。

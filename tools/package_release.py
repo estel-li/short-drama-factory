@@ -35,8 +35,16 @@ def prepare():
         forbidden = {'.git', '.venv', '.secrets', '.sdf', 'config', 'data', 'models', 'projects', 'logs'}
         for name in package.namelist():
             parts = Path(name).parts
+            if name == '短剧工厂/data/quality/silero_vad.onnx':
+                if package.read(name) != (ROOT / 'data/quality/silero_vad.onnx').read_bytes():
+                    raise ValueError('Bundled Silero VAD differs from the repository model.')
+                continue
             if len(parts) > 1 and (parts[1] in forbidden or parts[1].startswith('.env') or parts[1] == 'config.json'):
                 raise ValueError('Private runtime data found in portable archive: ' + name)
+            if len(parts) > 2 and parts[1] == 'workbench' and parts[2] not in ('build', 'LICENSE', 'README.md'):
+                raise ValueError('Unexpected workbench runtime data found in portable archive: ' + name)
+        for required in ('workbench/build/server/index.js', 'workbench/build/web/index.html', 'runtime/bun.exe', 'data/quality/silero_vad.onnx'):
+            package.getinfo('短剧工厂/' + required)
         for folder in ('app', 'web', 'manifests', 'nodes', 'agent-skills', 'tools'):
             for source in (ROOT / folder).rglob('*'):
                 if source.is_file() and '__pycache__' not in source.parts and source.suffix not in ('.pyc', '.pyo'):
@@ -73,7 +81,7 @@ def prepare():
     section = changelog.split('## ' + VERSION + ' · ', 1)[1].split('\n## ', 1)[0].strip()
     title, body = section.split('\n', 1)
     notes = f'短剧工厂 **v{VERSION}** · {title}\n\n{body.strip()}\n\n'
-    notes += ('## 下载与校验\n\nWindows x64 便携包内含 Python 与应用依赖；模型、ComfyUI 和认证另行配置。'
+    notes += ('## 下载与校验\n\nWindows x64 便携包内含 Python、Bun、新画布工作台与 Silero VAD CPU 模型；生成大模型、ComfyUI 和认证另行配置。'
               '两个独立 Skill ZIP 可单独安装，附件摘要见 SHA256SUMS。'
               '升级前退出旧工作台并备份配置与项目，保留个人配置、凭证、模型和项目目录。\n')
     (output / 'release-notes.md').write_text(notes, encoding='utf-8')

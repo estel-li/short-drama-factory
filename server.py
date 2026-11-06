@@ -1,5 +1,6 @@
 """Compatibility entry: use the independent application runtime."""
 import os
+import sys
 from pathlib import Path
 
 if __name__ == '__main__':
@@ -9,4 +10,4 @@ if __name__ == '__main__':
         executable = root / '.venv/Scripts/python.exe'
     if not executable.is_file():
         raise RuntimeError('Use the Windows portable package or install the independent application runtime.')
-    os.execv(str(executable), [str(executable), '-u', str(root / 'launcher/serve.py')])
+    os.execv(str(executable), [str(executable), '-X', 'utf8', '-u', str(root / 'launcher/start.py'), *sys.argv[1:]])
