@@ -78,6 +78,7 @@
           <el-button type="primary" :loading="pending === 'install'" :disabled="busy || !!pending || !!installBlock" @click="beginInstall">确认下载并安装</el-button>
         </div>
       </el-tab-pane>
+      <el-tab-pane label="显卡功耗与频率" name="gpu"><gpuLimits /></el-tab-pane>
     </el-tabs>
     <el-collapse><el-collapse-item title="工厂连接设置" name="connection"><localConnection :visible="visible" /></el-collapse-item></el-collapse>
   </div>
@@ -91,6 +92,7 @@ import http from "@/lib/http";
 import { saveSettings } from "@/stores/settings";
 import localConnection from "../mediaModel/localConnection.vue";
 import modelSearch from "./modelSearch.vue";
+import gpuLimits from "./gpuLimits.vue";
 
 type Environment = { comfy_dir: string; python: string; comfy_url: string; mode: string };
 type State = {

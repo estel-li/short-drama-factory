@@ -20,6 +20,11 @@ runtime/
 engines/
 models/
 data/
+!/data/
+/data/*
+!/data/quality/
+/data/quality/*
+!/data/quality/silero_vad.onnx
 dist/
 *.pyc
 *.part

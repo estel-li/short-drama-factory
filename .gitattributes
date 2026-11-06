@@ -10,6 +10,7 @@
 *.ps1 text eol=lf
 *.cmd text eol=crlf
 *.exe binary
+*.onnx binary
 # Upstream files have recorded byte hashes; preserve their original bytes.
 skills/**/references/** -text
 resources/builtin_skills/**/references/** -text

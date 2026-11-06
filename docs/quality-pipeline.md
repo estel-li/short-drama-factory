@@ -34,7 +34,7 @@ H3 的采样、参考素材与实际末帧接续继续由原有 ComfyUI 流程�
 
 ## 人声与 RMS 的职责
 
-Silero VAD 6.2.1 使用 CPU、16kHz 单声道与独立的每镜状态。约 2.3MB 模型首次需要时从固定官方提交下载，核对大小和 SHA256；不使用 ComfyUI 显存。
+Silero VAD 6.2.1 使用 CPU、16kHz 单声道与独立的每镜状态。仓库自带约 2.3MB 的 `data/quality/silero_vad.onnx`，按 `manifests/quality.json` 核对大小和 SHA256 后直接复用；缺失或校验不通过时仍使用原有下载流程。不使用 ComfyUI 显存。
 
 RMS 采用相对底噪阈值，保留较严与放松阈值两套能量活动区间。环境声铺满全片时，能量活动不等于人声。自动剪辑依赖 VAD 的较宽保护区间，不直接用 RMS 切人声。
 
