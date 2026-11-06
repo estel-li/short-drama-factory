@@ -1,0 +1,4 @@
+interface:
+  display_name: "剧本创作工作室"
+  short_description: "从剧本开发到 AI 分镜、Seedance 提示词和后期配乐"
+  default_prompt: "使用 fuyaoai-vip，从项目开发、剧本写作、资产库、AI 分镜、Seedance 2.0 提示词到后期 BGM 和声音设计完整推进。"

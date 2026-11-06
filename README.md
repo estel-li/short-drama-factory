@@ -96,6 +96,12 @@
 
 ## 安装应用与可选工作台
 
+### 新画布工作台（Windows 测试版）
+
+新版画布、预装插件以及文本／视频／图片模型配置位于 [`workbench/`](workbench/README.md)，与 Python 生产后端一起收录在本仓库。重新克隆 `main` 即可取得两部分源码，不需要单独克隆上游项目。
+
+Windows 全新目录安装、启动端口和已知问题见 [Windows 工作台测试说明](docs/windowsWorkbench.md)。新工作台使用 Bun 构建，Python 后端与 ComfyUI 分别运行；原有入口仍在下文。
+
 ### 1. 从源码安装应用
 
 在 PowerShell 中执行：

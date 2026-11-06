@@ -1,0 +1,67 @@
+[
+  {
+    "source": "353e74da-b844-4ac7-bfa8-0c540fe4e18d.js",
+    "path": "nodes/characterStylingNode.umd.js",
+    "sha256": "246333bb3e5cdddd22a22be76ea43aab1658a7dc982f3c7ac082ae7baaf7a7c0",
+    "bundledSha256": "9cf3bf4102a8e9e9a27eb92ecb34e7c0a36d656016845cca78ffe0da7f5bc8d0"
+  },
+  {
+    "source": "b7516825-1cb0-4a03-94c5-825ff5934061.js",
+    "path": "nodes/comfyuiNode.umd.js",
+    "sha256": "68c1649049efa485d01940928dce1ba16f70fd4976768290e55ca8eb549a4cd9",
+    "bundledSha256": "615f733287adfdc9a4b4cb0c8b02f2eb622c2053bee7635692d89b22f4c4434d"
+  },
+  {
+    "source": "c527b40a-2718-4af3-9a86-8e6057718b67.js",
+    "path": "ext/ext-scriptEpisodes.umd.js",
+    "sha256": "442a016e152a76db63153594c83b5c53b0e809ac2e03578ff49a8b8165e11895",
+    "bundledSha256": "442a016e152a76db63153594c83b5c53b0e809ac2e03578ff49a8b8165e11895"
+  },
+  {
+    "source": "directorLens.tool.js",
+    "path": "tools/directorLens.tool.js",
+    "sha256": "dc61c825d196dde6ff0c490862177a94ecf033007d5470d1f48abf3577bbd25f",
+    "bundledSha256": "dc61c825d196dde6ff0c490862177a94ecf033007d5470d1f48abf3577bbd25f"
+  },
+  {
+    "source": "novelToTxt.tool.js",
+    "path": "tools/novelToTxt.tool.js",
+    "sha256": "f2c3db79bc1e66b66d3ffab7cad27aff3585caefa78309b0ea45fb795f87f247",
+    "bundledSha256": "f2c3db79bc1e66b66d3ffab7cad27aff3585caefa78309b0ea45fb795f87f247"
+  },
+  {
+    "source": "sd-script-engine.zip",
+    "path": "skills/scriptEngine",
+    "sha256": "459f9763bef5dc1596bc7099a1f0b1ff144f04385c1020d07ff3985266c74b7c",
+    "bundledSha256": "66add9891988b4a41f59bed1d3879aa821b51860e226e236406dbbd6c64a7662",
+    "hashFormat": "sha256(sorted relativePath + NUL + bytes + NUL)"
+  },
+  {
+    "source": "fuyaoai-vip.zip",
+    "path": "skills/scriptStudio",
+    "sha256": "d1f829b8dc57da07e43a3dddb6ca0b1dea7cc67a5b1db54289bc7af642648d52",
+    "bundledSha256": "2dd4231e0e694a796e56003625c5f0be6f336963bb27eb715c4381a3cd2e1465",
+    "hashFormat": "sha256(sorted relativePath + NUL + bytes + NUL)"
+  },
+  {
+    "source": "h3-prompt-writing.zip",
+    "path": "skills/h3PromptWriting",
+    "sha256": "401b701a8790d3d8fcf2f58e9902f77ab8832c2b2200cc5db844e86265560416",
+    "bundledSha256": "335c505c768f13f3b28746d26f3b836ad5bf696526a45f26c76fdbf2ef84eda9",
+    "hashFormat": "sha256(sorted relativePath + NUL + bytes + NUL)"
+  },
+  {
+    "source": "short-drama-factory-1.1.zip",
+    "path": "skills/dramaWriting",
+    "sha256": "6f983e4203b083beceae8d6b1b5bac2d9a4a7f48c652b8cf8ddf65a0aac39259",
+    "bundledSha256": "743c020f67bf6d08cf5511abdcf4e38ae8f4f47bd8c3407184806170228dbf4b",
+    "hashFormat": "sha256(sorted relativePath + NUL + bytes + NUL)"
+  },
+  {
+    "source": "71d0f4ee-e610-4bdb-8be8-5e93d213e24b.zip",
+    "path": "skills/cinematicDirector",
+    "sha256": "ed47573048d1db08aa9edf2ea85c4747dd516bade69c492b785b90758a101db8",
+    "bundledSha256": "ee56442ce7df5178d45bbcb6b4b6d91743f1c87c3a9d92812c9990775f5d68ee",
+    "hashFormat": "sha256(sorted relativePath + NUL + bytes + NUL)"
+  }
+]

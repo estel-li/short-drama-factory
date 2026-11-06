@@ -1,0 +1,409 @@
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { raceWithAbortSignal } from "@earendil-works/pi-ai/utils/abort";
+import type { AssistantMessage, AssistantMessageEvent, ImageContent, Message, TextContent } from "@earendil-works/pi-ai";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import { createHash, randomUUID } from "node:crypto";
+import { getAgentImageReference, getOffloadedImageText, readAgentImage, saveAgentImage } from "@/agent/runtime/imageAttachments";
+import type { AgentImageReference } from "@/agent/runtime/imageAttachments";
+import { getAgentTaskId } from "@/agent/runtime/sessions";
+import { getRequestFiles, type RequestFile } from "@/utils/ai/requestFiles";
+import { createFileTransport, FileRequestLimitError } from "@/utils/ai/files";
+import { getConfiguredProviders, publicAiMessage } from "@/utils/ai";
+import { createBillingUsageTracker } from "@/utils/ai/billingUsage";
+import { modelGateway, requireDirectModelAccess } from "@/utils/multiTenant/gateway";
+import type { ModelOutcome } from "@toonflow/multi-tenant-gateway/types";
+import { getRuntimeModelConfiguration } from "@/agent/runtime/model";
+import { t } from "@/lib/i18n";
+
+function contentHash(value: unknown) {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+export function configureAgentRequests(session: AgentSession, limits?: { maxRequestImageBytes?: number; maxRequestBytes?: number }, runSignal?: AbortSignal, onRetry?: (replyTo?: string) => void) {
+  const configured = getRuntimeModelConfiguration(session.modelRuntime);
+  if (configured?.route) session.setAutoRetryEnabled(false);
+  for (const value of Object.values(limits ?? {})) {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) throw new Error("图片请求预算必须为正安全整数");
+  }
+  const history = session.sessionManager;
+  const cwd = history.getCwd();
+  function wakeRetryForSteering() {
+    if (!runSignal?.aborted && session.isRetrying && session.agent.getQueuedMessages().steering.some(message => message.role === "user"
+      || (message.role === "custom" && message.customType === "agentMessage"))) {
+      session.abortRetry();
+    }
+  }
+  let retryMessage: { id: string; replyTo?: string } | undefined;
+  session.subscribe(event => {
+    if (event.type === "queue_update") wakeRetryForSteering();
+    if (event.type === "message_start" && event.message.role === "user") retryMessage = undefined;
+    if (event.type === "auto_retry_start") {
+      const branch = history.getBranch();
+      const entry = branch.findLast(entry => entry.type === "message" && entry.message.role === "assistant");
+      const task = branch.findLast(entry => Boolean(getAgentTaskId(entry)));
+      retryMessage = entry?.type === "message" && entry.message.role === "assistant" && entry.message.stopReason === "error"
+        ? { id: entry.id, replyTo: getAgentTaskId(task) } : undefined;
+      // SDK 在通知后才建立退避 controller；已有插话时立即唤醒，避免继续等重试计时。
+      queueMicrotask(wakeRetryForSteering);
+    }
+    if (event.type === "message_start" && event.message.role === "assistant" && event.message.stopReason !== "aborted" && retryMessage) {
+      // ACT: 真正开始下一次生成才替换失败片段；退避期间停止仍保留原回复，原始记录与用量不删除。
+      history.appendCustomEntry("toonflowRetriedMessage", { messageId: retryMessage.id });
+      const { replyTo } = retryMessage;
+      retryMessage = undefined;
+      onRetry?.(replyTo);
+    }
+  });
+  const afterToolCall = session.agent.afterToolCall;
+  let toolFailure: { error: unknown } | undefined;
+  session.agent.afterToolCall = async (call, signal) => {
+    signal = runSignal && signal ? AbortSignal.any([runSignal, signal]) : runSignal ?? signal;
+    if (signal?.aborted && call.isError) return call.result;
+    try {
+      signal?.throwIfAborted();
+      const observationId = randomUUID();
+      const content: (TextContent | ImageContent)[] = [];
+      for (const [index, part] of call.result.content.entries()) {
+        content.push(part.type === "image" ? await saveAgentImage(cwd, part, `tool:${observationId}:${index}`, signal) : part);
+      }
+      // ACT: 三个组合入口均禁用 Pi 扩展；先附件化再交原 hook，避免 SDK 二次缩放和重复尺寸说明。
+      const previous = await afterToolCall?.({ ...call, result: { ...call.result, content } }, signal);
+      const result: (TextContent | ImageContent)[] = [];
+      for (const [index, part] of (previous?.content ?? content).entries()) {
+        result.push(part.type === "image" ? await saveAgentImage(cwd, part, `hook:${observationId}:${index}`, signal) : part);
+      }
+      return { ...previous, content: result };
+    } catch (error) {
+      if (!signal?.aborted) toolFailure = { error };
+      throw error;
+    }
+  };
+
+  const streamFunction = session.agent.streamFunction;
+  session.agent.streamFunction = (model, context, options) => {
+    const operationSignal = options?.signal;
+    // SDK 压缩后可能创建新 controller；整轮取消仍约束后续摘要、正文和重试请求。
+    const signals = [runSignal, operationSignal].filter((signal): signal is AbortSignal => !!signal);
+    const streamSignal = AbortSignal.any(signals);
+    options = { ...options, signal: streamSignal };
+    const output = createAssistantMessageEventStream();
+    void (async () => {
+      let partial: AssistantMessage | undefined;
+      let hasOutput = false;
+      const usageTracker = createBillingUsageTracker(model.api);
+      const failure = (): ModelOutcome => !usageTracker.submitted() ? { kind: "notSubmitted" }
+        : usageTracker.rejected() ? { kind: "rejected", delivered: hasOutput } : { kind: "unknown" };
+      const publishMessage = (message: AssistantMessage, usageKnown = false) => configured?.execution
+        ? publicAiMessage(configured, message, usageKnown) as AssistantMessage : message;
+      async function execute(): Promise<Extract<AssistantMessageEvent, { type: "done" | "error" }>> {
+        if (!configured?.execution) requireDirectModelAccess();
+        options?.signal?.throwIfAborted();
+        if (toolFailure) { const { error } = toolFailure; toolFailure = undefined; throw error; }
+        if (configured?.route && (model.provider !== configured.publicProviderId || model.id !== configured.model.id)) {
+          throw new Error("模型路由与当前运行时不匹配");
+        }
+        const provider = configured?.route ? configured.provider : getConfiguredProviders().find(item => item?.id === model.provider);
+        const auth = await session.modelRuntime.getAuth(model, { apiKey: options?.apiKey, env: options?.env, signal: options?.signal });
+        const apiKey = options?.apiKey ?? auth?.auth.apiKey;
+        if (!configured?.route && model.provider.toLowerCase() === "toonflow" && (!provider || provider.apiKey !== apiKey)) {
+          throw new Error("短剧工厂 账号已变更，请重新发起请求");
+        }
+        const files = createFileTransport({
+          apiUrl: auth?.auth.baseUrl ?? model.baseUrl,
+          apiKey: apiKey ?? "",
+          protocol: model.api,
+          headers: Object.fromEntries([model.headers, auth?.auth.headers, options?.headers].flatMap(headers =>
+            Object.entries(headers ?? {}).map(([name, value]) => [name.toLowerCase(), value]))),
+        }, { fetch: configured?.execution ? usageTracker.fetch(options?.fetch ?? globalThis.fetch) : options?.fetch, signal: options?.signal });
+        const maxRequestImageBytes = limits?.maxRequestImageBytes ?? provider?.maxRequestImageBytes ?? 20 * 1024 * 1024;
+        const maxRequestBytes = limits?.maxRequestBytes ?? provider?.maxRequestBytes ?? 32 * 1024 * 1024;
+        for (const value of [maxRequestImageBytes, maxRequestBytes]) {
+          if (!Number.isSafeInteger(value) || value <= 0) throw new Error("图片请求预算必须为正安全整数");
+        }
+        const references = new Map<string, AgentImageReference>();
+        const offloaded = new Set<string>();
+        const invalidThinking = new Set<string>();
+        const branch = history.getBranch();
+        const messageEntries = new Map(branch.flatMap(entry => entry.type === "message" ? [[contentHash(entry.message), entry.id] as const] : []));
+        for (const entry of branch) {
+          if (entry.type !== "custom") continue;
+          if (entry.customType === "toonflowImageAttachment") {
+            const reference = getAgentImageReference({ type: "text", text: "", toonflowImage: entry.data });
+            if (!reference) throw new Error("历史图片附件记录无效");
+            references.set(reference.id, reference);
+          }
+          if (entry.customType === "toonflowImageOffload") {
+            const data = entry.data as { images?: unknown; thinking?: unknown } | null;
+            if (!data || !Array.isArray(data.images) || !data.images.every(id => typeof id === "string")
+              || !Array.isArray(data.thinking) || !data.thinking.every(id => typeof id === "string")) throw new Error("历史图片卸载记录无效");
+            for (const id of data.images) offloaded.add(id);
+            for (const id of data.thinking) invalidThinking.add(id);
+          }
+        }
+        const loaded = new Map<string, ImageContent>();
+        async function readImage(reference: AgentImageReference) {
+          if (!loaded.has(reference.path)) loaded.set(reference.path, await readAgentImage(cwd, reference, options?.signal));
+          return loaded.get(reference.path)!;
+        }
+        function recordOffload(ids: string[]) {
+          const images = ids.filter(id => !offloaded.has(id));
+          const thinking = context.messages.filter(message => message.role === "assistant" && message.content.some(part => part.type === "thinking"))
+            .map(contentHash).filter(key => !invalidThinking.has(key));
+          if (!images.length && !thinking.length) return false;
+          options?.signal?.throwIfAborted();
+          history.appendCustomEntry("toonflowImageOffload", { images, thinking });
+          for (const id of images) offloaded.add(id);
+          for (const key of thinking) invalidThinking.add(key);
+          return true;
+        }
+        function hasLaterAssistant(id: string) {
+          const entryId = id.startsWith("user:") ? id.split(":")[1] : id.startsWith("legacy:") ? id.split(":")[1] : undefined;
+          const index = branch.findIndex(entry => entry.id === entryId);
+          return index >= 0 && branch.slice(index + 1).some(entry => entry.type === "message" && entry.message.role === "assistant");
+        }
+        let networkRecoveries = 0;
+        for (;;) {
+          options?.signal?.throwIfAborted();
+          const imageQueue = new Map<string, AgentImageReference[]>();
+          const messages: Message[] = [];
+          for (const [messageIndex, message] of context.messages.entries()) {
+            if (message.role === "assistant" || typeof message.content === "string") { messages.push(message); continue; }
+            const content: (TextContent | ImageContent)[] = [];
+            for (const [index, part] of message.content.entries()) {
+              let reference = getAgentImageReference(part);
+              if ("toonflowImage" in part && !reference) throw new Error("图片附件引用无效");
+              if (part.type === "image") {
+                const entryId = messageEntries.get(contentHash(message)) ?? contentHash(message);
+                const id = `legacy:${entryId}:${index}`;
+                reference = references.get(id);
+                if (!reference) {
+                  const saved = await saveAgentImage(cwd, part, id, options?.signal);
+                  reference = saved.toonflowImage;
+                  history.appendCustomEntry("toonflowImageAttachment", reference);
+                  references.set(id, reference);
+                  // 附件路径文本也改变历史前缀；首次迁移时退出旧 thinking 链，后续新 thinking 正常保留。
+                  if (context.messages.slice(messageIndex + 1).some(item => item.role === "assistant")) recordOffload([]);
+                }
+              }
+              if (!reference) { content.push(part); continue; }
+              references.set(reference.id, reference);
+              if (offloaded.has(reference.id)) {
+                content.push({ type: "text", text: getOffloadedImageText(reference) });
+                continue;
+              }
+              const image = await readImage(reference);
+              const key = contentHash(image.data);
+              imageQueue.set(key, [...(imageQueue.get(key) ?? []), reference]);
+              const text = part.type === "text" ? part.text
+                : `[图片附件：${reference.sourcePath}]${reference.note ? `\n${reference.note}` : ""}`;
+              content.push({ type: "text", text }, image);
+            }
+            messages.push({ ...message, content });
+          }
+          const requestContext = {
+            ...context,
+            messages: messages.flatMap<Message>((message, index) => {
+              if (message.role !== "assistant") return [message];
+              const content = invalidThinking.has(contentHash(context.messages[index])) ? message.content.filter(part => part.type !== "thinking") : message.content;
+              const identity = configured?.route && message.provider === configured.publicProviderId && message.model === configured.publicModelId
+                && (message as AssistantMessage & { modelRouteRevision?: unknown }).modelRouteRevision === configured.revision
+                ? { provider: model.provider, model: model.id } : {};
+              return content.length ? [{ ...message, ...identity, content }] : [];
+            }),
+          };
+          let restart = false;
+          const rebuildRequest = new Error("图片上下文已调整，重新构建请求");
+          let http413 = false;
+          let fatalError: { error: unknown } | undefined;
+          let activeImages: { reference: AgentImageReference; file: RequestFile }[] = [];
+          function offloadBytes(target: number, count = 0, useFileBytes = false) {
+            const ids: string[] = [];
+            let removed = 0;
+            let removedCount = 0;
+            const sizes = new Map<string, { bytes: number; count: number }>();
+            for (const image of activeImages) {
+              const previous = sizes.get(image.reference.id) ?? { bytes: 0, count: 0 };
+              sizes.set(image.reference.id, {
+                bytes: previous.bytes + (useFileBytes ? image.reference.bytes : image.file.inlineBytes),
+                count: previous.count + 1,
+              });
+            }
+            for (const [id, size] of sizes) {
+              if (offloaded.has(id) || !size.bytes) continue;
+              ids.push(id);
+              removed += size.bytes;
+              removedCount += size.count;
+              if (removed >= target && removedCount >= count) break;
+            }
+            if (!ids.length) return false;
+            recordOffload(ids);
+            return true;
+          }
+          const request = files.fetch;
+          streamSignal.throwIfAborted();
+          const stream = await raceWithAbortSignal(Promise.resolve(streamFunction(model, requestContext, {
+            ...options,
+            apiKey,
+            ...(configured?.route ? { maxRetries: 0, maxTokens: configured.model.maxOutputTokens } : {}),
+            onPayload: async (payload, requestModel) => {
+              try {
+                streamSignal.throwIfAborted();
+                const body = await options?.onPayload?.(payload, requestModel) ?? payload;
+                streamSignal.throwIfAborted();
+                const images = getRequestFiles(body).filter(file => file.mimeType.toLowerCase().startsWith("image/"));
+                const imageCursors = new Map<string, number>();
+                activeImages = [];
+                for (const image of images) {
+                  options?.signal?.throwIfAborted();
+                  const imageKey = contentHash(image.data);
+                  const cursor = imageCursors.get(imageKey) ?? 0;
+                  let reference = image.id ? references.get(image.id) : imageQueue.get(imageKey)?.[cursor];
+                  if (!image.id) imageCursors.set(imageKey, cursor + 1);
+                  const fromContext = !image.id && Boolean(reference);
+                  if (!reference) {
+                    if (!image.id) throw new Error("onPayload 注入的图片必须提供稳定的 toonflowImageId，每次重新观察图片时使用新 ID");
+                    const saved = await saveAgentImage(cwd, { type: "image", data: image.data, mimeType: image.mimeType }, image.id, options?.signal);
+                    streamSignal.throwIfAborted();
+                    reference = saved.toonflowImage;
+                    history.appendCustomEntry("toonflowImageAttachment", reference);
+                    references.set(image.id, reference);
+                    const fixed = await readImage(reference);
+                    if ((fixed.data !== image.data || fixed.mimeType !== image.mimeType || reference.note) && hasLaterAssistant(image.id)) {
+                      restart = recordOffload([]) || restart;
+                    }
+                  }
+                  if (offloaded.has(reference.id)) { image.offload(getOffloadedImageText(reference)); continue; }
+                  const fixed = await readImage(reference);
+                  image.replace(fixed, fromContext ? undefined : reference.note);
+                  activeImages.push({ reference, file: image });
+                }
+                if (restart) throw rebuildRequest;
+                try { await files.prepare(body); }
+                catch (error) {
+                  // 文件 ID 只缩小 JSON；供应商仍限制图片总字节和张数，超限也按旧观察卸载。
+                  if (error instanceof FileRequestLimitError && offloadBytes(error.excessBytes, error.excessCount, true)) {
+                    restart = true;
+                    throw rebuildRequest;
+                  }
+                  throw error;
+                }
+                streamSignal.throwIfAborted();
+                const imageBytes = activeImages.reduce((sum, image) => sum + image.file.inlineBytes, 0);
+                const bodyBytes = Buffer.byteLength(JSON.stringify(body), "utf8");
+                // ACT: 上传后再计内联 base64 与 JSON；文件 ID 不再占用内联预算，超限仍卸载旧观察。
+                if (imageBytes > maxRequestImageBytes || bodyBytes > maxRequestBytes) {
+                  if (!offloadBytes(Math.max(imageBytes - maxRequestImageBytes, bodyBytes - maxRequestBytes))) {
+                    throw new Error(t`模型请求的非图片内容超过 ${maxRequestBytes} 字节预算，请压缩对话或减少附件内容后重试`);
+                  }
+                  restart = true;
+                }
+                if (restart) throw rebuildRequest;
+                return body;
+              } catch (error) {
+                if (error !== rebuildRequest) fatalError = { error };
+                throw error;
+              }
+            },
+            fetch: Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+              if (!configured?.execution) requireDirectModelAccess();
+              const inputRequest = typeof input === "object" && "url" in input ? input : undefined;
+              const requestSignal = init?.signal === undefined ? inputRequest?.signal : init.signal;
+              const signal = options?.signal && requestSignal ? AbortSignal.any([options.signal, requestSignal]) : options?.signal ?? requestSignal;
+              signal?.throwIfAborted();
+              if (typeof init?.body === "string" && Buffer.byteLength(init.body, "utf8") > maxRequestBytes) {
+                try {
+                  restart = offloadBytes(Buffer.byteLength(init.body, "utf8") - maxRequestBytes);
+                  if (!restart) fatalError = { error: new Error(t`模型请求的非图片内容超过 ${maxRequestBytes} 字节预算，请压缩对话或减少附件内容后重试`) };
+                } catch (error) { fatalError = { error }; }
+                return new Response(JSON.stringify({ error: { message: "请求超过本地字节限制" } }), {
+                  status: 413, headers: { "content-type": "application/json", "x-should-retry": "false" },
+                });
+              }
+              const response = await request(input, { ...init, signal });
+              if (response.status !== 413) return response;
+              http413 = true;
+              const headers = new Headers(response.headers);
+              headers.set("x-should-retry", "false");
+              return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+            }, request),
+          })), streamSignal);
+          const iterator = stream[Symbol.asyncIterator]();
+          let visible = false;
+          let start: AssistantMessageEvent | undefined;
+          let retry = false;
+          try {
+            for (;;) {
+              streamSignal.throwIfAborted();
+              const next = await raceWithAbortSignal(iterator.next(), streamSignal);
+              streamSignal.throwIfAborted();
+              if (next.done) break;
+              const event = next.value;
+              if ("partial" in event) partial = event.partial;
+              if (event.type === "start") { start = event; continue; }
+              if (event.type === "error") {
+                if (fatalError) throw fatalError.error;
+                const imageBytes = activeImages.reduce((sum, image) => sum + image.file.inlineBytes, 0);
+                if (!visible && (restart || (http413 && networkRecoveries < 4
+                  && offloadBytes(Math.max(1, networkRecoveries === 3 ? imageBytes : imageBytes / 2))))) {
+                  if (http413) networkRecoveries++;
+                  retry = true;
+                  break;
+                }
+              }
+              if (start) { output.push(start); start = undefined; }
+              if (event.type === "done" || event.type === "error") return event;
+              if ((event.type === "text_delta" || event.type === "thinking_delta") && event.delta
+                || event.type === "toolcall_start" || event.type === "toolcall_delta" || event.type === "toolcall_end") hasOutput = true;
+              output.push(event);
+              visible = true;
+            }
+            if (retry) continue;
+            const message = await raceWithAbortSignal(stream.result(), streamSignal);
+            streamSignal.throwIfAborted();
+            if (start) output.push(start);
+            return message.stopReason === "error" || message.stopReason === "aborted"
+              ? { type: "error", reason: message.stopReason, error: message }
+              : { type: "done", reason: message.stopReason as "stop" | "length" | "toolUse", message };
+          } finally {
+            // ACT: SDK 的 return 会排在挂起的 next 后面；停止时不等待它，网络仍由同一 signal 取消。
+            void iterator.return?.().catch(() => undefined);
+          }
+        }
+      }
+      try {
+        const result = configured?.execution ? await modelGateway.run({
+          execution: configured.execution,
+          context: { actor: configured.actor ?? null, requestId: randomUUID(), payload: {
+            providerId: configured.publicProviderId, modelId: configured.publicModelId, context, thinkingLevel: configured.thinkingLevel,
+          }, scope: cwd },
+          async execute() {
+            const event = await execute();
+            const usage = await usageTracker.usage();
+            const message = event.type === "done" ? event.message : event.error;
+            hasOutput ||= message.content.some(part => part.type === "toolCall" || part.type === "text" && !!part.text || part.type === "thinking" && !!part.thinking);
+            const publicMessage = publishMessage(usage ? { ...message, usage: { ...message.usage, ...usage,
+              totalTokens: usage.input + usage.output + usage.cacheRead + usage.cacheWrite } } : message, Boolean(usage));
+            return { value: event.type === "done" ? { ...event, message: publicMessage } : { ...event, error: publicMessage },
+              outcome: usage ? { kind: "usage", usage } as const : failure() };
+          },
+          failure,
+        }) : { value: await execute(), billing: undefined };
+        if (result.billing?.status === "held") throw new Error("模型账务处理失败，请联系管理员");
+        output.push(result.value);
+      } catch (error) {
+        const reason = runSignal?.aborted ? runSignal.reason : operationSignal?.aborted ? operationSignal.reason : error;
+        const message: AssistantMessage = {
+          role: "assistant", content: partial?.content ?? [], api: model.api, provider: model.provider, model: model.id,
+          stopReason: options?.signal?.aborted ? "aborted" : "error",
+          errorMessage: configured?.route ? "模型请求失败，请稍后重试" : reason instanceof Error ? reason.message : String(reason),
+          usage: partial?.usage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+          timestamp: Date.now(),
+        };
+        output.push({ type: "error", reason: message.stopReason as "error" | "aborted", error: publishMessage(message) });
+      } finally {
+        output.end();
+      }
+    })();
+    return output;
+  };
+}

@@ -1,0 +1,206 @@
+--- a/dist/core/agent-session.js
++++ b/dist/core/agent-session.js
+@@ -83,12 +83,14 @@ export class AgentSession {
+     _unsubscribeAgent;
+     _eventListeners = [];
+     _isAgentRunActive = false;
++    agentRunAborted = false;
+     _idleWaitPromise;
+     _resolveIdleWait;
+     /** Tracks pending steering messages for UI display. Removed when delivered. */
+     _steeringMessages = [];
+     /** Tracks pending follow-up messages for UI display. Removed when delivered. */
+     _followUpMessages = [];
++    queuedMessageModes = new WeakMap();
+     /** Messages queued to be included with the next user prompt as context ("asides"). */
+     _pendingNextTurnMessages = [];
+     /** Context-only custom messages queued during a run, flushed once the current turn's tool results are in. */
+@@ -362,22 +364,13 @@ export class AgentSession {
+         // This ensures the UI sees the updated queue state
+         if (event.type === "message_start" && event.message.role === "user") {
+             this._overflowRecoveryAttempted = false;
+-            const messageText = contentText(event.message.content, "");
+-            if (messageText) {
+-                // Check steering queue first
+-                const steeringIndex = this._steeringMessages.indexOf(messageText);
+-                if (steeringIndex !== -1) {
+-                    this._steeringMessages.splice(steeringIndex, 1);
+-                    this._emitQueueUpdate();
+-                }
+-                else {
+-                    // Check follow-up queue
+-                    const followUpIndex = this._followUpMessages.indexOf(messageText);
+-                    if (followUpIndex !== -1) {
+-                        this._followUpMessages.splice(followUpIndex, 1);
+-                        this._emitQueueUpdate();
+-                    }
+-                }
++            const mode = this.queuedMessageModes.get(event.message);
++            if (mode) {
++                this.queuedMessageModes.delete(event.message);
++                const messages = mode === "steer" ? this._steeringMessages : this._followUpMessages;
++                const index = messages.indexOf(contentText(event.message.content, ""));
++                if (index !== -1) messages.splice(index, 1);
++                this._emitQueueUpdate();
+             }
+         }
+         // Emit to extensions first
+@@ -770,16 +763,25 @@ export class AgentSession {
+     // Prompting
+     // =========================================================================
+     async _runAgentPrompt(messages) {
++        this.agentRunAborted = false;
+         this._isAgentRunActive = true;
+         try {
+             await this.agent.prompt(messages);
+-            while (await this._handlePostAgentRun()) {
++            while (!this.agentRunAborted && await this._handlePostAgentRun() && !this.agentRunAborted) {
+                 await this.agent.continue();
+             }
+         }
+         finally {
+             this._systemPromptOverride = undefined;
+             this._flushPendingBashMessages();
++            if (this.agentRunAborted) {
++                const queue = this.agent.getQueuedMessages();
++                for (const message of [...queue.steering, ...queue.followUp]) {
++                    if (message.role === "custom" && this.agent.removeQueuedMessage(message)) {
++                        this._pendingCustomMessages.push(message);
++                    }
++                }
++            }
+             this._flushPendingCustomMessages();
+             await this._emitAgentSettled();
+         }
+@@ -802,6 +804,7 @@ export class AgentSession {
+             });
+             this._retryAttempt = 0;
+         }
++        if (this.agentRunAborted) return false;
+         if (await this._checkCompaction(msg)) {
+             return true;
+         }
+@@ -1045,32 +1048,36 @@ export class AgentSession {
+      */
+     async _queueSteer(text, images) {
+         this._steeringMessages.push(text);
+-        this._emitQueueUpdate();
+         const content = [{ type: "text", text }];
+         if (images) {
+             content.push(...images);
+         }
+-        this.agent.steer({
++        const message = {
+             role: "user",
+             content,
+             timestamp: Date.now(),
+-        });
++        };
++        this.queuedMessageModes.set(message, "steer");
++        this.agent.steer(message);
++        this._emitQueueUpdate();
+     }
+     /**
+      * Internal: Queue a follow-up message (already expanded, no extension command check).
+      */
+     async _queueFollowUp(text, images) {
+         this._followUpMessages.push(text);
+-        this._emitQueueUpdate();
+         const content = [{ type: "text", text }];
+         if (images) {
+             content.push(...images);
+         }
+-        this.agent.followUp({
++        const message = {
+             role: "user",
+             content,
+             timestamp: Date.now(),
+-        });
++        };
++        this.queuedMessageModes.set(message, "followUp");
++        this.agent.followUp(message);
++        this._emitQueueUpdate();
+     }
+     /**
+      * Throw an error if the text is an extension command.
+@@ -1187,6 +1194,36 @@ export class AgentSession {
+             source: "extension",
+         });
+     }
++    /** Promote one pending user message without rebuilding either queue. */
++    steerQueuedMessage(message) {
++        if (message.role !== "user") return false;
++        const queue = this.agent.getQueuedMessages();
++        if (queue.steering.includes(message)) return true;
++        if (!queue.followUp.includes(message)) return false;
++        if (this.agent.removeQueuedMessage(message) !== "followUp") return false;
++        const text = contentText(message.content, "");
++        if (this.queuedMessageModes.get(message) === "followUp") {
++            const index = this._followUpMessages.indexOf(text);
++            if (index !== -1) this._followUpMessages.splice(index, 1);
++        }
++        this._steeringMessages.push(text);
++        this.queuedMessageModes.set(message, "steer");
++        this.agent.steer(message);
++        this._emitQueueUpdate();
++        return true;
++    }
++    /** Remove a pending message by identity, preserving every other queued message. */
++    removeQueuedMessage(message) {
++        const mode = this.agent.removeQueuedMessage(message);
++        if (!mode) return undefined;
++        if (this.queuedMessageModes.delete(message) && message.role === "user") {
++            const messages = mode === "steer" ? this._steeringMessages : this._followUpMessages;
++            const index = messages.indexOf(contentText(message.content, ""));
++            if (index !== -1) messages.splice(index, 1);
++        }
++        this._emitQueueUpdate();
++        return mode;
++    }
+     /**
+      * Clear all queued messages and return them.
+      * Useful for restoring to editor when user aborts.
+@@ -1197,6 +1234,7 @@ export class AgentSession {
+         const followUp = [...this._followUpMessages];
+         this._steeringMessages = [];
+         this._followUpMessages = [];
++        this.queuedMessageModes = new WeakMap();
+         this.agent.clearAllQueues();
+         this._emitQueueUpdate();
+         return { steering, followUp };
+@@ -1220,6 +1258,7 @@ export class AgentSession {
+      * Abort current operation and wait for agent to become idle.
+      */
+     async abort() {
++        this.agentRunAborted = true;
+         this.abortRetry();
+         this.abortCompaction();
+         this.abortBranchSummary();
+--- a/dist/core/agent-session.d.ts
++++ b/dist/core/agent-session.d.ts
+@@ -197,12 +197,14 @@ export declare class AgentSession {
+     private _unsubscribeAgent?;
+     private _eventListeners;
+     private _isAgentRunActive;
++    private agentRunAborted;
+     private _idleWaitPromise;
+     private _resolveIdleWait;
+     /** Tracks pending steering messages for UI display. Removed when delivered. */
+     private _steeringMessages;
+     /** Tracks pending follow-up messages for UI display. Removed when delivered. */
+     private _followUpMessages;
++    private queuedMessageModes;
+     /** Messages queued to be included with the next user prompt as context ("asides"). */
+     private _pendingNextTurnMessages;
+     /** Context-only custom messages queued during a run, flushed once the current turn's tool results are in. */
+@@ -422,6 +424,10 @@ export declare class AgentSession {
+         deliverAs?: "steer" | "followUp";
+         expandPromptTemplates?: boolean;
+     }): Promise<void>;
++    /** Promote one pending user message without rebuilding either queue. */
++    steerQueuedMessage(message: AgentMessage): boolean;
++    /** Remove a pending message by identity, preserving every other queued message. */
++    removeQueuedMessage(message: AgentMessage): "steer" | "followUp" | undefined;
+     /**
+      * Clear all queued messages and return them.
+      * Useful for restoring to editor when user aborts.

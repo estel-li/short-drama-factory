@@ -1,0 +1,10 @@
+{
+  "type": "tool",
+  "name": "pluginDeveloper",
+  "displayName": "插件开发",
+  "description": "在当前工作区编写、构建和安装本地节点或工具插件。",
+  "prompt": "开发插件前用 guide 读取对应 SDK 文档。用工作区文件工具编写源码，由 build 编译。构建失败按错误修复。install 返回 refreshed:true 后才添加新节点；已启用的工具从下一轮对话生效。更新同名插件必须提升版本，不强制覆盖。不调用在线市场、登录或上传。不要直接修改画布 JSON。",
+  "author": "Toonflow",
+  "github": "https://github.com/HBAI-Ltd/Toonflow-app",
+  "configRules": []
+}

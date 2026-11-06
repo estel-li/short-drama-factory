@@ -1,0 +1,135 @@
+import { msg, t, translateError } from "@/lib/i18n";
+import { messageError } from "@toonflow/i18n/errors";
+import { once } from "node:events";
+import { existsSync, readFileSync, rmSync, writeAtomicSync } from "@toonflow/file";
+import { createServer, type Server } from "node:http";
+import { dirname, resolve } from "node:path";
+import type { Socket } from "node:net";
+import type { Express } from "express";
+import conf from "@/utils/conf";
+import { getMcpSettings } from "@/utils/mcp/control";
+import { closeMcpServers } from "@/utils/mcp/servers";
+
+let runtime: { app: Express; appOrigin: string; requestHeaders: Record<string, string>; server?: Server; sockets?: Set<Socket>; url?: string; port?: number; preferredPort?: number; file?: string; command: string; entry: string; error?: { cause: unknown; keepAddress: boolean } } | undefined;
+let reloadQueue = Promise.resolve();
+
+function removeRuntime(file?: string) {
+  if (!file) return;
+  // ACT: 文件按端口复用；只清理自己的记录，不能删除接替此端口的另一个实例。
+  try {
+    if (JSON.parse(readFileSync(file, "utf8")).pid === process.pid) rmSync(file, { force: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") console.error("清理 MCP 运行信息失败：", error);
+  }
+}
+
+function saveRuntime(value = runtime) {
+  const { enabled, token } = getMcpSettings();
+  if (!value?.file) return;
+  if (enabled && token.length >= 32) {
+    writeAtomicSync(value.file, JSON.stringify({ pid: process.pid, url: value.url, token }), { mode: 0o600 });
+  } else removeRuntime(value.file);
+}
+
+export function initializeMcpRuntime(app: Express, url: string, entry: string, command = process.execPath, requestHeaders: Record<string, string> = {}) {
+  runtime = { app, appOrigin: new URL(url).origin, entry, command, requestHeaders: { ...requestHeaders } };
+  return reloadMcpRuntime();
+}
+
+export function getAppRequestHeaders() {
+  return { ...runtime?.requestHeaders };
+}
+
+export function stopMcpRuntime() {
+  reloadQueue = reloadQueue.catch(() => {}).then(async () => {
+    const current = runtime;
+    runtime = undefined;
+    removeRuntime(current?.file);
+    await closeMcpServers();
+    if (!current?.server) return;
+    await new Promise<void>(resolve => {
+      current.server!.close(() => resolve());
+      for (const socket of current.sockets ?? []) socket.destroy();
+    });
+  });
+  return reloadQueue;
+}
+
+export function reloadMcpRuntime() {
+  // ACT: 设置保存和跨进程 watch 共用串行重载，避免同时抢端口；不重启宿主服务。
+  reloadQueue = reloadQueue.catch(() => {}).then(async () => {
+    const current = runtime;
+    if (!current) return;
+    const preferredPort = getMcpSettings().port;
+    if (current.server && current.preferredPort === preferredPort && !current.error) return;
+    const server = createServer((req, res) => {
+      // 复用宿主协议和鉴权，但固定端口只暴露 MCP，不开放页面及管理接口。
+      if (!/^\/mcp\/?(?:\?|$)/.test(req.url ?? "")) {
+        res.writeHead(404).end();
+        return;
+      }
+      current.app(req, res);
+    });
+    const sockets = new Set<Socket>();
+    server.on("connection", socket => { sockets.add(socket); socket.once("close", () => sockets.delete(socket)); });
+    let file: string | undefined;
+    try {
+      // ACT: 单机多开最多尝试 32 个相邻端口；直接 listen，避免探测后端口被抢占。
+      for (let port = preferredPort; port <= Math.min(preferredPort + 31, 65535); port++) {
+        if (port === current.port) {
+          current.preferredPort = preferredPort;
+          current.error = undefined;
+          return;
+        }
+        try {
+          const listening = once(server, "listening");
+          server.listen(port, "127.0.0.1");
+          await listening;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") continue;
+          throw error;
+        }
+        file = resolve(dirname(conf.path), `mcpRuntime${port}.json`);
+        const next = { ...current, server, sockets, preferredPort, port, url: `http://127.0.0.1:${port}/mcp`, file, error: undefined };
+        saveRuntime(next);
+        runtime = next;
+        server.unref();
+        current.server?.close();
+        for (const socket of current.sockets ?? []) socket.destroy();
+        removeRuntime(current.file);
+        return;
+      }
+      throw messageError(msg`MCP 端口 ${preferredPort}–${Math.min(preferredPort + 31, 65535)} 均已占用，请修改首选端口`);
+    } catch (error) {
+      server.close();
+      removeRuntime(file);
+      current.error = { cause: error, keepAddress: Boolean(current.url) };
+      console.error("MCP 端口切换失败：", error);
+    }
+  });
+  return reloadQueue;
+}
+
+export function getMcpRuntime() {
+  const preferredPort = getMcpSettings().port;
+  return {
+    appOrigin: runtime?.appOrigin,
+    endpoint: runtime?.url ?? null,
+    preferredPort,
+    port: runtime?.port ?? null,
+    error: runtime?.error ? runtime.error.keepAddress
+      ? t`MCP 端口切换失败，继续使用原地址：${translateError(runtime.error.cause)}`
+      : t`MCP 端口切换失败：${translateError(runtime.error.cause)}` : null,
+    stdio: runtime?.file && existsSync(runtime.entry)
+      ? { command: runtime.command, args: [runtime.entry, "--runtime", runtime.file] }
+      : null,
+  };
+}
+
+conf.onDidChange("settings", (next, previous) => {
+  if (JSON.stringify(next?.mcp) === JSON.stringify(previous?.mcp)) return;
+  saveRuntime();
+  void reloadMcpRuntime().catch(error => console.error("重载 MCP 失败：", error));
+});
+
+process.once("exit", () => removeRuntime(runtime?.file));

@@ -1,0 +1,114 @@
+--- a/dist/agent.js
++++ b/dist/agent.js
+@@ -57,6 +57,15 @@ class PendingMessageQueue {
+     enqueue(message) {
+         this.messages.push(message);
+     }
++    snapshot() {
++        return this.messages.slice();
++    }
++    remove(message) {
++        const index = this.messages.indexOf(message);
++        if (index === -1) return false;
++        this.messages.splice(index, 1);
++        return true;
++    }
+     hasItems() {
+         return this.messages.length > 0;
+     }
+@@ -177,6 +186,16 @@ export class Agent {
+     followUp(message) {
+         this.followUpQueue.enqueue(message);
+     }
++    /** Snapshot pending messages; drained messages are no longer editable. */
++    getQueuedMessages() {
++        return { steering: this.steeringQueue.snapshot(), followUp: this.followUpQueue.snapshot() };
++    }
++    /** Remove exactly one pending message by identity without rebuilding either queue. */
++    removeQueuedMessage(message) {
++        if (this.steeringQueue.remove(message)) return "steer";
++        if (this.followUpQueue.remove(message)) return "followUp";
++        return undefined;
++    }
+     /** Remove all queued steering messages. */
+     clearSteeringQueue() {
+         this.steeringQueue.clear();
+--- a/dist/agent.d.ts
++++ b/dist/agent.d.ts
+@@ -84,6 +84,10 @@ export declare class Agent {
+     steer(message: AgentMessage): void;
+     /** Queue a message to run only after the agent would otherwise stop. */
+     followUp(message: AgentMessage): void;
++    /** Snapshot pending messages; drained messages are no longer editable. */
++    getQueuedMessages(): { steering: AgentMessage[]; followUp: AgentMessage[] };
++    /** Remove exactly one pending message by identity without rebuilding either queue. */
++    removeQueuedMessage(message: AgentMessage): "steer" | "followUp" | undefined;
+     /** Remove all queued steering messages. */
+     clearSteeringQueue(): void;
+     /** Remove all queued follow-up messages. */
+--- a/dist/agent-loop.js
++++ b/dist/agent-loop.js
+@@ -80,14 +80,15 @@ async function runLoop(initialContext, newMessages, initialConfig, signal, emit,
+     let config = initialConfig;
+     let lastCompletedTurn;
+     // Check for steering messages at start (user may have typed while waiting)
+-    let pendingMessages = (await config.getSteeringMessages?.()) || [];
++    let pendingMessages = signal?.aborted ? [] : (await config.getSteeringMessages?.()) || [];
+     // Outer loop: continues when queued follow-up messages arrive after agent would stop
+-    while (true) {
++    while (!signal?.aborted) {
+         let hasMoreToolCalls = true;
+         // Inner loop: process tool calls and steering messages
+         while (hasMoreToolCalls || pendingMessages.length > 0) {
+             if (lastCompletedTurn) {
+                 const nextTurnSnapshot = await config.prepareNextTurn?.(lastCompletedTurn);
++                if (signal?.aborted) break;
+                 if (nextTurnSnapshot) {
+                     currentContext = nextTurnSnapshot.context ?? currentContext;
+                     config = {
+@@ -111,6 +112,7 @@ async function runLoop(initialContext, newMessages, initialConfig, signal, emit,
+             // Process pending messages (inject before next assistant response)
+             if (pendingMessages.length > 0) {
+                 for (const message of pendingMessages) {
++                    if (signal?.aborted && message.role !== "custom") continue;
+                     await emit({ type: "message_start", message });
+                     await emit({ type: "message_end", message });
+                     currentContext.messages.push(message);
+@@ -119,6 +121,7 @@ async function runLoop(initialContext, newMessages, initialConfig, signal, emit,
+                 pendingMessages = [];
+             }
+             // Stream assistant response
++            if (signal?.aborted) break;
+             const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFunction);
+             newMessages.push(message);
+             if (message.stopReason === "error" || message.stopReason === "aborted") {
+@@ -151,13 +154,14 @@ async function runLoop(initialContext, newMessages, initialConfig, signal, emit,
+                 context: currentContext,
+                 newMessages,
+             };
+-            if (await config.shouldStopAfterTurn?.(lastCompletedTurn)) {
++            if (signal?.aborted || await config.shouldStopAfterTurn?.(lastCompletedTurn)) {
+                 await emit({ type: "agent_end", messages: newMessages });
+                 return;
+             }
+             pendingMessages = (await config.getSteeringMessages?.()) || [];
+         }
+         // Agent would stop here. Check for follow-up messages.
++        if (signal?.aborted) break;
+         const followUpMessages = (await config.getFollowUpMessages?.()) || [];
+         if (followUpMessages.length > 0) {
+             // Set as pending so inner loop processes them
+@@ -167,6 +171,13 @@ async function runLoop(initialContext, newMessages, initialConfig, signal, emit,
+         // No more messages, exit
+         break;
+     }
++    for (const message of pendingMessages) {
++        if (message.role !== "custom") continue;
++        await emit({ type: "message_start", message });
++        await emit({ type: "message_end", message });
++        currentContext.messages.push(message);
++        newMessages.push(message);
++    }
+     await emit({ type: "agent_end", messages: newMessages });
+ }
+ /**
