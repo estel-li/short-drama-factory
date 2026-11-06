@@ -1,6 +1,6 @@
 const rules = [
   { type: "input", field: "imageUrl", title: "图片 ComfyUI 地址", value: "http://127.0.0.1:8188", mediaType: "image" },
-  { type: "input", field: "checkpoint", title: "图片大模型（Checkpoint 文件名）", value: "", mediaType: "image", props: { placeholder: "留空工作流时必填；从服务器读取后选择" } },
+  { type: "select", field: "checkpoint", title: "图片大模型（Checkpoint 文件名）", value: "", mediaType: "image", props: { filterable: true, allowCreate: true, defaultFirstOption: true, clearable: true, placeholder: "连接读取后选择，也可输入完整文件名" } },
   { type: "input", field: "imageWorkflow", title: "图片工作流（API 格式 JSON，可选）", value: "", mediaType: "image", props: { type: "textarea", rows: 8 } },
   { type: "input", field: "imageOutputNode", title: "图片输出节点 ID（可选）", value: "", mediaType: "image" },
   { type: "input", field: "videoUrl", title: "视频 ComfyUI 地址", value: "http://127.0.0.1:8188", mediaType: "video" },

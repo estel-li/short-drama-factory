@@ -21,7 +21,7 @@ from .assets import Assets
 from .config import ConfigStore
 from .content import Content
 from .database import Database
-from .environment import catalog, hardware
+from .environment import catalog, hardware, inspect_local_environment
 from .jobs import Worker
 from .projects import Projects
 from .providers import LLMClient, ProviderError
@@ -894,6 +894,66 @@ def environment_progress():
     return read_json(ROOT / 'data/installation_progress.json', {})
 
 
+@app.get('/api/environment/local')
+def local_environment():
+    env = config.get()['environment']
+    connected = False
+    try:
+        token = config.key('comfy')
+        response = httpx.get(env['comfy_url'] + '/system_stats', timeout=2, trust_env=False,
+                             headers={'Authorization': 'Bearer ' + token} if token else {})
+        value = response.json() if response.is_success else {}
+        connected = isinstance(value, dict) and isinstance(value.get('devices'), list) and bool(value.get('system'))
+    except (httpx.HTTPError, ValueError):
+        pass
+    with db.connect() as connection:
+        row = connection.execute("SELECT id,kind,status,message,cancel_requested FROM jobs "
+                                 "WHERE project_id='__environment' ORDER BY rowid DESC LIMIT 1").fetchone()
+    progress = read_json(config.root / 'data/installation_progress.json', {})
+    if not row or progress.get('job_id') != row['id']:
+        progress = {}
+    return {'environment': {key: env.get(key, '') for key in ('mode', 'comfy_dir', 'python', 'comfy_url')},
+            'connected': connected, 'job': dict(row) if row else None, 'progress': progress,
+            'defaults': {'install_dir': str(config.root / 'engines'), 'models_dir': str(config.root / 'models')},
+            'manifests': [{'id': item['id'], 'name': item['name']} for item in worker.installer.manifests()]}
+
+
+@app.post('/api/environment/inspect')
+def inspect_environment(body: dict):
+    return inspect_local_environment(str(body.get('comfy_dir', '')), str(body.get('python', '')))
+
+
+@app.post('/api/environment/configure')
+def configure_environment(body: dict):
+    paths = inspect_local_environment(str(body.get('comfy_dir', '')), str(body.get('python', '')))
+    if not paths['python']:
+        raise ValueError('未识别到推理 Python，请填写此 ComfyUI 使用的 Python 路径。')
+    endpoint = urlsplit(str(body.get('comfy_url', '')))
+    if endpoint.scheme != 'http' or endpoint.hostname not in ('127.0.0.1', 'localhost') or endpoint.path not in ('', '/'):
+        raise ValueError('本地启动请使用 http://127.0.0.1:端口 或 http://localhost:端口。')
+    with worker.queue_lock, config.lock:
+        with db.connect() as connection:
+            if connection.execute("SELECT id FROM jobs WHERE status IN ('queued','running') LIMIT 1").fetchone():
+                raise ContractError('QUEUE_BUSY', '请等待队列空闲后修改生成环境。', status=409)
+        value = config.get()
+        value['environment'].update(mode='existing', comfy_dir=paths['comfy_dir'], python=paths['python'],
+                                    comfy_url=str(body['comfy_url']).rstrip('/'))
+        config.save(value)
+    return paths
+
+
+@app.post('/api/environment/start', status_code=202)
+def start_environment():
+    env = config.renderer_config()
+    paths = inspect_local_environment(env.get('comfy_dir', ''), env.get('python', ''))
+    if not paths['python']:
+        raise ValueError('请先选择并保存 ComfyUI 与推理 Python 路径。')
+    jid = worker.enqueue('__environment', 'comfy-start')
+    worker.start(recover=False)
+    worker.allow_job(jid)
+    return {'job_id': jid}
+
+
 @app.post('/api/environment/plan')
 def installation_plan(body: dict):
     return worker.installer.plan(body)
@@ -901,7 +961,12 @@ def installation_plan(body: dict):
 
 @app.post('/api/environment/install', status_code=202)
 def installation_begin(body: dict):
-    return {'job_id': worker.enqueue('__environment', 'install', body)}
+    if body.get('download_confirmation') and body['download_confirmation'] != worker.installer.plan(body)['confirmation_token']:
+        raise ValueError('安装清单发生变化，请重新预览并确认下载。')
+    jid = worker.enqueue('__environment', 'install', body)
+    worker.start(recover=False)
+    worker.allow_job(jid)
+    return {'job_id': jid}
 
 
 @app.post('/api/environment/stop')

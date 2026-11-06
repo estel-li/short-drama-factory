@@ -45,6 +45,7 @@ import http from "@/lib/http";
 import { isMobile } from "@/lib/platform";
 import {
   IconSettings,
+  IconCpu,
   IconPhotoVideo,
   IconPhoto,
   IconBuildingStore,
@@ -70,6 +71,7 @@ const allSettingsPanels = [
   },
   { id: "videoModel", label: "视频模型", icon: IconPhotoVideo, component: defineAsyncComponent(() => import("./panels/mediaModel/index.vue")) },
   { id: "imageModel", label: "图片模型", icon: IconPhoto, component: defineAsyncComponent(() => import("./panels/mediaModel/index.vue")) },
+  { id: "comfyEnvironment", label: "ComfyUI 环境", icon: IconCpu, component: defineAsyncComponent(() => import("./panels/comfyEnvironment/index.vue")) },
   {
     id: "pluginMarket",
     label: "插件工厂",
@@ -94,7 +96,7 @@ const allSettingsPanels = [
 ];
 const settingsPanels = computed(() => allSettingsPanels.filter(item => {
   if (publicWeb.value && currentUser.value?.role === "user") return ["account", "general", "about"].includes(item.id);
-  if (publicWeb.value && ["multiTenant", "deviceLink", "network", "mcp", "developer", "pluginMarket"].includes(item.id)) return false;
+  if (publicWeb.value && ["multiTenant", "deviceLink", "network", "mcp", "developer", "pluginMarket", "comfyEnvironment"].includes(item.id)) return false;
   return !multiTenantEnabled.value || !["languageModel", "videoModel", "imageModel", "developer"].includes(item.id);
 }));
 const activePanel = shallowRef(settingsPanels.value[0]!);
@@ -102,7 +104,7 @@ const visible = defineModel<boolean>({ default: false });
 const activePanelProps = computed(() => {
   const id = activePanel.value.id;
   if (id === "imageModel" || id === "videoModel") return { visible: visible.value, mediaType: id === "imageModel" ? "image" : "video" };
-  return ["account", "pluginMarket", "languageModel", "personalization", "deviceLink"].includes(id) ? { visible: visible.value } : {};
+  return ["account", "pluginMarket", "languageModel", "personalization", "deviceLink", "comfyEnvironment"].includes(id) ? { visible: visible.value } : {};
 });
 
 watch(settingsPanels, panels => {

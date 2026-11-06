@@ -11,18 +11,32 @@
     :showClose="!saving"
     @closed="formApi = undefined">
     <div class="providerEditor">
+      <comfyPresets v-if="provider?.id === 'comfyUi'" :mediaType="mediaType" :url="String(formValues[mediaType === 'image' ? 'imageUrl' : 'videoUrl'] || '')" :disabled="saving || !formApi" @apply="applyPreset" />
       <messageMarkdown v-if="provider?.readme" class="providerReadme" :content="provider.readme" />
-      <form-create v-model="formValues" v-model:api="formApi" :rule="formRules" :option="formOptions" />
+      <form-create :key="formVersion" v-model="formValues" v-model:api="formApi" :rule="formRules" :option="formOptions" />
       <section v-if="provider?.id === 'comfyUi'" class="comfyControls">
         <el-space wrap>
-          <el-button :loading="checkingComfy" :disabled="saving" @click="inspectComfy">检查连接并读取大模型</el-button>
+          <el-button :loading="checkingComfy" :disabled="saving" @click="inspectComfy">检查连接并读取模型</el-button>
           <el-button :disabled="saving" @click="workflowFile?.click()">导入 API 工作流</el-button>
           <input ref="workflowFile" type="file" accept=".json,application/json" hidden @change="importWorkflow" />
         </el-space>
-        <el-select v-if="mediaType === 'image' && checkpoints.length" placeholder="选择服务器上的 Checkpoint" filterable :disabled="saving" @change="selectCheckpoint">
-          <el-option v-for="name in checkpoints" :key="name" :label="name" :value="name" />
-        </el-select>
         <p v-if="comfyStatus" role="status">{{ comfyStatus }}</p>
+        <el-collapse v-if="modelGroups.some(group => group.files.length)" v-model="expandedModelGroups" class="comfyModelGroups">
+          <el-collapse-item v-for="group in modelGroups.filter(group => group.files.length)" :key="group.id" :name="group.id" :title="`${translate(modelGroupLabels[group.id] ?? group.id)}（${group.files.length}）`">
+            <ul><li v-for="file in group.files" :key="file">{{ file }}</li></ul>
+          </el-collapse-item>
+        </el-collapse>
+        <el-collapse v-if="unclassifiedModelGroups.length" class="comfyModelGroups">
+          <el-collapse-item title="用途待确认的文件（不加入模型候选）" name="unclassified">
+            <p>这些文件的用途无法从目录和文件名确定，请核对对应工作流。</p>
+            <div v-for="group in unclassifiedModelGroups" :key="group.id">
+              <strong>{{ translate(modelGroupLabels[group.id] ?? group.id) }}（{{ group.files.length }}）</strong>
+              <ul><li v-for="file in group.files" :key="file">{{ file }}</li></ul>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+        <el-text v-if="comfyStatus" type="info">分类依据模型目录和明确的模型家族文件名；用途待确认的文件单独列出。</el-text>
+        <el-text v-if="modelGroups.length" type="info">Checkpoint 用于默认 SD / SDXL 流程。扩散模型需在对应 API 工作流的加载节点中选择，H3 模型使用 H3 工作流。</el-text>
         <el-text type="info">API 工作流中，把正向提示词输入替换为 <code v-pre>{{prompt}}</code>；图生图的图片输入替换为 <code v-pre>{{image0}}</code>。普通画布 JSON 不能直接运行。</el-text>
       </section>
       <div class="modelHeader">
@@ -47,6 +61,7 @@
           </div>
           <div class="modelTags">
             <el-tag size="small">{{ modelTypes[item.type] }}</el-tag>
+            <el-tag v-if="workflowModels[item.id]" size="small" type="success">独立图片工作流</el-tag>
             <el-tag v-for="(tag, tagIndex) in modelTags(item)" :key="tagIndex" size="small" type="info">{{ tag }}</el-tag>
           </div>
         </el-card>
@@ -73,7 +88,7 @@
 </template>
 
 <script setup lang="ts">
-import { translate } from "@toonflow/i18n/vue";
+import { translate, t } from "@toonflow/i18n/vue";
 
 import axios from "axios";
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, shallowRef, toRaw, watch, type Component } from "vue";
@@ -86,6 +101,7 @@ import { settings, saveSettings } from "@/stores/settings";
 import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 import providerTestPanel from "./providerTestPanel.vue";
 import http from "@/lib/http";
+import comfyPresets from "./comfyPresets.vue";
 
 const { provider, mediaType = "video" } = defineProps<{ provider?: MediaProvider; mediaType?: "image" | "video" }>();
 const modelEditorDialog = shallowRef<Component>();
@@ -99,8 +115,15 @@ const saving = ref(false);
 const formApi = shallowRef<Api>();
 const formRules = shallowRef<ReturnType<typeof formCreate.copyRules>>([]);
 const formValues = ref<Record<string, unknown>>({});
+const formVersion = ref(0);
+type WorkflowProfile = { mediaType: "image"; workflow: string; outputNode: string; inputMode?: "image" | "text" };
+const workflowModels = ref<Record<string, WorkflowProfile>>({});
+const changedWorkflows = ref<Record<string, WorkflowProfile>>({});
 const workflowFile = ref<HTMLInputElement>();
-const checkpoints = ref<string[]>([]);
+const modelGroups = ref<{ id: string; files: string[] }[]>([]);
+const unclassifiedModelGroups = ref<{ id: string; files: string[] }[]>([]);
+const expandedModelGroups = ref<string[]>([]);
+const modelGroupLabels: Record<string, string> = { checkpoints: "Checkpoint", diffusionModels: "扩散模型 / UNet", textEncoders: "文本编码器", vae: "VAE", loras: "LoRA" };
 const checkingComfy = ref(false);
 const comfyStatus = ref("");
 const formOptions = computed<Options>(() => ({ form: { labelPosition: "top", disabled: saving.value }, appendValue: false, submitBtn: false, resetBtn: false }));
@@ -113,6 +136,7 @@ const testProvider = shallowRef<MediaProvider>();
 const testSource = ref("");
 const testConfig = ref<Record<string, unknown>>({});
 let testLoading: AbortController | undefined;
+let comfyLoading: AbortController | undefined;
 const modelTypes = { get image() { return translate("图片"); }, get video() { return translate("视频"); }, get audio() { return translate("音频"); }, get text() { return translate("文本"); } };
 const modeLabels: Record<string, string> = {
   singleImage: "单图参考", multiReference: "多图参考", startEndRequired: "首尾帧必填",
@@ -120,21 +144,68 @@ const modeLabels: Record<string, string> = {
   imageReference: "图片参考", videoReference: "视频参考", audioReference: "音频参考",
 };
 
-async function inspectComfy() {
-  checkingComfy.value = true;
-  formError.value = comfyStatus.value = "";
-  try {
-    const values = formApi.value?.formData() ?? formValues.value;
-    const result = await http<{ checkpoints: string[] }>({ method: "POST", url: "/api/localModels/inspect", data: { url: values[mediaType === "image" ? "imageUrl" : "videoUrl"] } });
-    checkpoints.value = result.checkpoints;
-    comfyStatus.value = `ComfyUI 已连接，读取到 ${result.checkpoints.length} 个 Checkpoint。其他架构的模型请使用对应工作流。`;
-  } catch (error) { formError.value = error instanceof Error ? error.message : "连接失败"; }
-  finally { checkingComfy.value = false; }
+function applyPreset(value: { workflow: Record<string, unknown>; outputNode: string; model: MediaProviderModel; independent: boolean; inputMode: "image" | "text" }) {
+  if (value.independent) {
+    const profile: WorkflowProfile = { mediaType: "image", workflow: JSON.stringify(value.workflow, null, 2), outputNode: value.outputNode, inputMode: value.inputMode };
+    workflowModels.value[value.model.id] = profile;
+    changedWorkflows.value[value.model.id] = profile;
+  } else setWorkflow(value.workflow, value.outputNode);
+  const index = models.value.findIndex(item => item.id === value.model.id);
+  if (index < 0) models.value.push(value.model); else models.value.splice(index, 1, value.model);
+  formError.value = "";
 }
 
-function selectCheckpoint(value: string) {
-  formApi.value?.setValue("checkpoint", value);
+function setWorkflow(workflow: Record<string, unknown>, outputNode = "") {
+  const api = formApi.value;
+  if (!api) return;
+  const values = { ...api.formData(), [mediaType === "image" ? "imageWorkflow" : "videoWorkflow"]: JSON.stringify(workflow, null, 2),
+    [mediaType === "image" ? "imageOutputNode" : "videoOutputNode"]: outputNode };
+  // 用当前表单快照重新挂载，避免 FormCreate 的输入缓存仍显示上一个工作流。
+  formApi.value = undefined;
+  formRules.value = formCreate.copyRules(formRules.value);
+  formValues.value = values;
+  formVersion.value++;
 }
+
+async function inspectComfy() {
+  comfyLoading?.abort();
+  const controller = new AbortController();
+  comfyLoading = controller;
+  checkingComfy.value = true;
+  formError.value = comfyStatus.value = "";
+  resetComfyCatalog();
+  try {
+    const values = formApi.value?.formData() ?? formValues.value;
+    const url = values[mediaType === "image" ? "imageUrl" : "videoUrl"];
+    const result = await http<{ checkpoints: string[]; modelGroups: { id: string; files: string[] }[]; unclassifiedGroups: { id: string; files: string[] }[]; excludedModelCount: number }>({ method: "POST", url: "/api/localModels/inspect", data: { url, mediaType }, signal: controller.signal });
+    if (controller.signal.aborted || (formApi.value?.formData() ?? formValues.value)[mediaType === "image" ? "imageUrl" : "videoUrl"] !== url) return;
+    if (mediaType === "image") {
+      formApi.value?.updateRule("checkpoint", { options: result.checkpoints.map(name => ({ label: name, value: name })) });
+      formApi.value?.sync("checkpoint");
+    }
+    modelGroups.value = result.modelGroups;
+    unclassifiedModelGroups.value = result.unclassifiedGroups;
+    const diffusionCount = result.modelGroups.find(group => group.id === "diffusionModels")?.files.length ?? 0;
+    expandedModelGroups.value = [result.modelGroups.find(group => group.files.length)?.id ?? ""];
+    comfyStatus.value = mediaType === "image"
+      ? t`ComfyUI 已连接：可选图片 Checkpoint ${result.checkpoints.length} 个，识别到图片扩散模型 ${diffusionCount} 个。已排除 ${result.excludedModelCount} 个视频模型；视频模型请在视频设置中查看。`
+      : t`ComfyUI 已连接：识别到 ${diffusionCount + result.checkpoints.length} 个视频模型。已排除 ${result.excludedModelCount} 个图片模型。`;
+  } catch (error) { if (!controller.signal.aborted) formError.value = error instanceof Error ? error.message : translate("连接失败"); }
+  finally { if (comfyLoading === controller) { comfyLoading = undefined; checkingComfy.value = false; } }
+}
+
+function resetComfyCatalog() {
+  modelGroups.value = []; unclassifiedModelGroups.value = []; expandedModelGroups.value = []; comfyStatus.value = "";
+  if (provider?.id === "comfyUi" && mediaType === "image") {
+    formApi.value?.updateRule("checkpoint", { options: [] });
+    formApi.value?.sync("checkpoint");
+  }
+}
+
+watch(() => formValues.value[mediaType === "image" ? "imageUrl" : "videoUrl"], () => {
+  comfyLoading?.abort(); comfyLoading = undefined; checkingComfy.value = false;
+  resetComfyCatalog();
+});
 
 async function importWorkflow(event: Event) {
   const input = event.target as HTMLInputElement;
@@ -145,13 +216,16 @@ async function importWorkflow(event: Event) {
     const value = JSON.parse(await file.text());
     if (!value || typeof value !== "object" || Array.isArray(value) || !Object.keys(value).length
       || Object.values(value).some((node: any) => !node || typeof node.class_type !== "string" || !node.inputs)) throw new Error("请从 ComfyUI 导出 API 格式的工作流");
-    formApi.value?.setValue(mediaType === "image" ? "imageWorkflow" : "videoWorkflow", JSON.stringify(value, null, 2));
+    setWorkflow(value);
     comfyStatus.value = "工作流已导入，请确认提示词和参考图绑定后保存。";
     formError.value = "";
   } catch (error) { formError.value = error instanceof Error ? error.message : "导入失败"; }
 }
 
 watch(visible, isVisible => {
+  comfyLoading?.abort();
+  comfyLoading = undefined;
+  checkingComfy.value = false;
   testLoading?.abort();
   testLoading = undefined;
   loadingTestModel.value = undefined;
@@ -162,14 +236,26 @@ watch(visible, isVisible => {
   editingModelIndex.value = undefined;
   const configs = settings.value.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
   formRules.value = formCreate.copyRules((provider?.rules ?? []).filter(rule => !rule.mediaType || rule.mediaType === mediaType));
+  // 兼容已经安装的旧版 ComfyUI 适配器，只增强此字段，不覆盖供应商文件。
+  if (provider?.id === "comfyUi" && mediaType === "image") {
+    const checkpointRule = formRules.value.find(rule => rule.field === "checkpoint");
+    if (checkpointRule) {
+      checkpointRule.type = "select";
+      checkpointRule.props = { ...checkpointRule.props, filterable: true, allowCreate: true, defaultFirstOption: true, clearable: true,
+        placeholder: translate("连接读取后选择，也可输入完整文件名"), noDataText: translate("暂无图片 Checkpoint，可手动输入文件名") };
+      checkpointRule.options = [];
+    }
+  }
   const values = structuredClone(toRaw((provider && configs?.[provider.id]) ?? {}));
+  workflowModels.value = provider?.id === "comfyUi" ? structuredClone((values.workflowModels ?? {}) as Record<string, WorkflowProfile>) : {};
+  changedWorkflows.value = {};
   const local = settings.value.localModels as { comfyUrl?: string } | undefined;
   formValues.value = provider?.id === "comfyUi" ? { imageUrl: local?.comfyUrl || "http://127.0.0.1:8188", videoUrl: local?.comfyUrl || "http://127.0.0.1:8188", ...values } : values;
-  checkpoints.value = []; comfyStatus.value = "";
+  resetComfyCatalog();
   revision.value = provider?.revision ?? "";
   models.value = JSON.parse(JSON.stringify(provider?.models ?? []));
 }, { immediate: true });
-onBeforeUnmount(() => testLoading?.abort());
+onBeforeUnmount(() => { testLoading?.abort(); comfyLoading?.abort(); });
 
 async function testModel(index: number) {
   const model = models.value[index];
@@ -182,6 +268,7 @@ async function testModel(index: number) {
     const currentProvider = { ...provider, models: JSON.parse(JSON.stringify(models.value)) as MediaProviderModel[] };
     const currentRevision = revision.value;
     const config = structuredClone(toRaw(formApi.value?.formData() ?? formValues.value));
+    if (provider.id === "comfyUi") config.workflowModels = structuredClone(toRaw(workflowModels.value));
     const modelId = model.id;
     const { data } = await axios.get<{ code: number; data: { source: string; revision: string }; message?: string }>("/api/providers/media/source", {
       params: { fileName: currentProvider.fileName }, headers: { "x-toonflow-workspace": "1" }, signal: controller.signal,
@@ -258,6 +345,9 @@ async function saveModels() {
       if (configs !== undefined && (!configs || typeof configs !== "object" || Array.isArray(configs))) throw new Error("媒体供应商配置格式无效");
       const current = configs?.[providerId];
       if (current !== undefined && (!current || typeof current !== "object" || Array.isArray(current))) throw new Error("当前供应商配置格式无效");
+      if (providerId === "comfyUi" && Object.keys(changedWorkflows.value).length) {
+        config.workflowModels = { ...(current?.workflowModels as Record<string, WorkflowProfile> | undefined), ...structuredClone(toRaw(changedWorkflows.value)) };
+      }
       if (Object.entries(config).every(([field, value]) => JSON.stringify(value) === JSON.stringify(current?.[field]))) return;
       return { mediaProviderConfigs: { ...configs, [providerId]: { ...current, ...config } } };
     });
@@ -288,6 +378,7 @@ async function saveModels() {
 
   .providerReadme { margin-bottom: 20px; }
   .comfyControls { display: grid; gap: 12px; margin: 12px 0 24px; }
+  .comfyModelGroups { ul { margin: 0; padding-left: 20px; max-height: 220px; overflow-y: auto; } li { overflow-wrap: anywhere; line-height: 1.8; } }
 
   .modelHeader {
     display: flex;

@@ -145,7 +145,7 @@ const generateAudio = ref(false);
 const voice = ref("");
 const extraParameters = ref("");
 const referenceInput = ref<HTMLInputElement>();
-const references = shallowRef<{ file: File; url: string; role: string }[]>([]);
+const references = ref<{ file: File; url: string; role: string }[]>([]);
 const assets = shallowRef<{ type: string; url: string }[]>([]);
 const imagePreviews = computed(() => assets.value.filter(item => item.type === "image").map(item => item.url));
 const logs = shallowRef<DebugLog[]>([]);
@@ -302,6 +302,7 @@ async function run() {
     if (formApi.value && !(await formApi.value.validate().then(() => true, () => false))) throw new Error("请检查供应商配置");
     signal.throwIfAborted();
     const config = formApi.value?.formData() ?? configValues.value;
+    if (props.provider.id === "comfyUi" && props.config?.workflowModels) config.workflowModels = props.config.workflowModels;
     secrets = [...collectSecrets(config), ...collectSecrets(parameters)];
     const request = await buildRequest(signal);
     signal.throwIfAborted();

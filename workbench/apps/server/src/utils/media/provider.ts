@@ -8,6 +8,7 @@ import type { AudioConvertOptions, Provider, ProviderTaskData, ProviderTools } f
 import { parse, parseExpression } from "@babel/parser";
 import { z } from "zod";
 import conf from "@/utils/conf";
+import { comfyWorkflowConfig } from "@/utils/localModels";
 import { accountProviderSchema, getAccountProvider, getAccountToken, providerSchema } from "@/utils/ai/provider";
 import type { ProviderSources } from "@/utils/channel/types";
 import { convertAudio } from "@/utils/media/audioProcessor";
@@ -643,6 +644,10 @@ export async function loadMediaProviderSource(source: string, config: Record<str
       try {
         if (name === "resumeTask") return await generate.call(context, parseTaskData(request, providerConfig));
         const input = request as ImageRequest | VideoRequest | AudioRequest;
+        // 由宿主按模型 ID 注入独立图生图配置，兼容已安装的 ComfyUI 适配器，不覆盖用户的供应商代码。
+        if (id === "comfyUi" && (name === "generateImage" || name === "generateVideo")) {
+          context.config = comfyWorkflowConfig(providerConfig, input as ImageRequest | VideoRequest, name === "generateImage" ? "image" : "video");
+        }
         const prepared = definition.processMedia ? await definition.processMedia.call(context, input) : input;
         // ACT: 预处理沿用原生成类型，在动态分发边界按对应方法收窄请求。
         if (name === "generateImage") return await generate.call(context, prepared as ImageRequest);

@@ -98,7 +98,10 @@ def ensure_comfy(status=None, profile=None, cancel=lambda: False):
         (runtime / kind).mkdir(parents=True, exist_ok=True)
     for kind in ('input', 'output', 'user', 'temp'):
         args += ['--' + kind + '-directory', str(runtime / kind)]
-    args += ['--database-url', 'sqlite:///' + (runtime / 'user/comfyui.db').as_posix()]
+    databaseName = CONFIG.get('comfy_database_name', 'comfyui')
+    if not isinstance(databaseName, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', databaseName):
+        raise ValueError('ComfyUI 数据库名称只能包含字母、数字、下划线和短横线。')
+    args += ['--database-url', 'sqlite:///' + (runtime / 'user' / (databaseName + '.db')).as_posix()]
     process_env['DRAMA_FACTORY_CACHE_DIR'] = str(runtime / 'cache')
     bundled_node = ROOT / 'nodes/ComfyUI-DramaFactory'
     if not bundled_node.is_dir():

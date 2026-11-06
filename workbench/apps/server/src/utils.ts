@@ -37,8 +37,16 @@ import * as mentionFiles from "@/agent/mentionFiles";
 import * as network from "@/utils/network";
 import * as channel from "@/utils/channel";
 import * as multiTenant from "@/utils/multiTenant";
+import * as directoryPicker from "@/utils/directoryPicker";
+import * as comfyEnvironment from "@/utils/comfyEnvironment";
+import * as modelSearch from "@/utils/modelSearch";
+import * as comfyWorkflows from "@/utils/comfyWorkflows";
 
 export default {
+  comfyWorkflows,
+  modelSearch,
+  comfyEnvironment,
+  directoryPicker,
   assets,
   browser,
   singleAgent,

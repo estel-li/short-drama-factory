@@ -15,7 +15,7 @@ import yaml
 
 from .downloads import Downloader
 from .providers import Cancelled
-from .storage import ROOT, contained, identifier, read_json, write_json
+from .storage import ROOT, contained, identifier, read_json, write_json, digest
 
 REQUIRED_NODES = ['MiniMaxH3ImageToVideo', 'MiniMaxH3ReferenceToVideo', 'EmptyMiniMaxH3LatentAV',
                   'DramaSaveConditioning', 'DramaLoadConditioning', 'DramaSaveLatent', 'DramaLoadLatent']
@@ -121,6 +121,26 @@ def inspect_safetensors(path):
     return {'tensor_count': len(tensors), 'size': size, 'metadata': header.get('__metadata__', {})}
 
 
+def inspect_local_environment(directory, python=''):
+    selected = Path(directory).expanduser()
+    if not directory or not selected.is_absolute():
+        raise ValueError('请选择 ComfyUI 的完整文件夹路径。')
+    selected = selected.resolve()
+    candidates = [selected, selected / 'ComfyUI', selected / 'ComfyUI_windows_portable/ComfyUI']
+    root = next((path for path in candidates if (path / 'main.py').is_file() and (path / 'comfy').is_dir()), None)
+    if root is None:
+        raise ValueError('该文件夹中未找到 ComfyUI，请选择包含 main.py 的目录或便携包根目录。')
+    interpreters = [Path(python).expanduser()] if python else [
+        base / relative for base in (root, root.parent)
+        for relative in ('python_embeded/python.exe', 'python/python.exe', '.venv/Scripts/python.exe',
+                         'venv/Scripts/python.exe', '.venv/bin/python', 'venv/bin/python')]
+    interpreter = next((path.resolve() for path in interpreters if path.is_absolute() and path.is_file()), None)
+    if python and interpreter is None:
+        raise ValueError('推理 Python 路径不存在，请填写 python.exe 的完整路径。')
+    return {'comfy_dir': str(root), 'python': str(interpreter) if interpreter else '',
+            'models_dir': str(root / 'models')}
+
+
 class Installer:
     def __init__(self, config):
         self.config = config
@@ -179,12 +199,16 @@ class Installer:
         needed = sum(m['size'] for m in planned if m['action'] == 'download') + (portable['size'] if mode == 'fresh' else 0) + sum(w['size'] for w in wheels)
         if mode == 'remote':
             planned, needed = [], 0
-        return {'mode': mode, 'install_dir': str(install_dir), 'models_dir': str(models_dir), 'search_dirs': roots,
+        result = {'mode': mode, 'install_dir': str(install_dir), 'models_dir': str(models_dir), 'search_dirs': roots,
                 'manifest': manifest['id'], 'models': planned, 'portable': portable, 'runtime_wheels': wheels, 'download_bytes': needed,
                 'hardware': hardware(models_dir), 'note': '便携包解压还需额外空间。复用文件会进行校验；已配置的不同量化版本可保留。'}
+        result['confirmation_token'] = digest({key: value for key, value in result.items() if key != 'hardware'})
+        return result
 
     def execute(self, options, progress, cancel):
         plan = self.plan(options)
+        if options.get('download_confirmation') and options['download_confirmation'] != plan['confirmation_token']:
+            raise ValueError('安装清单发生变化，请重新预览并确认下载。')
         if plan['mode'] == 'remote':
             return catalog({**self.config.renderer_config(), 'comfy_url': options.get('comfy_url') or self.config.renderer_config()['comfy_url'], 'comfy_auth_token': self.config.key('comfy')})
         if plan['hardware']['os'] != 'Windows' or plan['hardware']['architecture'].lower() not in ('amd64', 'x86_64') or not plan['hardware']['gpu']:

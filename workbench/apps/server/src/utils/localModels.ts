@@ -29,7 +29,34 @@ export const comfyConfigSchema = z.object({
   imageUrl: comfyAddress.optional(), videoUrl: comfyAddress.optional(), checkpoint: z.string().max(2048).optional(),
   imageWorkflow: workflow.optional(), videoWorkflow: workflow.optional(),
   imageOutputNode: z.string().max(256).optional(), videoOutputNode: z.string().max(256).optional(),
+  workflowModels: z.record(z.string().min(1).max(200), z.object({
+    mediaType: z.literal("image"), workflow: workflow.refine(value => !!value.trim(), "独立工作流不能为空"), outputNode: z.string().max(256),
+    inputMode: z.enum(["image", "text"]).optional(),
+  }).strict()).refine(value => Object.keys(value).length <= 50, "独立工作流最多 50 个").optional(),
 }).strict();
+
+export function comfyWorkflowConfig(config: Record<string, unknown>, request: ImageRequest | VideoRequest, mediaType: "image" | "video") {
+  const profiles = comfyConfigSchema.shape.workflowModels.parse(config.workflowModels);
+  const profile = profiles && Object.hasOwn(profiles, request.model) ? profiles[request.model] : undefined;
+  if (!profile) {
+    if (["comfySdEdit", "comfyFluxSchnellEdit", "comfyQwenTurboEdit", "comfyQwenTurbo"].includes(request.model)) {
+      throw new Error("此图片工作流尚未保存，请在图片模型设置中重新应用并保存对应预设");
+    }
+    return config;
+  }
+  if (mediaType !== profile.mediaType) throw new Error("工作流与媒体类型不匹配");
+  if (profile.inputMode === "text") {
+    if (request.images?.length) throw new Error("此文生图工作流不接受参考图，请选择对应的单图编辑或图生图方案");
+  } else if (request.images?.length !== 1) throw new Error("此图生图工作流需要且只支持一张原图，请连接图片节点或上传一张参考图");
+  if ((request as ImageRequest).mask) throw new Error("此工作流用于整图重绘，不支持蒙版局部编辑");
+  let graph = profile.workflow;
+  if (graph.includes('"{{denoise}}"')) {
+    const strength = request.other?.denoise ?? 0.55;
+    if (typeof strength !== "number" || !Number.isFinite(strength) || strength < 0.05 || strength > 1) throw new Error("重绘强度须为 0.05 到 1 之间的数字");
+    graph = graph.replaceAll('"{{denoise}}"', String(strength));
+  }
+  return { ...config, imageWorkflow: graph, imageOutputNode: profile.outputNode };
+}
 export const localModelsSchema = z.object({
   comfyUrl: comfyAddress,
   factoryUrl: localAddress,

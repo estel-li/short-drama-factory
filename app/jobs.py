@@ -336,8 +336,16 @@ class Worker:
                 for child in ids:
                     self.allow_job(child)
             return 'done'
+        if job['kind'] == 'comfy-start' and pid == '__environment':
+            pipeline.CONFIG.clear()
+            pipeline.CONFIG.update(self.config.renderer_config())
+            pipeline.CONFIG['comfy_auth_token'] = self.config.key('comfy')
+            pipeline.ensure_comfy(lambda message: self.db.update(jid, message=message, event={'message': message}),
+                                  cancel=lambda: self.db.cancelled(jid) or self.shutdown.is_set())
+            return 'done'
         if job['kind'] == 'install' and pid == '__environment':
             def progress(value):
+                value = {**value, 'job_id': jid}
                 self.db.update(jid, message=value.get('message') or f'{value.get("status", "")} {value.get("file", "")} {value.get("bytes", 0)}/{value.get("total", 0)}', event=value)
                 write_json(ROOT / 'data/installation_progress.json', value)
             self.installer.execute(json.loads(job['payload']), progress, lambda: self.db.cancelled(jid) or self.shutdown.is_set())

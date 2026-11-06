@@ -8,7 +8,7 @@ import { localModelsConfig } from "@/utils/localModels";
 
 type Journal = { request: FactoryRequest; instance: string; nodeId: string; createdAt: string; result?: unknown; status: "pending" | "completed" | "failed"; failure?: { message: string; status: number; factoryError?: unknown } };
 
-function connection() {
+export function connection() {
   const { factoryUrl: address, applicationRoot: root } = localModelsConfig();
   if (!root) throw Object.assign(new Error("请在设置 → MiniMax H3 / ComfyUI 中填写实际运行的工厂目录"), { status: 503 });
   const url = new URL(address);
@@ -19,7 +19,7 @@ function connection() {
   return { baseUrl: url.origin, applicationRoot: root, identity: `${url.origin}\n${root.replaceAll("\\", "/").replace(/\/$/, "")}` };
 }
 
-async function requestJson(config: ReturnType<typeof connection>, path: string, method = "GET", body?: unknown, key?: string) {
+export async function requestJson(config: ReturnType<typeof connection>, path: string, method = "GET", body?: unknown, key?: string) {
   const response = await fetch(config.baseUrl + path, {
     method, headers: { "Content-Type": "application/json", ...(key ? { "Idempotency-Key": key } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(90_000),
@@ -32,13 +32,18 @@ async function requestJson(config: ReturnType<typeof connection>, path: string, 
   return value;
 }
 
-async function verifyConnection(config: ReturnType<typeof connection>, directory: string) {
+export async function verifyInstance(config: ReturnType<typeof connection>) {
   const health = await requestJson(config, "/api/health");
   const normalize = (value: string) => value.replaceAll("\\", "/").replace(/\/$/, "");
   if (health.protocol_version !== 1 || typeof health.application_root !== "string"
     || normalize(health.application_root) !== normalize(config.applicationRoot)) {
     throw Object.assign(new Error("工厂实例目录或 agent 协议不匹配，已拒绝操作；请核对 SDF_APPLICATION_ROOT"), { status: 409 });
   }
+  return health;
+}
+
+async function verifyConnection(config: ReturnType<typeof connection>, directory: string) {
+  const health = await verifyInstance(config);
   const capabilities = await requestJson(config, "/api/capabilities");
   const features = capabilities.features as Record<string, unknown> | undefined;
   for (const key of ["exact_jobs", "job_events", "execution_plans", "idempotency", "revisioned_edits", "strict_render", "delivery_manifest", "delivery_verification"]) {
