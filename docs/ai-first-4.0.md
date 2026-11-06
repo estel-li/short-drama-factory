@@ -67,7 +67,7 @@
 | 无客户端与独立 CLI | test_agent_start_smoke 启动真实隔离服务并从独立脚本目录经 HTTP 连接、诊断、创建、重放、查询；test_sdf_cli、test_sdf_tasks 和 test_skill_install 覆盖便携使用、请求账本和安装更新 |
 | 启动不执行旧任务 | 真实 serve-only 子进程保持 worker_running=false，旧 queued 行及事件不变；已退出进程的 running 转 paused；当前或其他存活进程持锁时不接管 |
 | 实际产物与交付 | test_delivery_manifest 用 CPU 测试视频和真实后期构建版本证据；test_agent_delivery 经生产 API 与复制 CLI 下载、验哈希并拒绝失效版本；test_sdf_delivery 覆盖下载变更、空字幕、批次部分失败和未知结果补交 |
-| 文档与类型契约 | test_agent_contract_docs、test_prompt_tools、技能校验及 tools/generate_agent_contract.py --check；完整回归命令为 python -m unittest discover -s tests -p "test_*.py" 和 npm test |
+| 文档与类型契约 | test_agent_contract_docs、test_prompt_tools、技能校验及 tools/generate_agent_contract.py --check；后端回归命令为 python -m unittest discover -s tests -p "test_*.py"；旧网页 npm 检查已随旧前端移除 |
 | 分阶段版本 | 3.7.0：6b3c2c5；3.8.0：1861f84；3.9.0：7ce8f96；最终提交以 4.0.0 及 v4.0.0 标签标识，发布时核对 origin/main 与该标签解析的提交一致 |
 
 最后独立审查修复了异常退出后任务永久 busy，以及局部文字规划超范围编译的问题。全部验证均使用隔离数据、模拟供应商或 CPU 测试媒体，没有调用用户的生产模型或修改生产项目；这些证据不替代实际生成内容的审片。

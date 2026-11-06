@@ -32,7 +32,7 @@ def prepare():
         metadata = json.loads(package.read('短剧工厂/package.json'))
         if metadata['version'] != VERSION:
             raise ValueError('Portable archive version differs from the source version.')
-        forbidden = {'.git', '.venv', '.secrets', '.sdf', 'config', 'data', 'models', 'projects', 'logs'}
+        forbidden = {'.git', '.venv', '.secrets', '.sdf', 'config', 'data', 'models', 'projects', 'logs', 'web', 'presets'}
         for name in package.namelist():
             parts = Path(name).parts
             if name == '短剧工厂/data/quality/silero_vad.onnx':
@@ -45,7 +45,7 @@ def prepare():
                 raise ValueError('Unexpected workbench runtime data found in portable archive: ' + name)
         for required in ('workbench/build/server/index.js', 'workbench/build/web/index.html', 'runtime/bun.exe', 'data/quality/silero_vad.onnx'):
             package.getinfo('短剧工厂/' + required)
-        for folder in ('app', 'web', 'manifests', 'nodes', 'agent-skills', 'tools'):
+        for folder in ('app', 'manifests', 'nodes', 'agent-skills', 'tools'):
             for source in (ROOT / folder).rglob('*'):
                 if source.is_file() and '__pycache__' not in source.parts and source.suffix not in ('.pyc', '.pyo'):
                     relative = source.relative_to(ROOT).as_posix()

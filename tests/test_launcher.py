@@ -106,7 +106,7 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(Path(options['env']['TEMP']),root/'data/panel-temp')
             self.assertEqual(options['cwd'],root)
             self.assertTrue((root/'logs/panel.stderr.log').is_file())
-            browser.assert_called_once_with('http://127.0.0.1:8779')
+            browser.assert_not_called()
 
     def test_invalid_port_and_missing_runtime_have_actionable_errors(self):
         with self.assertRaises(ValueError):start.launch(port=0)

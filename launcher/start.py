@@ -35,7 +35,7 @@ def check_owner(value, root):
         raise RuntimeError('端口已被另一目录的工作台占用，请使用 --port 指定空闲端口。')
 
 
-def launch(root=ROOT, port=8765, no_browser=False, serve_only=False):
+def launch(root=ROOT, port=8765, no_browser=True, serve_only=True):
     root = Path(root).resolve()
     if not 1 <= port <= 65535:
         raise ValueError('端口必须在 1～65535 之间。')
@@ -73,8 +73,6 @@ def launch(root=ROOT, port=8765, no_browser=False, serve_only=False):
         if value is None:
             raise RuntimeError('启动尚未完成，请查看 logs/panel.stderr.log，稍后重试。')
     check_owner(value, root)
-    if not no_browser and not serve_only:
-        webbrowser.open(url)
     return value
 
 
@@ -194,12 +192,10 @@ if __name__ == '__main__':
     parser.add_argument('--port', '-Port', type=int, help='生产 API 端口；画布默认沿用已保存连接，未配置时为 8770；仅 API 模式默认为 8765')
     parser.add_argument('--workbench-port', type=int, default=3001, help='画布工作台端口，默认 3001')
     parser.add_argument('--no-browser', '-NoBrowser', action='store_true')
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument('--serve-only', action='store_true', help='仅启动 API；不恢复旧任务或打开浏览器')
-    mode.add_argument('--legacy-ui', action='store_true', help='兼容入口：打开旧版页面并沿用旧队列恢复行为')
+    parser.add_argument('--serve-only', action='store_true', help='仅启动 API；不恢复旧任务或打开浏览器')
     args = parser.parse_args()
     try:
-        if args.serve_only or args.legacy_ui:
+        if args.serve_only:
             port = args.port if args.port is not None else 8765
             launch(port=port, no_browser=args.no_browser, serve_only=args.serve_only)
             print(f'短剧工厂 API 已就绪：http://127.0.0.1:{port}')

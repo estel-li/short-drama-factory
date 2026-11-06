@@ -14,7 +14,6 @@ from fastapi import FastAPI, Request, UploadFile, File, Query
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .assets import Assets
@@ -101,7 +100,7 @@ async def local_origin(request: Request, call_next):
     if size > (2 * 1024**3 if request.url.path == '/api/import' else 12_000_000):
         return JSONResponse(error_body('REQUEST_TOO_LARGE', '请求体超过接口允许大小。'), status_code=413)
     response = await call_next(request)
-    if request.url.path.startswith('/api') or request.url.path == '/' or request.url.path.startswith('/web/'):
+    if request.url.path.startswith('/api') or request.url.path == '/':
         response.headers['Cache-Control'] = 'no-store'
     return response
 
@@ -170,7 +169,9 @@ async def storage_error(request, exc):
 
 @app.get('/')
 def home():
-    return FileResponse(ROOT / 'web' / 'index.html' if (ROOT / 'web' / 'index.html').exists() else ROOT / 'index.html')
+    return {'service': 'short-drama-factory-api', 'interface': 'canvas-workbench',
+            'message': '此端口仅提供生产 API。请通过根目录启动短剧工厂.cmd 打开新版画布工作台。',
+            'health': '/api/health', 'schema': '/openapi.json'}
 
 
 @app.get('/api/config')
@@ -194,12 +195,6 @@ def save_config(body: dict):
 @app.post('/api/provider/key')
 def provider_key(body: dict):
     config.set_key(body['id'], body.get('key', ''))
-    return {'ok': True}
-
-
-@app.post('/api/key')
-def old_key(body: dict):
-    config.set_key('deepseek', body['key'])
     return {'ok': True}
 
 
@@ -245,23 +240,6 @@ def skill_save(sid: str, body: dict):
     if worker.active:
         raise ValueError('任务执行中，请停止后修改 Skill，以免同一项目混用不同规则。')
     return skills.save(sid, body['metadata'], body['files'])
-
-
-@app.get('/api/presets')
-def get_presets():
-    return {'builtin': read_json(ROOT / 'presets' / 'builtin.json'), 'personal': read_json(ROOT / 'presets' / 'personal.json', {})}
-
-
-@app.post('/api/presets')
-def save_presets(body: dict):
-    from .storage import identifier
-    name = identifier(body['id'])
-    options = Options.model_validate(body['options'])
-    durations(options)
-    value = read_json(ROOT / 'presets' / 'personal.json', {})
-    value[name] = {'name': body.get('name', name), 'options': options.model_dump()}
-    write_json(ROOT / 'presets' / 'personal.json', value)
-    return {'ok': True}
 
 
 @app.post('/api/duration-plan')
@@ -330,15 +308,6 @@ def project_create(body: CreateProjectRequest):
     body = body.model_dump(exclude_unset=True)
     project = projects.create(body.get('input', ''), body.get('options', {}), body.get('storyboard'))
     jid = worker.enqueue(project.name, 'all') if body.get('start', True) else None
-    return {'id': project.name, 'job_id': jid}
-
-
-@app.post('/api/create', status_code=202)
-def old_create(body: dict):
-    options = {k: v for k, v in body.items() if k in Options.model_fields}
-    options['execution_mode'] = 'auto'
-    project = projects.create(body.get('outline', ''), options)
-    jid = worker.enqueue(project.name, 'plan' if body.get('plan_only') else 'all')
     return {'id': project.name, 'job_id': jid}
 
 
@@ -1061,6 +1030,3 @@ install_delivery_routes(app, lambda: SimpleNamespace(config=config, db=db, proje
 from .director_api import install_director_routes
 install_director_routes(app, lambda: SimpleNamespace(config=config, db=db, projects=projects,
                                                      assets=assets, content=content, worker=worker))
-
-if (ROOT / 'web').is_dir():
-    app.mount('/web', StaticFiles(directory=ROOT / 'web'), name='web')

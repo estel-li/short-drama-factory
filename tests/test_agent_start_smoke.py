@@ -36,7 +36,7 @@ class ServeOnlyStartupTests(unittest.TestCase):
         application.mkdir()
         # Copy code/resources only. In particular, do not copy config, secrets,
         # projects, databases, engines, runtime environments, or model files.
-        for directory in ('app', 'launcher', 'resources', 'presets', 'web', 'manifests', 'workflows'):
+        for directory in ('app', 'launcher', 'resources', 'manifests', 'workflows'):
             shutil.copytree(SOURCE / directory, application / directory,
                             ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
         for source in SOURCE.glob('*.py'):

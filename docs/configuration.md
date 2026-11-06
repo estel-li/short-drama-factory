@@ -1,42 +1,39 @@
 # 配置说明
 
-优先通过工作台修改配置，任务运行期间不会允许修改全局环境或 Skill。
+## 新工作台配置
 
-## 文件
+通过“设置 → 文本模型／图片模型／视频模型／ComfyUI 环境”修改。画布服务的配置保存在 `workbench/data/settings.json`，其中 `settings.localModels` 记录 ComfyUI 地址、生产 API 地址和实际工厂根目录；`settings.mediaProviderConfigs` 记录供应商及独立工作流。
+
+这些配置包含本机路径和用户凭证，不能提交仓库或输出到日志。设置页保存的连接优先于 `SDF_BASE_URL`、`SDF_APPLICATION_ROOT`、`SDF_COMFY_URL` 环境变量。根目录启动器只启动当前目录的本机工厂，不覆盖已保存的连接。
+
+`TOONFLOW_DATA_DIR` 用于手动启动服务时指定工作台数据目录；根目录统一启动固定使用本目录 `workbench/data/`。工作目录与画布素材不等同于 Python 的项目目录。
+
+## 生产后端配置
 
 | 路径 | 用途 | 是否提交 |
 | --- | --- | --- |
-| `config.default.json` | 无认证、无私人路径的默认生成配置 | 是 |
-| `config/application.json` | 本机环境、提供商、代理和项目目录 | 否 |
-| `.secrets/*.key` | 提供商、HF 和 ComfyUI 认证 | 否 |
-| `extra_model_paths.yaml` | 本机模型搜索映射 | 否 |
-| `presets/personal.json` | 个人预设 | 否 |
-| `projects/*/settings.json` | 每个项目的独立设置 | 否 |
+| `config.default.json` | 无认证、无私人路径的后端默认配置 | 是 |
+| `config/application.json` | 本机环境、后端文字提供商、代理及项目目录 | 否 |
+| `.secrets/*.key` | 后端提供商、HF、ComfyUI 认证 | 否 |
+| `workbench/data/settings.json` | 画布、Agent 与媒体供应商配置 | 否 |
+| `extra_model_paths*.yaml` | 本机模型搜索映射 | 否 |
+| `presets/personal.json` | 旧项目迁移所保留的用户预设数据 | 否 |
+| `projects/*/settings.json` | H3 项目独立设置 | 否 |
 
-`DEEPSEEK_API_KEY` 环境变量可提供 DeepSeek key，优先于本机文件。不要把真实值写进仓库的脚本或说明。浏览器保存认证后不回传原 key，只显示是否配置。
+生产 API 通过 `/api/v2/config` 读取／修订配置，认证使用专用入口。旧网页已移除，不能在生产端口寻找配置页面。H3 镜头／项目参数通过工厂节点或 Agent 接口编辑，修改前读取 revision。
 
-## 文字提供商
+`DEEPSEEK_API_KEY` 是后端显式内部文字阶段的环境变量。画布 Agent 使用工作台自己的模型设置，两者不是同一份配置。后端继续支持已有 DeepSeek、Ollama、LM Studio 和兼容提供商，供内部规划与公开 API 使用。
 
-支持 `deepseek`、`ollama`、`lmstudio`、`compatible`。服务地址不应夹带用户名、密码、查询参数或片段。每阶段可覆盖默认模型，留空继承提供商模型。
+## ComfyUI 与生成
 
-默认网络额外重试 `retries=3`；格式额外修复 `format_retries=3`。网络超时、中断、限流和临时服务器错误采用有限退避；确定性认证、余额和参数错误直接报告。格式修复把具体 JSON、模式、素材或对白校验错误发回模型。
+环境设置可选择现有 ComfyUI 或预览固定安装清单，搜索模型目录并接入。接入目录不复制权重；远端服务须自行具备模型与节点。模型、采样器、LoRA、编码器与 VAE 必须匹配工作流。
 
-本地模型与 H3 争用显存时，Ollama/LM Studio 可以在请求后自动卸载；其他本地服务自行管理卸载或使用 CPU。
+画布独立图片工作流放在 `mediaProviderConfigs.comfyUi.workflowModels`。SD／Flux 图生图支持重绘强度，Qwen Turbo 单图编辑使用专用编码图。画布节点的尺寸、提示词与参考图属于单次请求。
 
-## H3 与安装
+Python 的 `image_generation` 和项目 `reference_images` 仍用于后端图片 API、项目参考图与 Worker 引擎管理，不与画布直连模型设置混用。详情见 [后端图片接口](image-studio.md)。
 
-`manifests/qwen-image-2.1.json` 另行固定图片模型、ComfyUI 源码和首次启动运行时的来源、大小、摘要；独立引擎安装在 `engines/`，默认模型目录为 `models/qwen-image-2.1/`。本地自定义服务的模型目录必须是该服务实际扫描的目录；远程缺模型需在远端安装。
+H3 的 profile 包含画幅、像素规模、步数、采样与模型选项；更新模型、素材或提示词会影响缓存。自动接续必须绑定真实的紧邻前镜末帧，不能在缺图时静默退回文生视频。
 
-`manifests/h3-5060ti-16g.json` 固定 ComfyUI、模型和推理依赖版本及校验值。预览安装清单显示复用/下载文件、目标目录、大小及磁盘剩余容量，缺少模型才下载。
+## 凭证与用户数据
 
-质量预设由 `megapixels`、`steps`、`turbo`、采样器、调度器等参数组成。默认快速预览为 0.4MP / 4 步；LoRA 和模型必须匹配实际模式。修改模型或生成质量会影响缓存及资源需求。
-
-提供商选择、首帧模式和单镜素材都由真实绑定校验。首帧自动接续开启时强制 I2VA，不采用“缺少参考则文生降级”。
-
-## 图片生成
-
-全局 `image_generation` 包含引擎模式 `auto/shared/managed`、图片服务地址、模型目录、独立端口（默认 8190）、模型方案、默认文字提供商／模型／Skill、已有模型文件选择与超时。`models` 可分别指定 `diffusion_models`、`text_encoders`、`vae` 的相对文件名，留空使用推荐文件。图片页面可保存这些设置，旧客户端保存不含该字段的配置时会保留原图片配置。旧字段 `auto_download` 仅保留兼容，3.0.1 起实际下载必须确认当前清单。
-
-3.1.0 的单次图片请求支持 `reference_images`（上传接口返回的输入 ID 数组，最多 10 张）和 `reference_mode`（`reference` 按所选画幅创作，`edit` 保持第一张原图比例）。它们属于任务参数，不写入全局默认配置。项目角色／场景的 `source_assets` 和参考方式保存在项目 `reference-images.json`，对应源图保存在 `assets/`，随迁移导出保留。完整用法见 [图片工作室](image-studio.md)。
-
-项目 `reference_images` 包含是否自动生成、角色／场景／道具开关、优化开关、方案、尺寸及文字模型覆盖。自动生成默认关闭；图片提示词优化默认开启。完整参数与许可见 [图片生成指南](image-studio.md)。
+标准包排除配置、密钥、项目和工作台数据，仅包含固定的 Silero VAD CPU 质检模型。生成大模型按清单显式准备。项目迁移仍保留素材、历史版本与个人预设，不能把用户数据当成旧网页文件删除。

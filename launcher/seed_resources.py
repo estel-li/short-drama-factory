@@ -19,12 +19,8 @@ def seed(root=ROOT):
             raise RuntimeError('Bundled skill is incomplete: ' + sid)
         if not (target / 'metadata.json').exists():
             shutil.copytree(source, target, dirs_exist_ok=True)
-    target = root / 'presets/builtin.json'
-    if not target.exists():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT / 'presets/builtin.json', target)
 
 
 if __name__ == '__main__':
     seed()
-    print('完整预设资源已就绪。')
+    print('完整内置技能资源已就绪。')

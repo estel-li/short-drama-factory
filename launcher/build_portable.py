@@ -120,7 +120,7 @@ def build():
                 else:
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_bytes(source.read(item))
-    for name in ('app', 'web', 'presets', 'manifests', 'nodes', 'launcher', 'tools', 'resources', 'docs'):
+    for name in ('app', 'manifests', 'nodes', 'launcher', 'tools', 'resources', 'docs'):
         shutil.copytree(ROOT / name, package / name, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.tmp'))
     shutil.copytree(workbench / 'build', package / 'workbench/build')
     shutil.copy2(workbench / 'LICENSE', package / 'workbench/LICENSE')
@@ -131,9 +131,7 @@ def build():
     from launcher.seed_resources import seed
     seed(package)
     copy_agent_entrypoints(package)
-    # 用户预设可通过迁移导出；标准安装包只含内置预设。
-    (package / 'presets/personal.json').unlink(missing_ok=True)
-    for name in ('pipeline.py', 'server.py', 'config.default.json', 'requirements.lock.txt', '启动短剧工厂.cmd', '使用说明.md', '更新说明-2.1.md', '更新说明-2.2.md', '更新说明-2.3.md', '更新说明-2.4.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
+    for name in ('pipeline.py', 'server.py', 'config.default.json', 'requirements.lock.txt', '启动短剧工厂.cmd', '使用说明.md', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'CHANGELOG.md'):
         if Path(name).suffix == '.cmd':
             copy_windows_batch(ROOT / name, package / name)
         else:
