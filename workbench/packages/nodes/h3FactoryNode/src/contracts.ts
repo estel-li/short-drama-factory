@@ -45,7 +45,7 @@ export const createProjectBody = z.strictObject({
 export const importReferenceBody = z.strictObject({ path: z.string().min(1).max(4096).describe("工作区内 PNG、JPEG、WebP 的相对路径，最多 8 MB") });
 export const factoryRequest = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("connect") }),
-  z.strictObject({ action: z.literal("workflowPlan"), profile: factoryId }),
+  z.strictObject({ action: z.literal("workflowPlan"), profile: factoryId, mode: mode.exclude(["auto"]).optional() }),
   z.strictObject({ action: z.literal("history") }),
   z.strictObject({ action: z.literal("retry"), requestKey }),
   z.strictObject({ action: z.literal("create"), requestKey, body: createProjectBody }),

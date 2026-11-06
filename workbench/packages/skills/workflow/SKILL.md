@@ -11,7 +11,7 @@ metadata:
 从当前项目与已确认成果继续，先查询画布、节点函数和实际技能目录。
 
 1. 编剧与改编：按任务读取 scriptEngine、scriptStudio 或 dramaWriting，保存可审阅的剧本与分集。缺少的外部套装不假设已安装。
-2. 镜头与提示词：按需读 cinematicDirector；最终 H3 提示词用 h3PromptWriting 的 T2VA / I2VA / FL2VA / L2VA / Ref2VA 规范。文本模型只用 DeepSeek。
+2. 镜头与提示词：按需读 cinematicDirector；最终 H3 提示词用 h3PromptWriting 的 T2VA / I2VA / FL2VA / L2VA / Ref2VA 规范。文本模型默认 DeepSeek，也可使用用户在文本模型设置中配置并选中的其他供应商。
 3. 工厂连接：添加本地 H3 工厂节点，调用 getFactoryState / connectFactory，核对运行目录、协议和能力。地址在设置 → 视频模型 → H3 工厂与独立工作流连接 中配置。
 4. 项目与画布：调用 createProject 或 bindProject，再 expandShots。通过真实节点工具结构编辑，不猜参数或手写画布内部状态。
 5. 修改：updateShot 使用节点当前修订；局部修改只规划需要重新生成的镜头，保留其他镜头缓存。接续镜头绑定同项目直接前一镜的真实末帧。

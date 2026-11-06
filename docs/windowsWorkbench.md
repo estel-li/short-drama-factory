@@ -103,10 +103,12 @@ cd ..
 
 ### 模型供应商
 
-- **文本模型**：填写 DeepSeek API Key，读取并保存实际模型列表。
+- **文本模型**：默认选择 DeepSeek，常见供应商预填连接地址与协议；支持 Open-Design（`https://amr-link.open-design.ai/v1`）、OpenAI、Anthropic / Claude、通义千问、硅基流动与 OpenRouter。填写对应供应商的密钥后读取并勾选模型，也可手动填写。自定义连接支持 OpenAI Chat Completions、OpenAI Responses 和 Anthropic Messages 协议，以及自定义地址和请求头。添加或编辑一项会保留其他供应商，Agent 模型菜单同时显示已保存的模型；无历史选择时优先 DeepSeek。
 - **图片模型**：选择在线图片接口，或配置 ComfyUI 地址。ComfyUI 的“编辑模型”窗口在“模型配置”区域自动列出全部内置图片工作流卡片；展开“配置”选择匹配文件并“加入画布”，可先打开测试面板，再点击窗口底部“保存”。重新读取会保留已选权重；文件失效时提示重新选择。SD / SDXL、Flux Schnell、Qwen Image 2.1 Turbo 的文生图与图生图共六张卡片独立配置；已有默认流程及自定义模型继续保留。
 - **视频模型**：选择 Seedance 等在线接口，或配置本机／局域网 ComfyUI 视频工作流。ComfyUI 可使用 `http://192.168.1.4:8188` 这样的局域网地址，目标服务需监听对应网卡并允许访问。
 - **H3 工厂**：在“视频模型 → H3 工厂与独立工作流连接”中核对后端地址 `http://127.0.0.1:8770`，实际工厂目录填写本次克隆的仓库根目录，不是 `workbench` 子目录，也不是旧安装目录。
+
+“视频生成”使用已保存的 ComfyUI API 工作流；“本地 H3 工厂”使用生产 API 的环境模型字段与项目 profile，二者不是同一份配置。已有环境可能仍保留安装清单默认的 W4A8 文件名，应通过 `/api/v2/config` 核对并选择 ComfyUI 实际提供的兼容模型，不必仅为文件名不同重新下载。工厂 `getWorkflowPlan` 可传入目标 `mode`（例如 `I2VA`），同时返回 `base_models`、`mode_status` 与附加资源；`optional_ready` 只表示附加资源就绪，执行前必须看 `ready`。未指定模式时检查全部支持模式，缺少 Ref2VA 模型不妨碍单独检查 I2VA。配置修正后重新计算原项目计划，旧计划不能直接执行。
 
 ComfyUI 自定义工作流的变量绑定方式见 [工作台说明](../workbench/README.md#媒体连接约定)。使用在线接口的生成按相应供应商规则计费。
 

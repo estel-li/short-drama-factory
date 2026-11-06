@@ -786,8 +786,8 @@ def environment_catalog():
 
 
 @app.get('/api/video/workflows/plan')
-def video_workflow_plan(profile: str):
-    return worker.video_environment.plan(profile)
+def video_workflow_plan(profile: str, mode: str = ''):
+    return worker.video_environment.generation_plan(profile, mode)
 
 
 @app.get('/api/video/workflows')

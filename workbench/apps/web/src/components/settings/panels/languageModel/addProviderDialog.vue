@@ -51,7 +51,7 @@
 
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from "vue";
-import axios from "axios";
+import http from "@/lib/http";
 import { IconRefresh } from "@tabler/icons-vue";
 import formCreate, { type Api, type Options } from "@toonflow/provider-web/formCreate";
 import { languageProviders } from "@toonflow/providers";
@@ -106,16 +106,16 @@ watch(
     // ACT: 输入停顿后自动获取；输入变化时立即取消旧请求，避免逐字请求和结果串到新密钥。
     const timer = setTimeout(async () => {
       try {
-        const { data } = await axios.post("/api/providers/models", {
-          apiUrl: provider.apiUrl, protocol: provider.protocol, apiKey,
-        }, { signal: controller.signal, timeout: 35000 });
+        const data = await http<CustomProviderModel[]>({
+          method: "POST", url: "/api/providers/models",
+          data: { apiUrl: provider.apiUrl, protocol: provider.protocol, apiKey },
+          signal: controller.signal, timeout: 35000,
+        });
         if (controller.signal.aborted) return;
-        if (data.code !== 200 || !Array.isArray(data.data)) throw new Error(data.message || "获取模型列表失败");
-        models.value = data.data;
+        if (!Array.isArray(data)) throw new Error("获取到的模型列表格式不正确");
+        models.value = data;
       } catch (error) {
-        if (!controller.signal.aborted) modelError.value = axios.isAxiosError(error)
-          ? error.response?.data?.message || "获取模型列表失败，请检查 API Key 后重试"
-          : error instanceof Error ? error.message : "获取模型列表失败";
+        if (!controller.signal.aborted) modelError.value = error instanceof Error ? error.message : "获取模型列表失败";
       } finally {
         if (!controller.signal.aborted) fetching.value = false;
       }

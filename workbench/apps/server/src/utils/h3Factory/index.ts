@@ -112,7 +112,7 @@ async function dispatch(directory: string, config: ReturnType<typeof connection>
     if (job.project_id !== projectId) throw Object.assign(new Error("任务不属于当前工厂项目"), { status: 409 });
   }
   switch (input.action) {
-    case "workflowPlan": return requestJson(config, `/api/video/workflows/plan?profile=${encodeURIComponent(input.profile)}`);
+    case "workflowPlan": return requestJson(config, `/api/video/workflows/plan?profile=${encodeURIComponent(input.profile)}${input.mode ? `&mode=${encodeURIComponent(input.mode)}` : ""}`);
     case "create": return requestJson(config, "/api/v2/projects", "POST", input.body, input.requestKey);
     case "importReference": {
       if (!reference) throw new Error("参考图片尚未读取");

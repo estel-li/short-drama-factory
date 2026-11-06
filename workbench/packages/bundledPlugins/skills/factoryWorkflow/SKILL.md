@@ -11,7 +11,7 @@ metadata:
 从当前项目与已确认成果继续，先查询画布、节点函数和实际技能目录。
 
 1. 编剧与改编：按任务读取 scriptEngine、scriptStudio 或 dramaWriting，保存可审阅的剧本与分集。缺少的外部套装不假设已安装。
-2. 镜头与提示词：按需读 cinematicDirector；最终 H3 提示词用 h3PromptWriting 的 T2VA / I2VA / FL2VA / L2VA / Ref2VA 规范。文本模型只用 DeepSeek。
+2. 镜头与提示词：按需读 cinematicDirector；最终 H3 提示词用 h3PromptWriting 的 T2VA / I2VA / FL2VA / L2VA / Ref2VA 规范。文本模型默认 DeepSeek，也可使用用户在文本模型设置中配置并选中的其他供应商。
 3. 工厂连接：添加本地 H3 工厂节点，调用 getFactoryState / connectFactory，核对运行目录、协议和能力。地址在设置 → 视频模型 → H3 工厂与独立工作流连接 中配置。
 4. 项目与画布：先用 getNodeTools 读取 createProject 的完整参数。由当前 AI 将用户的一句话写成完整分镜：storyboard.title、非空 shots，每镜有 id、duration、完整 H3 prompt；options.input_mode 为 storyboard，auto_reference 为 false。不能以空 storyboard、probe 提示词或虚构素材反复创建项目来探测字段。已有项目用 bindProject 继续，再 expandShots。通过真实节点工具结构编辑，不猜参数或手写画布内部状态。
 5. 修改：updateShot 使用节点当前修订；局部修改只规划需要重新生成的镜头，保留其他镜头缓存。接续镜头绑定同项目直接前一镜的真实末帧。
@@ -24,7 +24,7 @@ metadata:
 例如“参考图中的人物从沙滩椅起身，慢慢走向大海”，按用户要求写一个可执行镜头即可，不要求用户自己填写分镜 JSON。
 
 1. 用 getCanvas / findCanvasNodes 查询实时节点，用 getCanvasNodes 的 outputs 取得用户指定原图的工作区相对路径；读取图片后编写动作和 H3 提示词。不要把上次生成的其他场景图当成参考。节点不存在时重新查询；空画布也不代表磁盘素材已删除，不恢复已删除节点或直接改写画布文件。
-2. 先 connectFactory 查询候选 profile，再 getWorkflowPlan 检查 ready；只选择模型已就绪的兼容方案。工作流出现在目录中不代表已安装，不能以创建项目代替环境检查。用项目节点 createProject 保存真实分镜，mode 设为 I2VA，先省略 bindings。单镜 8 秒可用 duration_rule:"count"、shot_count:1、total_seconds:8；manual 必须同时填写 manual_durations。参考图尚未导入时不要填写虚构 ID，也不要往 options.assets 或 storyboard.assets 塞文件路径。
+2. 先 connectFactory 查询候选 profile，再 getWorkflowPlan({profile,mode:"I2VA"}) 检查 ready、base_models 与 mode_status；只选择基础模型和附加资源均就绪的兼容方案。工厂项目读取工厂环境中的模型文件名，与视频生成节点已保存的 ComfyUI 工作流配置独立；不能因另一入口已配置就推断这里可用。MODEL_FILES_MISSING 时先核对已配置名称与 ComfyUI 实际模型目录，不能直接断言必须下载某个量化版本。工作流出现在目录中不代表已安装，不能以创建项目代替环境检查。用项目节点 createProject 保存真实分镜，mode 设为 I2VA，先省略 bindings。单镜 8 秒可用 duration_rule:"count"、shot_count:1、total_seconds:8；manual 必须同时填写 manual_durations。参考图尚未导入时不要填写虚构 ID，也不要往 options.assets 或 storyboard.assets 塞文件路径。
 3. 在已绑定项目的节点调用 importReference({path:原图相对路径,requestKey:唯一键})。此操作将真实图片导入工厂项目，返回 asset.id 与 revision；并非新生成图片。
 4. 调用 expandShots，使用它返回的镜头节点 ID；对镜头节点查询 getNodeTools / getFactoryState，再调用 updateShot({changes:{mode:"I2VA",bindings:{first_frame:上一步asset.id}},expectedRevision:最新revision,requestKey:唯一键})。不能在项目节点调用 updateShot。素材或剧情变更会使旧提示词失效：回执 invalidated_prompts 非空时，读取最新 revision，单独 updateShot({changes:{prompt:完整H3提示词},expectedRevision:最新revision,requestKey:新的唯一键})，再计划生成；不要用空提示词试跑。
 5. planGeneration → ready 后 runPlan → getJobStatus → collectResult。素材导入会改变 revision，修改或导入后须重新计划。关闭页面不会取消已提交任务。

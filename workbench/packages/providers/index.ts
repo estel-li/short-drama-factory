@@ -1,6 +1,7 @@
 /// <reference path="./types.d.ts" />
 
 import deepSeek from "./src/language/deepSeek";
+import commonProviders from "./src/language/commonProviders";
 import apiMart from "./src/media/apiMart";
 import metaso from "./src/media/metaso";
 import compshare from "./src/media/compshare";
@@ -17,5 +18,5 @@ export type ProviderTaskData = Parameters<NonNullable<ProviderContext["saveTaskD
 export type AudioConvertOptions = Parameters<ProviderTools["audio"]["convert"]>[1];
 export type { FfmpegFactory, FfmpegCommand } from "@toonflow/ffmpeg/types";
 
-export const languageProviders = [deepSeek] as const;
+export const languageProviders = [deepSeek, ...commonProviders] as const;
 export const mediaProviders = [volcengine, comfyUi, apiMart, metaso, compshare] as const;

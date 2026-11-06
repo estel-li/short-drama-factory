@@ -22,7 +22,7 @@ export async function getConfiguredModel(providerId: string, modelId: string) {
   const resolved = execution?.upstream;
   const parsed = providerSchema.safeParse(resolved?.provider ?? getConfiguredProviders().find(item => item?.id === providerId));
   if (!parsed.success) {
-    throw Object.assign(new Error("请先在设置 → DeepSeek 文本中配置模型"), { status: 400 });
+    throw Object.assign(new Error("请先在设置 → 文本模型中配置对应供应商和模型"), { status: 400 });
   }
   const provider = parsed.data;
   const model = resolved?.model ?? provider.models.find(item => item.id === modelId);

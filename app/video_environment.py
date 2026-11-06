@@ -77,6 +77,52 @@ class VideoWorkflowEnvironment:
                    {'size':before.st_size,'mtime_ns':before.st_mtime_ns,'sha256':actual})
         return actual==file['sha256']
 
+    def generation_plan(self, profile, mode=''):
+        """Combine optional resource preparation with the actual base-model requirements."""
+        from .environment import MODEL_FIELDS
+        from .execution_plan import _model_observations
+        from .rendering import ROLES
+        plan = self.plan(profile)
+        env = self.config.renderer_config()
+        preset = env['profiles'][profile]
+        supported = plan.get('supported_modes', ['T2VA', 'I2VA', 'L2VA', 'FL2VA', 'Ref2VA'])
+        if mode and mode not in supported:
+            raise ValueError('所选工作流不支持此生成模式：' + mode)
+        modes = [mode] if mode else supported
+        nodes = self.probe()
+        rows = [row for row in _model_observations(env, profile, modes) if row['role'] in ROLES]
+        for row in rows:
+            node, field = MODEL_FIELDS[row['role']]
+            raw = nodes.get(node, {}).get('input', {}).get('required', {}).get(field, [])
+            choices = raw[0] if raw and isinstance(raw[0], list) else raw[1].get('options', []) if len(raw) > 1 else []
+            row['available'] = row['availability'] != 'missing' and row['name'] in choices
+        available = {row['role'] for row in rows if row['available']}
+        statuses = []
+        for current in modes:
+            reference = current == 'Ref2VA'
+            roles = {'text_encoder', 'video_vae', 'audio_vae', 'ref_model' if reference else 'fl_model'}
+            if preset.get('workflow', 'native') == 'native' and preset.get('turbo'):
+                roles.add('ref_lora' if reference else 'fl_lora')
+            required_nodes = {'UNETLoader', 'CLIPLoader', 'VAELoader', 'RandomNoise', 'BasicGuider',
+                              'KSamplerSelect', 'BasicScheduler', 'SamplerCustomAdvanced', 'VAEDecodeTiled',
+                              'VAEDecodeAudio', 'CreateVideo', 'SaveVideo', 'DramaSaveConditioning',
+                              'DramaLoadConditioning', 'DramaSaveLatent', 'DramaLoadLatent',
+                              'MiniMaxH3ReferenceToVideo' if reference else 'MiniMaxH3ImageToVideo'}
+            if current != 'T2VA':
+                required_nodes.add('LoadImage')
+            if preset.get('turbo') and preset.get('workflow', 'native') == 'native':
+                required_nodes.add('LoraLoaderModelOnly')
+            if env.get('attention'):
+                required_nodes.add('ModelAttentionBackend')
+            missing_models = sorted(roles - available)
+            missing_nodes = sorted(required_nodes - set(nodes))
+            statuses.append({'mode': current, 'ready': bool(plan['ready'] and nodes and not missing_models and not missing_nodes),
+                             'missing_models': missing_models, 'missing_nodes': missing_nodes})
+        return {**plan, 'optional_ready': plan['ready'], 'connected': bool(nodes), 'base_models': rows,
+                'mode_status': statuses, 'available_modes': [item['mode'] for item in statuses if item['ready']],
+                'ready': all(item['ready'] for item in statuses),
+                'note': 'ready 同时检查基础 H3 模型、节点及附加资源。基础模型取自工厂环境配置；视频生成节点的 ComfyUI 配置与工厂配置独立。'}
+
     def plan(self, profile):
         env=self.config.renderer_config()
         preset=env.get('profiles',{}).get(profile)

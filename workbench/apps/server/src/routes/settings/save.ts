@@ -18,7 +18,7 @@ export default router.put("/", validateFields({ expectedRevision: z.number().int
   agentNodeTools: nodeToolPermissionsSchema.optional(),
   customProviders: z.array(providerSchema.extend({
     id: z.string().min(1).refine(value => value.toLowerCase() !== "toonflow", "toonflow 为账号供应商保留 ID"), label: z.string(),
-  })).optional(),
+  })).refine(providers => new Set(providers.map(provider => provider.id.toLowerCase())).size === providers.length, "供应商 ID 不能重复（不区分大小写）").optional(),
   toonflowProvider: accountProviderSchema.nullable().optional(),
   network: u.network.networkSchema.optional(),
   localModels: localModelsSchema.optional(),

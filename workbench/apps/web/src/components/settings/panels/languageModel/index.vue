@@ -1,55 +1,68 @@
 <template>
-  <el-form class="modelSettings" labelPosition="top" @submit.prevent="save">
-    <p>DeepSeek 用于文本创作、剧本、分镜与 Agent 工具调用。</p>
-    <el-form-item label="API 地址"><el-input modelValue="https://api.deepseek.com" readonly /></el-form-item>
-    <el-form-item label="API Key"><el-input v-model="apiKey" type="password" showPassword autocomplete="off" :disabled="busy || saving" /></el-form-item>
-    <el-space>
-      <el-button :loading="busy" :disabled="!apiKey.trim() || saving" @click="refresh">读取模型列表</el-button>
-      <el-button type="primary" nativeType="submit" :loading="saving" :disabled="busy">保存</el-button>
-    </el-space>
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
-    <div class="models"><el-tag v-for="model in models" :key="model.id">{{ model.label }}</el-tag></div>
-    <el-text type="info">密钥保存在本机配置中。模型列表从 DeepSeek 读取，保存后可在 Agent 中选择。</el-text>
-  </el-form>
+  <div class="modelSettings">
+    <p>默认优先使用 DeepSeek，也可添加其他供应商，用于文本创作、剧本、分镜与 Agent 工具调用。</p>
+    <div class="providerPicker">
+      <el-select v-model="selectedPreset" aria-label="文本模型供应商" filterable>
+        <el-option v-for="item in languageProviders" :key="item.id" :value="item.id" :label="item.id === 'deepSeek' ? `${item.label}（默认）` : item.label" />
+        <el-option value="custom" label="自定义供应商" />
+      </el-select>
+      <el-button type="primary" @click="configureSelected">配置供应商</el-button>
+    </div>
+    <el-text type="info">预设会填写 API 地址和协议；模型可连接读取后勾选，也可手动填写。保存后在 Agent 的模型菜单中切换。</el-text>
+    <el-card v-for="item in customProviders" :key="item.id" class="providerCard" shadow="never">
+      <div class="providerHeading">
+        <div>
+          <strong>{{ item.label }}</strong>
+          <el-tag v-if="item.id.toLowerCase() === 'deepseek'" size="small">默认</el-tag>
+        </div>
+        <el-button :aria-label="`编辑 ${item.label}`" @click="editProvider(item)">编辑</el-button>
+      </div>
+      <p class="providerAddress">{{ item.apiUrl }}</p>
+      <el-text type="info">{{ item.models.length }} 个模型 · {{ item.protocol }}</el-text>
+    </el-card>
+    <addCustomProviderDialog v-model="editorVisible" :provider="editingProvider" :preset="addingPreset" />
+  </div>
 </template>
+
 <script setup lang="ts">
-import { ref, watch } from "vue";
-import { ElMessage } from "element-plus";
-import http from "@/lib/http";
-import { customProviders, saveSettings, type CustomProviderModel } from "@/stores/settings";
-const props = defineProps<{ visible?: boolean }>();
-const apiKey = ref("");
-const models = ref<CustomProviderModel[]>([]);
-const busy = ref(false);
-const saving = ref(false);
-const error = ref("");
-watch(() => props.visible, () => {
-  if (props.visible === false) return;
-  const provider = customProviders.value.find(item => item.id.toLowerCase() === "deepseek");
-  apiKey.value = provider?.apiKey ?? "";
-  models.value = (provider?.models ?? []).map(model => ({ ...model }));
-}, { immediate: true });
-async function refresh() {
-  busy.value = true; error.value = "";
-  try {
-    const result = await http<CustomProviderModel[]>({ method: "POST", url: "/api/providers/models", data: {
-      apiUrl: "https://api.deepseek.com", protocol: "openai-completions", apiKey: apiKey.value.trim(),
-    } });
-    if (!result.length) throw new Error("DeepSeek 没有返回可用模型，已保留原列表");
-    models.value = result;
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : "读取模型失败"; }
-  finally { busy.value = false; }
+import { ref } from "vue";
+import { languageProviders } from "@toonflow/providers";
+import { customProviders, type CustomProvider } from "@/stores/settings";
+import addCustomProviderDialog from "./addCustomProviderDialog.vue";
+
+defineProps<{ visible?: boolean }>();
+const selectedPreset = ref<string>(languageProviders[0]?.id ?? "custom");
+const editorVisible = ref(false);
+const editingProvider = ref<CustomProvider>();
+const addingPreset = ref<CustomProvider>();
+
+function editProvider(provider: CustomProvider) {
+  addingPreset.value = undefined;
+  editingProvider.value = provider;
+  editorVisible.value = true;
 }
-async function save() {
-  saving.value = true; error.value = "";
-  try {
-    await saveSettings(() => ({ customProviders: [{ id: "deepSeek", label: "DeepSeek", apiUrl: "https://api.deepseek.com",
-      apiKey: apiKey.value.trim(), protocol: "openai-completions", models: models.value }] }));
-    ElMessage.success("DeepSeek 配置已保存");
-  } catch (cause) { error.value = cause instanceof Error ? cause.message : "保存失败"; }
-  finally { saving.value = false; }
+
+function configureSelected() {
+  const existing = customProviders.value.find(provider => provider.id.toLowerCase() === selectedPreset.value.toLowerCase());
+  if (existing && selectedPreset.value !== "custom") { editProvider(existing); return; }
+  const preset = languageProviders.find(provider => provider.id === selectedPreset.value);
+  editingProvider.value = undefined;
+  addingPreset.value = preset ? {
+    id: preset.id, label: preset.label, icon: preset.icon, apiUrl: preset.apiUrl, protocol: preset.protocol,
+    apiKey: "", models: [],
+  } : undefined;
+  editorVisible.value = true;
 }
 </script>
+
 <style scoped lang="scss">
-.modelSettings { max-width: 680px; .models { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; } .error { color: var(--el-color-danger); } }
+.modelSettings {
+  display: grid; gap: 16px; max-width: 800px;
+  p { margin: 0; line-height: 1.7; }
+  .providerPicker { display: flex; gap: 12px; .el-select { flex: 1; min-width: 0; } }
+  .providerCard {
+    .providerHeading { display: flex; align-items: center; justify-content: space-between; gap: 12px; > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; } }
+    .providerAddress { margin: 10px 0; overflow-wrap: anywhere; }
+  }
+}
 </style>

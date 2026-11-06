@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="visible"
-    :title="provider ? '编辑供应商' : '添加自定义供应商'"
+    :title="provider ? '编辑供应商' : preset ? `配置 ${preset.label}` : '添加自定义供应商'"
     width="min(760px, 94vw)"
     alignCenter
     appendToBody
@@ -155,7 +155,7 @@
 
 <script setup lang="ts">
 import { computed, h, onBeforeUnmount, reactive, ref, shallowRef, watch } from "vue";
-import axios from "axios";
+import http from "@/lib/http";
 import { t } from "@toonflow/i18n/vue";
 import { ElCheckbox, type FormInstance, type FormRules, type Column } from "element-plus";
 import {
@@ -170,7 +170,7 @@ import { saveSettings, type CustomProvider, type CustomProviderModel } from "@/s
 import { languageProviders } from "@toonflow/providers";
 import { thinkingLevels, type ThinkingLevel, type ReasoningEfforts } from "@toonflow/server/modelReasoning";
 
-const props = defineProps<{ provider?: CustomProvider }>();
+const props = defineProps<{ provider?: CustomProvider; preset?: CustomProvider }>();
 const visible = defineModel<boolean>({ default: false });
 const providerForm = ref<FormInstance>();
 const form = reactive({ id: "", label: "", apiUrl: "", protocol: "openai-completions", apiKey: "", headers: [] as { key: string; name: string; value: string }[] });
@@ -241,8 +241,9 @@ const rules: FormRules = {
 watch(visible, (value) => {
   if (value) {
     resetForm();
-    if (props.provider) {
-      const { models: providerModels, id, label, apiUrl, protocol, apiKey, headers } = props.provider;
+    const initial = props.provider ?? props.preset;
+    if (initial) {
+      const { models: providerModels, id, label, apiUrl, protocol, apiKey, headers } = initial;
       Object.assign(form, { id, label, apiUrl, protocol, apiKey });
       form.headers = Object.entries(headers ?? {}).map(([name, value]) => ({ key: crypto.randomUUID(), name, value }));
       models.value = providerModels.map((item) => ({ ...item, key: crypto.randomUUID() }));
@@ -294,22 +295,20 @@ async function fetchModels() {
   const controller = new AbortController();
   request = controller;
   try {
-    const { data } = await axios.post(
-      "/api/providers/models",
-      { apiUrl: form.apiUrl.trim(), protocol: form.protocol, apiKey: form.apiKey.trim(), headers: getProviderHeaders() },
-      { signal: controller.signal, timeout: 35000 }
-    );
+    const data = await http<CustomProviderModel[]>({
+      method: "POST", url: "/api/providers/models",
+      data: { apiUrl: form.apiUrl.trim(), protocol: form.protocol, apiKey: form.apiKey.trim(), headers: getProviderHeaders() },
+      signal: controller.signal, timeout: 35000,
+    });
     if (controller.signal.aborted) return;
-    if (data.code !== 200 || !Array.isArray(data.data)) throw new Error(data.message || "获取模型列表失败");
-    fetchedModels.value = data.data;
+    if (!Array.isArray(data)) throw new Error("获取到的模型列表格式不正确");
+    fetchedModels.value = data;
     selectedIds.value = new Set();
     modelSearch.value = "";
     resultsVisible.value = true;
   } catch (error) {
     if (!controller.signal.aborted) {
-      formError.value = axios.isAxiosError(error)
-        ? error.response?.data?.message || "获取模型列表失败，请检查连接配置"
-        : error instanceof Error
+      formError.value = error instanceof Error
         ? error.message
         : "获取模型列表失败";
     }
@@ -399,6 +398,7 @@ async function addProvider() {
   try {
     const updatedProvider = {
       ...form,
+      ...(props.preset?.icon ? { icon: props.preset.icon } : {}),
       label: form.label.trim(),
       apiUrl: form.apiUrl.trim(),
       apiKey: form.apiKey.trim(),
@@ -417,7 +417,7 @@ async function addProvider() {
     await saveSettings(settings => {
       const existing = settings.customProviders;
       if (existing !== undefined && !Array.isArray(existing)) throw new Error("已保存的供应商配置格式不正确");
-      if (languageProviders.some(item => item.id !== providerId && item.id.toLowerCase() === updatedProvider.id.toLowerCase())
+      if (languageProviders.some(item => item.id.toLowerCase() !== (providerId ?? props.preset?.id)?.toLowerCase() && item.id.toLowerCase() === updatedProvider.id.toLowerCase())
         || existing?.some(item => typeof item?.id === "string" && item.id !== providerId && item.id.toLowerCase() === updatedProvider.id.toLowerCase())) {
         throw new Error("Provider ID 已存在");
       }

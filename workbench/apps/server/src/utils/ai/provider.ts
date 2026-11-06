@@ -32,8 +32,13 @@ export const reasoningEffortsSchema = z.union([
     .refine(value => Object.keys(value).some(level => level !== "off"), "请至少声明一个推理档位"),
 ]);
 
+export const providerUrlSchema = z.url({ protocol: /^https?$/ }).refine(value => {
+  const url = new URL(value);
+  return !url.username && !url.password && !url.search && !url.hash;
+}, "请填写不含认证、查询参数或片段的 HTTP API 基础地址");
+
 export const providerSchema = z.object({
-  apiUrl: z.url({ protocol: /^https?$/ }),
+  apiUrl: providerUrlSchema,
   apiKey: z.string(),
   headers: providerHeadersSchema.optional(),
   protocol: z.enum(["openai-completions", "openai-responses", "anthropic-messages"]),
@@ -64,8 +69,8 @@ export function getAccountProvider(): (Omit<z.infer<typeof accountProviderSchema
 
 export function getConfiguredProviders() {
   const providers = conf.get("settings", {}).customProviders;
-  return Array.isArray(providers) ? providers.filter(item => typeof item?.id === "string" && item.id.toLowerCase() === "deepseek")
-    .map(item => ({ ...item, apiUrl: "https://api.deepseek.com", protocol: "openai-completions", headers: undefined })) : [];
+  return Array.isArray(providers) ? providers.filter(item => typeof item?.id === "string" && item.id.toLowerCase() !== "toonflow")
+    .sort((left, right) => Number(right.id.toLowerCase() === "deepseek") - Number(left.id.toLowerCase() === "deepseek")) : [];
 }
 
 const builtinModels: Model<KnownApi>[] = getBuiltinProviders().flatMap(provider => getBuiltinModels(provider));

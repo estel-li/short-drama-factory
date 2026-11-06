@@ -3,16 +3,13 @@ import { z } from "zod";
 import { validateFields } from "@/lib/middleware";
 import { success } from "@/lib/responseFormat";
 import u from "@/utils";
-import { providerHeadersSchema } from "@/utils/ai/provider";
+import { providerHeadersSchema, providerUrlSchema, providerSchema } from "@/utils/ai/provider";
 
 const router = Router();
 
 export default router.post("/", validateFields({
-  apiUrl: z.literal("https://api.deepseek.com").refine(value => {
-    const url = new URL(value);
-    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
-  }, "请填写不含查询参数的 HTTP API 基础地址"),
-  protocol: z.literal("openai-completions"),
+  apiUrl: providerUrlSchema,
+  protocol: providerSchema.shape.protocol,
   apiKey: z.string().max(8192),
   headers: providerHeadersSchema.optional(),
 }), async (req, res) => {
