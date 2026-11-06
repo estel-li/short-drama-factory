@@ -34,7 +34,9 @@ async function objectInfo(url: string) {
   const response = await fetch(new URL("/object_info", url), { redirect: "error", signal: AbortSignal.timeout(20000) });
   if (!response.ok) throw Object.assign(new Error(`读取 ComfyUI 节点失败（${response.status}）`), { status: 502 });
   const info = await response.json() as Record<string, any>;
-  if (!info.CheckpointLoaderSimple || !info.UNETLoader) throw Object.assign(new Error("不是有效的 ComfyUI 节点目录"), { status: 502 });
+  if (!info || typeof info !== "object" || Array.isArray(info) || !Object.values(info).some(node => node && typeof node === "object" && node.input)) {
+    throw Object.assign(new Error("不是有效的 ComfyUI 节点目录"), { status: 502 });
+  }
   return info;
 }
 function choices(info: Record<string, any>, field: Field) {
@@ -104,10 +106,15 @@ function graphFor(id: string, models: Record<string, string>): Graph {
   return graph;
 }
 
+function presetModelId(preset: Preset) {
+  return preset.mediaType === "video" ? "comfyVideo" : `comfy${preset.id[0]!.toUpperCase()}${preset.id.slice(1)}`;
+}
+
 export async function catalog(url: string, mediaType: "image" | "video") {
   const info = await objectInfo(url);
   return presets.filter(preset => preset.mediaType === mediaType).map(preset => ({
-    ...preset, fields: preset.fields.map(field => ({ key: field.key, label: field.label, options: choices(info, field) })),
+    ...preset, modelId: presetModelId(preset), inputMode: preset.id.endsWith("Edit") || preset.id.endsWith("Image") ? "image" : "text",
+    fields: preset.fields.map(field => ({ key: field.key, label: field.label, node: field.node, input: field.input, options: choices(info, field) })),
     missingNodes: [...new Set(Object.values(graphFor(preset.id, {})).map(node => node.class_type))].filter(name => !info[name]),
   }));
 }
@@ -116,18 +123,18 @@ export async function build(body: z.infer<typeof buildSchema>) {
   const preset = presets.find(item => item.id === body.preset && item.mediaType === body.mediaType);
   if (!preset) throw Object.assign(new Error("请选择对应类型的内置工作流"), { status: 400 });
   const info = await objectInfo(body.url);
-  for (const field of preset.fields) {
-    if (!choices(info, field).includes(body.models[field.key] ?? "")) throw Object.assign(new Error(`${field.label} 不存在或不匹配此工作流，请重新读取模型`), { status: 400 });
-  }
   const workflow = graphFor(preset.id, body.models);
   const missing = [...new Set(Object.values(workflow).map(node => node.class_type))].filter(name => !info[name]);
   if (missing.length) throw Object.assign(new Error(`当前 ComfyUI 缺少节点：${missing.join("、")}。请更新对应 ComfyUI 或切换到兼容环境后重新读取。`), { status: 409 });
+  for (const field of preset.fields) {
+    if (!choices(info, field).includes(body.models[field.key] ?? "")) throw Object.assign(new Error(`${field.label} 不存在或不匹配此工作流，请重新读取模型`), { status: 400 });
+  }
   const video = preset.mediaType === "video";
   const imageEdit = !video && preset.id.endsWith("Edit");
-  const independent = !video && (imageEdit || preset.id.startsWith("qwen"));
+  const independent = !video;
   const model = video
-    ? { id: "comfyVideo", label: preset.label, type: "video", mode: preset.id.endsWith("Image") ? ["startFrameOptional"] : ["text"], audio: true, durationResolutionMap: [{ duration: [4, 5, 6, 8, 10, 12, 15], resolution: ["480p"] }] }
-    : { id: independent ? `comfy${preset.id[0]!.toUpperCase()}${preset.id.slice(1)}` : "comfyImage", label: preset.label, type: "image", mode: imageEdit ? ["singleImage"] : ["text"], imageSizes: preset.id.startsWith("sd") ? ["512x512", "768x768", "1024x1024"] : ["1024x1024"], imageRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+    ? { id: "comfyVideo", label: preset.label, type: "video", mode: preset.id.endsWith("Image") ? ["singleImage"] : ["text"], audio: true, durationResolutionMap: [{ duration: [4, 5, 6, 8, 10, 12, 15], resolution: ["480p"] }] }
+    : { id: presetModelId(preset), label: preset.label, type: "image", mode: imageEdit ? ["singleImage"] : ["text"], imageSizes: preset.id.startsWith("sd") ? ["512x512", "768x768", "1024x1024"] : ["1024x1024"], imageRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
       ...(["sdEdit", "fluxSchnellEdit"].includes(preset.id) ? { rules: [{ type: "inputNumber", field: "denoise", title: "重绘强度（越高变化越大）", value: 0.55, props: { min: 0.05, max: 1, step: 0.05, precision: 2 } }] } : {}) };
-  return { workflow, outputNode: "output", model, label: preset.label, independent, inputMode: imageEdit ? "image" : "text" };
+  return { workflow, outputNode: "output", model, label: preset.label, independent, inputMode: imageEdit || preset.id.endsWith("Image") ? "image" : "text" };
 }

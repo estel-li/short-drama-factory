@@ -866,6 +866,12 @@ def environment_progress():
 @app.get('/api/environment/local')
 def local_environment():
     env = config.get()['environment']
+    from .processes import owned_comfy_processes
+    try:
+        can_stop = bool(owned_comfy_processes(env, config.root / 'data/comfy-runtime'))
+        stop_reason = '' if can_stop else '未找到与已保存环境匹配的本工作台 ComfyUI 进程。'
+    except (RuntimeError, ValueError) as error:
+        can_stop, stop_reason = False, str(error)
     connected = False
     try:
         token = config.key('comfy')
@@ -882,7 +888,8 @@ def local_environment():
     if not row or progress.get('job_id') != row['id']:
         progress = {}
     return {'environment': {key: env.get(key, '') for key in ('mode', 'comfy_dir', 'python', 'comfy_url')},
-            'connected': connected, 'job': dict(row) if row else None, 'progress': progress,
+            'connected': connected, 'can_stop': can_stop, 'stop_reason': stop_reason,
+            'job': dict(row) if row else None, 'progress': progress,
             'defaults': {'install_dir': str(config.root / 'engines'), 'models_dir': str(config.root / 'models')},
             'manifests': [{'id': item['id'], 'name': item['name']} for item in worker.installer.manifests()]}
 
@@ -921,6 +928,19 @@ def start_environment():
     worker.start(recover=False)
     worker.allow_job(jid)
     return {'job_id': jid}
+
+
+@app.post('/api/environment/shutdown')
+def shutdown_environment():
+    from .processes import stop_owned_comfy
+    with worker.queue_lock, config.lock:
+        with db.connect() as connection:
+            if connection.execute("SELECT id FROM jobs WHERE status IN ('queued','running') LIMIT 1").fetchone():
+                raise ContractError('QUEUE_BUSY', '工厂还有运行或排队任务，请先完成或停止任务后再停止 ComfyUI。', status=409)
+        env = config.renderer_config()
+        env['comfy_auth_token'] = config.key('comfy')
+        stopped = stop_owned_comfy(env, config.root / 'data/comfy-runtime', allow_stopped=True)
+    return {'stopped': stopped, 'message': 'ComfyUI 已停止。' if stopped else 'ComfyUI 已处于停止状态。'}
 
 
 @app.post('/api/environment/plan')

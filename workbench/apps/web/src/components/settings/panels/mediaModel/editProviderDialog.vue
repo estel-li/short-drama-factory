@@ -11,7 +11,7 @@
     :showClose="!saving"
     @closed="formApi = undefined">
     <div class="providerEditor">
-      <comfyPresets v-if="provider?.id === 'comfyUi'" :mediaType="mediaType" :url="String(formValues[mediaType === 'image' ? 'imageUrl' : 'videoUrl'] || '')" :disabled="saving || !formApi" @apply="applyPreset" />
+      <comfyPresets v-if="provider?.id === 'comfyUi' && mediaType === 'video'" :mediaType="mediaType" :url="String(formValues.videoUrl || '')" :disabled="saving || !formApi" @apply="applyPreset" />
       <messageMarkdown v-if="provider?.readme" class="providerReadme" :content="provider.readme" />
       <form-create :key="formVersion" v-model="formValues" v-model:api="formApi" :rule="formRules" :option="formOptions" />
       <section v-if="provider?.id === 'comfyUi'" class="comfyControls">
@@ -44,7 +44,11 @@
         <el-button :icon="IconPlus" size="small" :disabled="saving" @click="editModel()">手动添加</el-button>
       </div>
       <div class="modelList">
-        <el-card v-for="{ item, index } in visibleModels" :key="index" class="modelCard" shadow="never">
+        <comfyImageWorkflows v-if="provider?.id === 'comfyUi' && mediaType === 'image'"
+          :url="String(formValues.imageUrl || '')" :models="models" :profiles="workflowModels" :disabled="saving || !formApi" :testing="loadingTestModel !== undefined"
+          @apply="applyPreset" @test="testBuiltinModel" @edit="editBuiltinModel" @remove="removeBuiltinModel" @catalog="builtinModelIds = $event" @busy="preparingWorkflow = $event" />
+        <el-text v-if="builtinModelIds.length && otherModels.length" type="info">自定义与已有模型</el-text>
+        <el-card v-for="{ item, index } in otherModels" :key="item.id" class="modelCard" shadow="never">
           <div class="topInfo">
             <div class="modelNameWrap">
               <modelIcon :model="item.id" :size="24" />
@@ -65,13 +69,13 @@
             <el-tag v-for="(tag, tagIndex) in modelTags(item)" :key="tagIndex" size="small" type="info">{{ tag }}</el-tag>
           </div>
         </el-card>
-        <el-text v-if="!visibleModels.length" type="info">暂无模型</el-text>
+        <el-text v-if="!visibleModels.length && !builtinModelIds.length" type="info">暂无模型</el-text>
       </div>
     </div>
     <el-alert v-if="formError" class="formError" :title="formError" type="error" :closable="false" showIcon />
     <template #footer>
       <el-button :disabled="saving" @click="visible = false">取消</el-button>
-      <el-button type="primary" :icon="IconDeviceFloppy" :loading="saving" :disabled="!formApi" @click="saveModels">保存</el-button>
+      <el-button type="primary" :icon="IconDeviceFloppy" :loading="saving" :disabled="!formApi || preparingWorkflow" @click="saveModels">保存</el-button>
     </template>
     <component
       :is="modelEditorDialog"
@@ -102,6 +106,7 @@ import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 import providerTestPanel from "./providerTestPanel.vue";
 import http from "@/lib/http";
 import comfyPresets from "./comfyPresets.vue";
+import comfyImageWorkflows from "./comfyImageWorkflows.vue";
 
 const { provider, mediaType = "video" } = defineProps<{ provider?: MediaProvider; mediaType?: "image" | "video" }>();
 const modelEditorDialog = shallowRef<Component>();
@@ -109,6 +114,9 @@ const visible = defineModel<boolean>({ default: false });
 const emit = defineEmits<{ saved: [provider: MediaProvider] }>();
 const models = ref<MediaProviderModel[]>([]);
 const visibleModels = computed(() => models.value.map((item, index) => ({ item, index })).filter(({ item }) => item.type === mediaType));
+const builtinModelIds = ref<string[]>([]);
+const preparingWorkflow = ref(false);
+const otherModels = computed(() => visibleModels.value.filter(({ item }) => !builtinModelIds.value.includes(item.id)));
 const modelEditorVisible = ref(false);
 const editingModelIndex = ref<number>();
 const saving = ref(false);
@@ -153,6 +161,19 @@ function applyPreset(value: { workflow: Record<string, unknown>; outputNode: str
   const index = models.value.findIndex(item => item.id === value.model.id);
   if (index < 0) models.value.push(value.model); else models.value.splice(index, 1, value.model);
   formError.value = "";
+}
+
+function testBuiltinModel(id: string) {
+  const index = models.value.findIndex(item => item.id === id);
+  if (index >= 0) void testModel(index);
+}
+function editBuiltinModel(id: string) {
+  const index = models.value.findIndex(item => item.id === id);
+  if (index >= 0) editModel(index);
+}
+function removeBuiltinModel(id: string) {
+  const index = models.value.findIndex(item => item.id === id);
+  if (index >= 0) models.value.splice(index, 1);
 }
 
 function setWorkflow(workflow: Record<string, unknown>, outputNode = "") {
@@ -223,6 +244,7 @@ async function importWorkflow(event: Event) {
 }
 
 watch(visible, isVisible => {
+  preparingWorkflow.value = false;
   comfyLoading?.abort();
   comfyLoading = undefined;
   checkingComfy.value = false;
@@ -231,6 +253,7 @@ watch(visible, isVisible => {
   loadingTestModel.value = undefined;
   testVisible.value = false;
   if (!isVisible) return;
+  builtinModelIds.value = [];
   formError.value = "";
   modelEditorVisible.value = false;
   editingModelIndex.value = undefined;
@@ -311,7 +334,7 @@ function confirmModel(model: MediaProviderModel) {
 }
 
 async function saveModels() {
-  if (saving.value || !provider || !formApi.value) return;
+  if (saving.value || preparingWorkflow.value || !provider || !formApi.value) return;
   const { id: providerId, fileName } = provider;
   formError.value = "";
   let modelsSaved = false;

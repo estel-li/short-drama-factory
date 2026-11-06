@@ -8,7 +8,7 @@ import type { AudioConvertOptions, Provider, ProviderTaskData, ProviderTools } f
 import { parse, parseExpression } from "@babel/parser";
 import { z } from "zod";
 import conf from "@/utils/conf";
-import { comfyWorkflowConfig } from "@/utils/localModels";
+import { comfyWorkflowConfig, comfyVideoModes } from "@/utils/localModels";
 import { accountProviderSchema, getAccountProvider, getAccountToken, providerSchema } from "@/utils/ai/provider";
 import type { ProviderSources } from "@/utils/channel/types";
 import { convertAudio } from "@/utils/media/audioProcessor";
@@ -298,6 +298,15 @@ function metadata(fileName: string, source: string) {
     supportsPrice, supportsBalance, revision: createHash("sha256").update(source).digest("hex"), loadError: "" };
 }
 
+function configuredMetadata(fileName: string, source: string) {
+  const provider = metadata(fileName, source);
+  if (provider.id !== "comfyUi") return provider;
+  const configs = conf.get("settings", {}).mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
+  const modes = comfyVideoModes(configs?.comfyUi ?? {});
+  if (modes) provider.models = provider.models.map(model => model.type === "video" ? { ...model, mode: modes } : model);
+  return provider;
+}
+
 export function validateMediaProviderSource(source: string) {
   const { id } = parseProvider(source);
   return metadata(`${id}.ts`, source);
@@ -361,7 +370,7 @@ export async function getMediaProvider(id: string) {
     if (error.code === "ENOENT") invalid("请先在媒体模型设置中添加供应商", 404);
     throw error;
   });
-  return { ...metadata(current.fileName, current.source), source: current.source };
+  return { ...configuredMetadata(current.fileName, current.source), source: current.source };
 }
 
 export async function getMediaProviderSource(fileName: string) {
@@ -384,7 +393,7 @@ export async function listMediaProviders() {
       let current = { fileName: file.name, id: file.name.slice(0, -3), source: "", revision: "" };
       try {
         current = await readProvider(path, file.name);
-        return metadata(current.fileName, current.source);
+        return configuredMetadata(current.fileName, current.source);
       } catch (error) {
         // ACT: 元数据损坏不影响其他供应商；仍保留原文版本，允许用户明确删除。
         const { source, ...file } = current;
@@ -657,6 +666,10 @@ export async function loadMediaProviderSource(source: string, config: Record<str
       catch (error) {
         const info = error as { name?: unknown; message?: unknown; code?: unknown; status?: unknown } | null;
         if (signal?.aborted || info?.name === "AbortError") throw error;
+        // 宿主确认本地 ComfyUI 生成尚未发出任何请求，校验失败不应进入“可能已接单”的恢复状态。
+        if (id === "comfyUi" && name !== "resumeTask" && requestCount === 0) {
+          throw Object.assign(new Error(mediaErrorMessage(error, provider.config) || "ComfyUI 生成参数校验失败"), { code: "MEDIA_TASK_FAILED", status: 400 });
+        }
         // ACT: 兼容旧 短剧工厂 供应商的普通错误；仅明确任务终态补标，查询异常仍保留复查。
         const taskFailed = id === "toonflow" && !overlappingRequests && failure?.taskFailed === true && info?.code === undefined;
         let message = mediaErrorMessage(error, provider.config) || (taskFailed ? "媒体生成失败" : "");

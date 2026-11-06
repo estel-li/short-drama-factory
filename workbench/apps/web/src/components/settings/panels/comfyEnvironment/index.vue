@@ -10,8 +10,10 @@
       <p class="runtimeAddress">{{ state?.environment.comfy_url || '尚未读取环境' }}</p>
       <div class="actions">
         <el-button type="primary" :disabled="!state?.environment.python || busy || !!pending || state?.connected" :loading="pending === 'start'" @click="start">启动已保存环境</el-button>
+        <el-button type="danger" plain :disabled="!state?.can_stop || busy || !!pending" :loading="pending === 'shutdown'" :title="state?.stop_reason || translate('停止本工作台启动的 ComfyUI')" @click="stopEngine">停止</el-button>
         <el-button v-if="state?.connected" tag="a" :href="state.environment.comfy_url" target="_blank" rel="noopener noreferrer">打开 ComfyUI</el-button>
       </div>
+      <p v-if="state?.connected && !state.can_stop" class="hint">{{ state.stop_reason }}</p>
     </div>
     <el-alert v-if="error" :title="error" type="error" :closable="false" showIcon />
     <div v-if="state?.job" class="jobCard" role="status" aria-live="polite">
@@ -96,7 +98,7 @@ import gpuLimits from "./gpuLimits.vue";
 
 type Environment = { comfy_dir: string; python: string; comfy_url: string; mode: string };
 type State = {
-  environment: Environment; connected: boolean; defaults: { install_dir: string; models_dir: string };
+  environment: Environment; connected: boolean; can_stop: boolean; stop_reason: string; defaults: { install_dir: string; models_dir: string };
   manifests: { id: string; name: string }[];
   job: { id: string; kind: string; status: string; message: string; cancel_requested: number } | null;
   progress: { bytes?: number; total?: number; file?: string; message?: string };
@@ -198,6 +200,13 @@ async function save(launch: boolean) {
   });
 }
 async function start() { await perform("start", enqueueStart); }
+async function stopEngine() {
+  await perform("shutdown", async () => {
+    await http({ method: "POST", url: "/api/localModels/environment/shutdown", timeout: 60000 });
+    await refresh();
+    ElMessage.success(translate("ComfyUI 已停止"));
+  });
+}
 async function preview() { await perform("plan", async () => { plan.value = await http<Plan>({ method: "POST", url: "/api/localModels/environment/plan", data: options(), timeout: 120000 }); }); }
 async function beginInstall() {
   if (!plan.value) return;

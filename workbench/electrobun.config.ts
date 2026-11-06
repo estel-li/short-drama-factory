@@ -11,7 +11,7 @@ export default {
   app: {
     name: "短剧工厂",
     identifier: "local.toonflow.desktop",
-    version: process.env.appVersion ?? "2.0.0",
+    version: process.env.appVersion ?? "5.0.0",
     urlSchemes: ["toonflow"],
   },
   build: {

@@ -4,39 +4,71 @@ import subprocess
 from pathlib import Path
 
 
-def stop_owned_comfy(config, runtime):
-    """Restart only this app's idle ComfyUI, identified by its output directory."""
-    import httpx
+def owned_comfy_processes(config, runtime):
+    """Identify this app's engine by its script, port and output directory."""
     import psutil
     from urllib.parse import urlsplit
     endpoint=urlsplit(config['comfy_url'])
-    if endpoint.hostname not in ('127.0.0.1','localhost','::1'):
-        raise RuntimeError('远程服务需由服务所有者重启以加载新增节点。')
-    token=config.get('comfy_auth_token','')
-    with httpx.Client(trust_env=False,timeout=5) as client:
-        response=client.get(config['comfy_url']+'/queue',headers={'Authorization':'Bearer '+token} if token else {})
-        response.raise_for_status();queue=response.json()
-    if queue.get('queue_running') or queue.get('queue_pending'):
-        raise RuntimeError('ComfyUI 还有任务，请等待完成后再准备工作流。')
+    if config.get('mode') == 'remote' or endpoint.hostname not in ('127.0.0.1','localhost','::1'):
+        raise RuntimeError('远程 ComfyUI 请在服务所在电脑停止。')
+    if not config.get('comfy_dir'):
+        return []
     output=str((Path(runtime)/'output').resolve()).replace('\\','/').casefold()
     expected=str((Path(config['comfy_dir'])/'main.py').resolve()).replace('\\','/').casefold()
-    port=str(endpoint.port or 80)
+    port=str(endpoint.port or (443 if endpoint.scheme == 'https' else 80))
     owned=[]
     for process in psutil.process_iter(['pid','cmdline']):
         args=process.info.get('cmdline') or []
         normalized=[str(a).replace('\\','/').casefold() for a in args]
         try:
-            if output in normalized and (expected in normalized or 'main.py' in normalized) and '--port' in args and args[args.index('--port')+1]==port:
+            if normalized[args.index('--output-directory')+1] != output or args[args.index('--port')+1] != port:
+                continue
+            script_matches = expected in normalized
+            if not script_matches and 'main.py' in normalized:
+                script_matches = str((Path(process.cwd())/'main.py').resolve()).replace('\\','/').casefold() == expected
+            if script_matches:
                 owned.append(process)
-        except (ValueError,IndexError):
+        except (ValueError, IndexError, psutil.NoSuchProcess, psutil.AccessDenied):
             continue
+    return owned
+
+
+def stop_owned_comfy(config, runtime, *, allow_stopped=False):
+    """Stop only this app's idle engine; never clear queues or kill unrelated Python."""
+    import httpx
+    import psutil
+    from urllib.parse import urlsplit
+    owned = owned_comfy_processes(config, runtime)
     if not owned:
-        raise RuntimeError('资源已准备，请重启自行启动的 ComfyUI 后继续；工作台无法确认该服务属于本应用。')
+        endpoint = urlsplit(config['comfy_url'])
+        if allow_stopped:
+            try:
+                port = endpoint.port or (443 if endpoint.scheme == 'https' else 80)
+                if not any(connection.status == psutil.CONN_LISTEN and connection.laddr.port == port
+                           for connection in psutil.net_connections(kind='tcp')):
+                    return False
+            except (psutil.AccessDenied, OSError):
+                pass
+        raise RuntimeError('无法确认当前 ComfyUI 属于本工作台，请在启动它的程序中停止。')
+    token=config.get('comfy_auth_token','')
+    try:
+        with httpx.Client(trust_env=False,timeout=5) as client:
+            response=client.get(config['comfy_url']+'/queue',headers={'Authorization':'Bearer '+token} if token else {})
+            response.raise_for_status();queue=response.json()
+    except (httpx.HTTPError, ValueError) as error:
+        raise RuntimeError('无法确认 ComfyUI 队列状态，请检查服务后重试；尚未停止进程。') from error
+    if not isinstance(queue, dict) or not all(isinstance(queue.get(key), list) for key in ('queue_running', 'queue_pending')):
+        raise RuntimeError('ComfyUI 队列响应无效，尚未停止进程。')
+    if queue['queue_running'] or queue['queue_pending']:
+        raise RuntimeError('ComfyUI 还有运行或排队任务，请先完成或在生成页面停止任务，再停止引擎。')
     for process in owned:
         try:
             process.terminate();process.wait(timeout=20)
         except psutil.NoSuchProcess:
             pass
+        except (psutil.TimeoutExpired, psutil.AccessDenied) as error:
+            raise RuntimeError('ComfyUI 进程尚未退出或权限不足，请刷新状态后重试。') from error
+    return True
 
 
 def run_process(args, *, cancel=None, **kwargs):

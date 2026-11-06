@@ -35,11 +35,62 @@ export const comfyConfigSchema = z.object({
   }).strict()).refine(value => Object.keys(value).length <= 50, "独立工作流最多 50 个").optional(),
 }).strict();
 
+function workflowTokens(raw: string) {
+  const graph = JSON.parse(raw);
+  if (!graph || typeof graph !== "object" || Array.isArray(graph) || !Object.keys(graph).length) throw new Error("请提供 ComfyUI API 格式工作流");
+  const tokens = new Set<string>();
+  const visit = (value: unknown) => {
+    if (typeof value === "string") for (const match of value.matchAll(/\{\{(\w+)\}\}/g)) tokens.add(match[1]!);
+    else if (value && typeof value === "object") Object.values(value).forEach(visit);
+  };
+  for (const node of Object.values(graph) as { class_type?: string; inputs?: Record<string, unknown> }[]) {
+    if (!node || typeof node.class_type !== "string" || !node.inputs || typeof node.inputs !== "object" || Array.isArray(node.inputs)) throw new Error("请提供 ComfyUI API 格式工作流");
+    visit(node.inputs);
+  }
+  return tokens;
+}
+
+export function comfyVideoModes(config: Record<string, unknown>): VideoMode[] | undefined {
+  if (typeof config.videoWorkflow !== "string" || !config.videoWorkflow.trim()) return;
+  try {
+    const refs = [...workflowTokens(config.videoWorkflow)].filter(token => /^(?:image\d+|firstFrame|lastFrame|video\d+|audio\d+)$/.test(token));
+    if (!refs.length) return ["text"];
+    // 单图模式在画布中只允许一张图片；旧版 H3 的 startFrameOptional 会错误地把它当作尾帧。
+    if (refs.length === 1 && ["firstFrame", "image0"].includes(refs[0]!)) return ["singleImage"];
+    if (refs.length === 2 && refs.includes("firstFrame") && refs.includes("lastFrame")) return ["startEndRequired"];
+  } catch { /* 无效工作流由生成前校验给出具体错误。 */ }
+}
+
+function videoWorkflowConfig(config: Record<string, unknown>, request: VideoRequest) {
+  let raw = typeof config.videoWorkflow === "string" ? config.videoWorkflow.trim() : "";
+  if (!raw) throw new Error("请先在视频模型设置中应用并保存内置工作流");
+  let tokens = workflowTokens(raw);
+  // 兼容已保存的首帧工作流与单图模式；显式传入的尾帧绝不改作首帧。
+  if (tokens.has("firstFrame") && !tokens.has("image0") && request.images?.length === 1 && !request.firstFrame && !request.lastFrame) {
+    raw = raw.replaceAll("{{firstFrame}}", "{{image0}}");
+    tokens = workflowTokens(raw);
+  }
+  const refs = new Set((request.images ?? []).map((_, index) => `image${index}`));
+  if (request.firstFrame) refs.add("firstFrame");
+  if (request.lastFrame) refs.add("lastFrame");
+  if (request.videos?.length || request.audios?.length) throw new Error("当前 ComfyUI 视频接口不支持视频或音频参考");
+  for (const token of refs) {
+    if (tokens.has(token)) continue;
+    if (token === "lastFrame") throw new Error("当前工作流不支持尾帧。首帧图生视频请使用单图参考模式；刷新模型列表后重新选择，不会忽略这张图片。");
+    throw new Error("当前工作流没有对应的参考图输入，请选择首帧图生视频工作流并保存，不能忽略已传入的参考图");
+  }
+  for (const token of tokens) {
+    if (/^(?:image\d+|firstFrame|lastFrame)$/.test(token) && !refs.has(token)) throw new Error(`当前工作流缺少 ${token === "firstFrame" ? "首帧图片" : token === "lastFrame" ? "尾帧图片" : "参考图"}，请连接或上传对应图片`);
+  }
+  return { ...config, videoWorkflow: raw };
+}
+
 export function comfyWorkflowConfig(config: Record<string, unknown>, request: ImageRequest | VideoRequest, mediaType: "image" | "video") {
+  if (mediaType === "video") return videoWorkflowConfig(config, request as VideoRequest);
   const profiles = comfyConfigSchema.shape.workflowModels.parse(config.workflowModels);
   const profile = profiles && Object.hasOwn(profiles, request.model) ? profiles[request.model] : undefined;
   if (!profile) {
-    if (["comfySdEdit", "comfyFluxSchnellEdit", "comfyQwenTurboEdit", "comfyQwenTurbo"].includes(request.model)) {
+    if (["comfySd", "comfyFluxSchnell", "comfySdEdit", "comfyFluxSchnellEdit", "comfyQwenTurboEdit", "comfyQwenTurbo"].includes(request.model)) {
       throw new Error("此图片工作流尚未保存，请在图片模型设置中重新应用并保存对应预设");
     }
     return config;
