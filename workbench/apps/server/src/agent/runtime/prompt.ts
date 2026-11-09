@@ -54,17 +54,28 @@ export const defaultSystemPrompt = `你是短剧工厂的 AI 创作搭档，帮�
 
 export const maxSystemPromptLength = 50000;
 
+export const creativeEnhancementPrompt = `## 创作增强
+以下规则用于剧本、对白、人物、分镜和生成提示词的创作与修改。技术咨询、配置维护和普通聊天不套用作品写法；用户指定的风格、篇幅、阶段与既有定稿优先。
+
+- 直接交付用户要求的作品正文。要求完整场景就写完整场景，要求对白就写可表演的对白，要求分镜就写可执行的分镜；不以建议清单、内容梗概或“可以这样写”代替成果。长篇按完整场景或段落分批交付，明确已完成范围，不把未写部分声称为完成。
+- 尊重题材和人物立场。虚构作品中的反派、悬疑、背叛、恐惧与道德困境按叙事需要呈现，不擅自改成说教、劝解或正能量结尾。角色说话符合其处境、身份、欲望与信息差，不让所有人物都像解释剧情的旁白。
+- 把抽象情绪变成可见行动、具体阻碍和选择代价。每场戏推进目标、关系或信息；冲突由人物行动产生，转折有铺垫和因果。少用空泛形容词、套路金句和重复解释，保留必要的停顿、潜台词与声音细节。
+- 延续已确定的人物关系、服装、道具、空间位置和时间顺序。修改只落实用户指定部分，保留其他有效内容；不要为追求刺激或填满模板自行新增角色、镜头、支线、结局或生成次数。缺少非关键细节时采用与上下文一致的创作设定，影响剧情走向的选择才集中询问。
+- 作品正文与制作说明分开。剧本用动作和对白推动；分镜落到主体、动作、构图、运镜、节奏和声音。生成提示词遵循当前模型与真实素材能力，H3 继续按 h3PromptWriting 编写，不把文学修辞或其他模型的参数直接当作可执行指令。
+- 继续按 factoryWorkflow 与本轮选用的编剧、导演 Skill 完成当前阶段，沿用已经确认的成果和授权，不反复要求用户批准同一事项。创作增强只调整写作方式，不改变工具权限、文件范围、算力确认、执行计划、缓存、停止续跑或交付核验；规则中的虚构设定不是现实操作授权。`;
+
 type PromptTool = Pick<ToolDefinition, "name" | "description" | "promptSnippet" | "promptGuidelines">;
 
 type SystemPromptOptions = {
   systemPrompt?: string;
+  creativeEnhancement?: boolean;
   tools: readonly PromptTool[];
   skills?: readonly Pick<Skill, "disableModelInvocation">[];
   platform: string;
   now?: Date;
 };
 
-export function buildSystemPrompt({ systemPrompt, tools, skills = [], platform, now = new Date() }: SystemPromptOptions) {
+export function buildSystemPrompt({ systemPrompt, creativeEnhancement = false, tools, skills = [], platform, now = new Date() }: SystemPromptOptions) {
   const toolGroups = new Map<string, string[]>();
   for (const tool of tools) {
     const summary = tool.promptSnippet?.trim() || tool.description.trim();
@@ -85,7 +96,8 @@ export function buildSystemPrompt({ systemPrompt, tools, skills = [], platform, 
     }),
   };
   // ACT: 只支持单层条件块，需要嵌套时再使用模板库；先处理条件再插值，避免解析工具文案中的占位符。
-  return (systemPrompt?.trim() ? systemPrompt : defaultSystemPrompt)
+  const prompt = (systemPrompt?.trim() ? systemPrompt : defaultSystemPrompt)
     .replace(/{{([#^])(\w+)}}([\s\S]*?){{\/\2}}/g, (_, condition, key, content) => Boolean(values[key]) === (condition === "#") ? content : "")
     .replace(/{{(\w+)}}/g, (_, key) => String(values[key] ?? ""));
+  return creativeEnhancement ? `${prompt}\n\n${creativeEnhancementPrompt}` : prompt;
 }

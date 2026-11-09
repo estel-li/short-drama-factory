@@ -10,12 +10,20 @@
         <p>保存后下一条消息生效，留空使用默认提示词。</p>
         <p v-pre>保留 {{tools}}、{{guidelines}}、{{environment}} 及相关条件块，以自动填入工具规则和运行环境。</p>
       </div>
+      <div class="creativeEnhancement">
+        <el-switch v-model="creativeEnhancement" activeText="创作增强" :disabled="saving" aria-label="创作增强" />
+        <p>加强剧本、对白和分镜的完整性、人物表现与戏剧冲突。作为附加规则生效，保留下方基础提示词；关闭即可恢复原行为。</p>
+        <details>
+          <summary>查看增强规则</summary>
+          <pre>{{ creativeEnhancementPrompt }}</pre>
+        </details>
+      </div>
       <el-input v-model="draft" class="promptInput" type="textarea" :maxlength="maxLength" showWordLimit resize="none" :disabled="saving" aria-label="Agent 系统提示词" />
       <el-text v-if="saveError" type="danger" role="alert">{{ saveError }}</el-text>
     </div>
     <template #footer>
       <div class="dialogFooter">
-        <el-button :disabled="loading || !!loadError || saving" @click="draft = defaultSystemPrompt">恢复默认</el-button>
+        <el-button :disabled="loading || !!loadError || saving" @click="draft = defaultSystemPrompt; creativeEnhancement = false">恢复默认</el-button>
         <div>
           <el-button :disabled="saving" @click="visible = false">取消</el-button>
           <el-button type="primary" :loading="saving" :disabled="loading || !!loadError || !maxLength || draft.length > maxLength" @click="save">保存</el-button>
@@ -34,6 +42,8 @@ import { saveSettings, settings } from "@/stores/settings";
 const visible = defineModel<boolean>({ default: false });
 const draft = ref("");
 const defaultSystemPrompt = ref("");
+const creativeEnhancementPrompt = ref("");
+const creativeEnhancement = ref(false);
 const maxLength = ref(0);
 const loading = ref(false);
 const saving = ref(false);
@@ -48,14 +58,16 @@ async function loadPrompt() {
   loading.value = true;
   loadError.value = "";
   try {
-    const { data } = await axios.get<{ code: number; data: { defaultSystemPrompt: string; maxLength: number }; message?: string }>("/api/settings/systemPrompt", {
+    const { data } = await axios.get<{ code: number; data: { defaultSystemPrompt: string; creativeEnhancementPrompt: string; maxLength: number }; message?: string }>("/api/settings/systemPrompt", {
       headers: { "x-toonflow-workspace": "1", "Cache-Control": "no-cache" }, signal: controller.signal,
     });
     if (data.code !== 200) throw new Error(data.message || "读取系统提示词失败");
-    if (typeof data.data?.defaultSystemPrompt !== "string" || !Number.isSafeInteger(data.data.maxLength) || data.data.maxLength <= 0) {
+    if (typeof data.data?.defaultSystemPrompt !== "string" || typeof data.data.creativeEnhancementPrompt !== "string" || !Number.isSafeInteger(data.data.maxLength) || data.data.maxLength <= 0) {
       throw new Error("系统提示词格式错误");
     }
     defaultSystemPrompt.value = data.data.defaultSystemPrompt;
+    creativeEnhancementPrompt.value = data.data.creativeEnhancementPrompt;
+    creativeEnhancement.value = settings.value.agentCreativeEnhancement === true;
     maxLength.value = data.data.maxLength;
     const saved = settings.value.agentSystemPrompt;
     draft.value = typeof saved === "string" && saved.trim() ? saved : defaultSystemPrompt.value;
@@ -70,7 +82,7 @@ async function save() {
   saving.value = true;
   saveError.value = "";
   try {
-    await saveSettings(() => ({ agentSystemPrompt }));
+    await saveSettings(() => ({ agentSystemPrompt, agentCreativeEnhancement: creativeEnhancement.value }));
     ElMessage.success("系统提示词已保存");
     visible.value = false;
   } catch (error) {
@@ -106,6 +118,22 @@ async function save() {
     flex: 1;
     min-height: 0;
     :deep(.el-textarea__inner) { height: 100%; }
+  }
+
+  .creativeEnhancement {
+    flex-shrink: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    p { margin: 4px 0; }
+    summary { cursor: pointer; }
+    pre {
+      max-height: 160px;
+      overflow: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font: inherit;
+      margin: 8px 0 0;
+    }
   }
 }
 
