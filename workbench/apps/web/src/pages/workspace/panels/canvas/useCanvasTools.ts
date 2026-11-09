@@ -9,7 +9,7 @@ import useWorkspaceFiles from "@/lib/workspaceFiles";
 import http from "@/lib/http";
 import { confirmPluginInstall } from "@/lib/pluginInstallConfirmation";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { agentNodeToolPermissions } from "@/stores/settings";
+import { agentEffectiveNodeToolPermissions } from "@/stores/settings";
 import { arrangeCanvas } from "./arrangeCanvas";
 import { canvasEdgeSummary, canvasNodeSummary, createCanvasQueries, isCanvasRead } from "./canvasQueries";
 
@@ -46,7 +46,7 @@ export function useCanvasTools(options: {
     canvases: signal => options.menu().getCanvases(signal),
     nodeTypes: () => options.availableNodes.value,
     nodeTools: getNodeTools,
-    nodeToolPermissions: () => agentNodeToolPermissions.value,
+    nodeToolPermissions: () => agentEffectiveNodeToolPermissions.value,
   });
 
   function findNode(nodeId: string) {
@@ -312,7 +312,7 @@ export function useCanvasTools(options: {
       }
       case "nodeTools": {
         const args = canvasSchemas.nodeTools.parse(request.args);
-        if (!isNodeToolAllowed(args.name, agentNodeToolPermissions.value)) throw new Error(`Agent 已禁止调用节点函数 ${args.name}，请在顶部节点工具控制中调整权限`);
+        if (!isNodeToolAllowed(args.name, agentEffectiveNodeToolPermissions.value)) throw new Error(`Agent 已禁止调用节点函数 ${args.name}，请在顶部节点工具控制中调整权限`);
         return getNodeTools().call(args, signal);
       }
       default: throw new Error(`未知画布操作：${request.name}`);

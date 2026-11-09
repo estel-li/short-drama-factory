@@ -6,7 +6,7 @@ import { createSandboxContext } from "@toonflow/tool-sandbox/host";
 import { canvasSchemas, isNodeToolAllowed, nodeToolPermissionsSchema } from "@toonflow/tool-canvas/runtime";
 import { getRuntimePlatform } from "@/lib/platform";
 import { importImage } from "@/utils/workspace/chatImages";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, parse, relative, resolve } from "node:path";
 import { access, constants, copyFile, createReadStream, mkdir, readFile, readdir, stat, withFileAccess } from "@toonflow/file";
 import {
   defineTool, createReadToolDefinition, createWriteToolDefinition, createEditToolDefinition, createLsToolDefinition,
@@ -25,6 +25,7 @@ import { createMcpAgentTools } from "@/utils/mcp/servers";
 import { currentIdentity } from "@/utils/multiTenant/context";
 import { modelGateway, requireDirectModelAccess } from "@/utils/multiTenant/gateway";
 import * as mediaTasks from "@/utils/media/tasks";
+import { getAgentPermissions } from "@/utils/agentPermissions";
 
 export function createAgentToolContext(cwd: string, config: Record<string, unknown> = {}, canvas?: CanvasContext, question?: QuestionContext, workspaceAvailable = true): ToolContext {
   const actor = currentIdentity();
@@ -38,7 +39,7 @@ export function createAgentToolContext(cwd: string, config: Record<string, unkno
         if (request.name === "nodeTools") {
           const { name } = canvasSchemas.nodeTools.parse(request.args);
           const permissions = nodeToolPermissionsSchema.parse(conf.get("settings", {}).agentNodeTools ?? {});
-          if (!isNodeToolAllowed(name, permissions)) {
+          if (!getAgentPermissions().bypassNodeToolPermissions && !isNodeToolAllowed(name, permissions)) {
             throw new Error(t`Agent 已禁用节点函数 ${name}，请在顶部节点工具控制中开启后再调用`);
           }
         }
@@ -60,7 +61,8 @@ export function createAgentToolContext(cwd: string, config: Record<string, unkno
   const resolvePath = async (path: string, readOnly = false) => {
     requireWorkspace();
     const absolute = resolve(cwd, path);
-    const root = readOnly && isWithin(skillsDirectory, absolute) ? skillsDirectory : cwd;
+    const root = getAgentPermissions().allowOutsideWorkspace ? parse(absolute).root
+      : readOnly && isWithin(skillsDirectory, absolute) ? skillsDirectory : cwd;
     return (await resolveWorkspacePath(root, relative(root, absolute), true)).path;
   };
   const withWritePaths = async (paths: string[], operation: (targets: string[]) => Promise<void>) => {
@@ -111,10 +113,14 @@ export function createAgentToolContext(cwd: string, config: Record<string, unkno
     rename: (path, target) => withWritePaths([path, target], async ([source, destination]) => {
       protectWorkspaceRoot(cwd, source);
       protectWorkspaceRoot(cwd, destination);
+      if (isWithin(source, cwd) || isWithin(destination, cwd) || source === parse(source).root || destination === parse(destination).root) {
+        throw new Error("不能移动磁盘根目录或当前工作区的上级目录");
+      }
       await renameWorkspaceFile(source, resolve(dirname(destination), basename(resolve(cwd, target))));
     }),
     remove: (path, recursive = false) => withWritePaths([path], async ([target]) => {
       protectWorkspaceRoot(cwd, target);
+      if (isWithin(target, cwd) || target === parse(target).root) throw new Error("不能删除磁盘根目录或当前工作区的上级目录");
       await removeWorkspaceFile(cwd, target, recursive);
     }),
     copyFile: (path, target, exclusive = false) => withWritePaths([path, target], async ([source, destination]) => {

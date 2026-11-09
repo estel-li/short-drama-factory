@@ -7,6 +7,7 @@ import { maxSystemPromptLength } from "@/agent/runtime/prompt";
 import { t } from "@/lib/i18n";
 import { accountProviderSchema, providerSchema } from "@/utils/ai";
 import { nodeToolPermissionsSchema } from "@toonflow/tool-canvas/runtime";
+import { agentPermissionsSchema } from "@/lib/agentPermissions";
 
 import { localModelsSchema, comfyConfigSchema } from "@/utils/localModels";
 
@@ -16,6 +17,7 @@ let saveQueue = Promise.resolve();
 export default router.put("/", validateFields({ expectedRevision: z.number().int().min(0).max(2147483646).optional(), settings: z.record(z.string(), z.json()).and(z.object({
   agentSystemPrompt: z.string().max(maxSystemPromptLength, { error: () => t`系统提示词不能超过 ${maxSystemPromptLength} 个字符` }).optional(),
   agentCreativeEnhancement: z.boolean().optional(),
+  agentDeveloperPermissions: agentPermissionsSchema.optional(),
   agentNodeTools: nodeToolPermissionsSchema.optional(),
   customProviders: z.array(providerSchema.extend({
     id: z.string().min(1).refine(value => value.toLowerCase() !== "toonflow", "toonflow 为账号供应商保留 ID"), label: z.string(),
@@ -43,6 +45,15 @@ export default router.put("/", validateFields({ expectedRevision: z.number().int
   }
   // ACT: 系统代理读取是异步的；串行保存完整快照，避免较早的请求覆盖较晚的配置。
   const saving = saveQueue.then(async () => {
+    const previousPermissions = u.conf.get("settings", {}).agentDeveloperPermissions;
+    const nextPermissions = Object.hasOwn(settings, "agentDeveloperPermissions") ? agentPermissionsSchema.parse(settings.agentDeveloperPermissions) : previousPermissions;
+    const previousParsed = agentPermissionsSchema.safeParse(previousPermissions ?? {});
+    const previousEffective = previousParsed.success ? previousParsed.data : agentPermissionsSchema.parse({});
+    if (JSON.stringify(nextPermissions ?? {}) !== JSON.stringify(previousPermissions ?? {})
+      && JSON.stringify(agentPermissionsSchema.parse(nextPermissions ?? {})) !== JSON.stringify(previousEffective)
+      && (!u.multiTenant.canSetup(req) || u.multiTenant.isEnabled())) {
+      throw Object.assign(new Error("Agent 开发权限只能在独立运行的服务器本机修改"), { status: 403 });
+    }
     if (res.locals.multiTenantWeb === true && user?.role === "admin") {
       const previousSettings = u.conf.get("settings", {});
       const creationSettings = { ...previousSettings };
@@ -63,6 +74,7 @@ export default router.put("/", validateFields({ expectedRevision: z.number().int
     const commit = () => {
       // 开关只由超管接口修改；异步准备完成后读取最新值，避免其他页面的旧快照覆盖。
       settings.multiTenantEnabled = u.multiTenant.isEnabled();
+      if (nextPermissions !== undefined) settings.agentDeveloperPermissions = nextPermissions;
       u.conf.set("settings", settings);
     };
     if (network) u.network.configureNetwork(network, undefined, commit);

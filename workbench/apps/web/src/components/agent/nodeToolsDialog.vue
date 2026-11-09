@@ -2,6 +2,7 @@
   <el-dialog v-model="visible" title="节点工具控制" width="min(520px, 94vw)" alignCenter appendToBody destroyOnClose :closeOnClickModal="false" :closeOnPressEscape="!saving" :showClose="!saving">
     <div class="nodeToolsConfig">
       <p class="description">选择 Agent 可以通过画布节点生成的媒体，保存后应用于所有对话。</p>
+      <el-alert v-if="agentDeveloperPermissions.bypassNodeToolPermissions" title="开发者绕过已开启：本页禁用项暂不拦截调用，关闭绕过后恢复。" type="warning" :closable="false" showIcon />
       <el-form labelPosition="top" :disabled="saving">
         <div class="permissionList">
           <div v-for="group in groups" :key="group.enabledKey" class="permissionRow">
@@ -49,7 +50,7 @@ import { ref, useId, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { translate } from "@toonflow/i18n/vue";
 import { nodeToolPermissionsSchema } from "@toonflow/tool-canvas/runtime";
-import { agentNodeToolPermissions, saveSettings } from "@/stores/settings";
+import { agentDeveloperPermissions, agentNodeToolPermissions, saveSettings } from "@/stores/settings";
 
 const visible = defineModel<boolean>({ default: false });
 const controlId = useId();

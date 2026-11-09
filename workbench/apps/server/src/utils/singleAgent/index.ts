@@ -6,6 +6,8 @@ import type { AgentSession, ToolDefinition } from "@earendil-works/pi-coding-age
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { QuestionContext } from "@toonflow/tools-scaffold/runtime";
 import { createAgentToolContext } from "@/agent/tools";
+import { agentPermissionPrompt } from "@/lib/agentPermissions";
+import { getAgentPermissions } from "@/utils/agentPermissions";
 import { createAgentModel } from "@/agent/runtime/model";
 import { configureAgentRequests } from "@/agent/runtime/requests";
 import { getToolResultText } from "@/agent/runtime/sessions";
@@ -228,7 +230,7 @@ export async function run(options: {
     const resourceLoader = new DefaultResourceLoader({
       cwd: state.cwd, agentDir, settingsManager,
       noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-      systemPrompt: "", systemPromptOverride: () => systemPrompt, appendSystemPrompt: [],
+      systemPrompt: "", systemPromptOverride: () => systemPrompt, appendSystemPrompt: [agentPermissionPrompt(getAgentPermissions())].filter(Boolean),
     });
     await resourceLoader.reload();
     active.controller.signal.throwIfAborted();

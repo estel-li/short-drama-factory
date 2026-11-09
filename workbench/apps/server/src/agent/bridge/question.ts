@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { QuestionAnswer, QuestionContext, QuestionRequest } from "@toonflow/tools-scaffold/runtime";
 import type { AgentEvent } from "@/agent/runtime/types";
+import { automaticApproval } from "@/lib/agentPermissions";
+import { getAgentPermissions } from "@/utils/agentPermissions";
 
 type PendingQuestion = { cwd: string; request: QuestionRequest & { requiresLocalApproval?: boolean }; cancel(): void; finish(result: QuestionAnswer | Error): void };
 
@@ -14,6 +16,10 @@ export function createQuestionContext(cwd: string, send: (event: Extract<AgentEv
     async ask(toolCallId, request, signal) {
       if (disposed) throw new Error("提问所属对话已结束");
       signal?.throwIfAborted();
+      if (getAgentPermissions().autoApprove) {
+        const answer = automaticApproval(request);
+        if (answer) return answer;
+      }
       const callId = crypto.randomUUID();
       return new Promise((resolve, reject) => {
         const finish = (result: QuestionAnswer | Error) => {

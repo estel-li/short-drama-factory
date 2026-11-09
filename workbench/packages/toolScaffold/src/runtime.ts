@@ -162,6 +162,7 @@ export interface QuestionRequest {
 
 export interface QuestionAnswer {
   answer: string;
+  autoApproved?: boolean;
   values?: Record<string, string | number | boolean | string[]>;
   skipped?: boolean;
 }

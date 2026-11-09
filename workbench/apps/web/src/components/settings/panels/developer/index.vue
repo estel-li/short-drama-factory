@@ -44,6 +44,7 @@
         </div>
         <el-button :icon="IconEdit" @click="systemPromptVisible = true">编辑提示词</el-button>
       </div>
+      <agentPermissions v-if="!isRemoteConnection" />
       <div v-if="!isRemoteConnection" class="developerRow">
         <div class="toolDescription">
           <h3>自定义更新源</h3>
@@ -146,6 +147,7 @@ const hello = useHelloStore();
 const router = useRouter();
 const resettingHello = ref(false);
 const systemPromptDialog = defineAsyncComponent(() => import("./systemPromptDialog.vue"));
+const agentPermissions = defineAsyncComponent(() => import("./agentPermissions.vue"));
 const systemPromptVisible = ref(false);
 const updateBox = defineAsyncComponent(() => import("@/components/updateBox.vue"));
 const updateBoxVisible = ref(false);

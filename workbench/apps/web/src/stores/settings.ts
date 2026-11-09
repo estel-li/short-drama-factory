@@ -6,6 +6,7 @@ import { getNodeModelKey, invalidateNodeModels, readNodeModels, subscribeNodeMod
 import { canvasShortcutFields, defaultCanvasShortcuts, getShortcutBindings, isShortcutAllowed, normalizeShortcut, type CanvasShortcuts } from "@/lib/canvasShortcuts";
 import { normalizeNodeMenu, type StoredNodeMenuItem } from "@toonflow/server/nodeMenu";
 import { nodeToolPermissionsSchema } from "@toonflow/tool-canvas/runtime";
+import { agentPermissionsSchema } from "@toonflow/server/agentPermissions";
 import type { ReasoningEfforts, ThinkingLevel } from "@toonflow/server/modelReasoning";
 import type { ProviderSources } from "@toonflow/server/channel";
 import http from "@/lib/http";
@@ -14,6 +15,12 @@ import "element-plus/es/components/message/style/css";
 
 export const settings = ref<Record<string, unknown>>({});
 export const agentNodeToolPermissions = computed(() => nodeToolPermissionsSchema.parse(settings.value.agentNodeTools ?? {}));
+export const agentDeveloperPermissions = computed(() => {
+  const result = agentPermissionsSchema.safeParse(settings.value.agentDeveloperPermissions ?? {});
+  return settings.value.multiTenantEnabled === true || !result.success ? agentPermissionsSchema.parse({}) : result.data;
+});
+export const agentEffectiveNodeToolPermissions = computed(() => agentDeveloperPermissions.value.bypassNodeToolPermissions
+  ? { ...agentNodeToolPermissions.value, allowImage: true, allowVideo: true, allowAudio: true } : agentNodeToolPermissions.value);
 // ACT: 页面在 loadSettings 完成后才挂载，加载标记仅保留在设置初始化与自动保存内部。
 let settingsReady = false;
 let saveQueue = Promise.resolve();
