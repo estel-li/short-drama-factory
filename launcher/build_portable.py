@@ -120,7 +120,7 @@ def build():
                 else:
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_bytes(source.read(item))
-    for name in ('app', 'manifests', 'nodes', 'launcher', 'tools', 'resources', 'docs'):
+    for name in ('app', 'manifests', 'nodes', 'launcher', 'tools', 'resources', 'docs', 'workflows'):
         shutil.copytree(ROOT / name, package / name, ignore=shutil.ignore_patterns('__pycache__', '*.pyc', '*.tmp'))
     shutil.copytree(workbench / 'build', package / 'workbench/build')
     shutil.copy2(workbench / 'LICENSE', package / 'workbench/LICENSE')

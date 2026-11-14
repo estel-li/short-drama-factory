@@ -34,6 +34,20 @@
       <div v-if="expanded === preset.id" class="configuration">
         <p>{{ preset.description }}</p>
         <el-link :href="preset.source" target="_blank" rel="noopener noreferrer">官方工作流说明</el-link>
+        <div v-if="currentCatalog && preset.downloads && (preset.downloads.files.length || preset.downloads.needsManualChoice)" class="downloadGuide">
+          <p v-if="preset.downloads.gpu">{{ preset.downloads.gpu.name }} · 约 {{ preset.downloads.gpu.vramGiB }} GiB 显存</p>
+          <p v-else>未能读取当前 ComfyUI 的独立显存。</p>
+          <p v-if="preset.downloads.needsManualChoice">请在魔搭仓库按实际显存选择量化版本。发布方给出的最低推荐档为 8 GB 显存。</p>
+          <ul v-if="preset.downloads.files.length">
+            <li v-for="file in preset.downloads.files" :key="file.key">
+              <el-link :href="file.url" target="_blank" rel="noopener noreferrer">{{ file.file }}</el-link>
+              <span> 放入 ComfyUI 的 <code>{{ file.directory }}</code></span>
+            </li>
+          </ul>
+          <p v-if="preset.downloads.ggufNodes.length">当前 ComfyUI 还需加载 {{ preset.downloads.ggufNodes.join('、') }} 才能读取 GGUF。已有文件可直接复用。如果启动时设置了自定义节点白名单，请确认 GGUF 插件已允许加载。</p>
+          <p>显存档位用于选择权重。实际运行还取决于系统内存、卸载设置和出图尺寸。放好权重并加载所需节点后，点击“重新读取工作流”。</p>
+          <el-link :href="preset.downloads.repo" target="_blank" rel="noopener noreferrer">魔搭 GGUF 模型仓库</el-link>
+        </div>
         <el-form labelPosition="top" @submit.prevent>
           <el-form-item v-for="field in preset.fields" :key="field.key" :label="field.label">
             <el-select v-model="selections[preset.id]![field.key]" filterable :disabled="disabled || loading || !!applying" :aria-label="t`${preset.label} ${field.label}`" :placeholder="field.options.length ? translate('请选择模型文件') : translate('未发现匹配模型文件')">
@@ -42,7 +56,7 @@
             <el-text v-if="selections[preset.id]?.[field.key] && !field.options.includes(selections[preset.id]![field.key]!)" type="warning">原选文件已不可用，请重新选择；不会自动替换为其他模型。</el-text>
           </el-form-item>
         </el-form>
-        <p v-if="currentCatalog && missingFields(preset).length">缺少模型文件：{{ missingFields(preset).map(field => field.label).join('、') }}。请在“ComfyUI 环境”中搜索并接入对应目录，再重新读取。</p>
+        <p v-if="currentCatalog && missingFields(preset).length">请选择可用的{{ missingFields(preset).map(field => field.label).join('、') }}文件。也可在“ComfyUI 环境”中搜索并接入已下载的模型。</p>
         <div class="actions">
           <el-button type="primary" :loading="applying === preset.id" :disabled="disabled || !!applying || !ready(preset)" @click="apply(preset)">{{ installedModel(preset) ? translate('应用配置') : translate('加入画布') }}</el-button>
           <el-button v-if="installedModel(preset)" :disabled="disabled || !!applying" @click="emit('edit', preset.modelId)">模型参数</el-button>
@@ -104,8 +118,10 @@ import type { MediaProviderModel } from "@toonflow/provider-web/types";
 import http from "@/lib/http";
 import { writeClipboardText } from "@/lib/clipboard";
 
-type Field = { key: string; label: string; node: string; input: string; options: string[] };
-type Preset = { id: string; modelId: string; label: string; inputMode: "text" | "image"; description: string; source: string; missingNodes: string[]; fields: Field[] };
+type Field = { key: string; label: string; node: string; ggufNode?: string; input: string; options: string[] };
+type Downloads = { gpu?: { name: string; vramGiB: number }; repo: string; needsManualChoice: boolean; ggufNodes: string[];
+  files: { key: string; file: string; directory: string; url: string }[] };
+type Preset = { id: string; modelId: string; label: string; inputMode: "text" | "image"; description: string; source: string; missingNodes: string[]; fields: Field[]; downloads?: Downloads };
 type Applied = { workflow: Record<string, unknown>; outputNode: string; model: MediaProviderModel; label: string; independent: boolean; inputMode: "text" | "image" };
 const props = defineProps<{ url: string; models: MediaProviderModel[]; profiles: Record<string, { workflow: string }>; disabled?: boolean; testing?: boolean }>();
 const emit = defineEmits<{ apply: [value: Applied]; test: [id: string]; edit: [id: string]; remove: [id: string]; catalog: [ids: string[]]; busy: [value: boolean] }>();
@@ -133,7 +149,7 @@ function savedFiles(preset: Preset) {
   try {
     const nodes = Object.values(JSON.parse(profile.workflow)) as { class_type?: string; inputs?: Record<string, unknown> }[];
     return Object.fromEntries(preset.fields.map(field => {
-      const value = nodes.find(node => node?.class_type === field.node)?.inputs?.[field.input];
+      const value = nodes.find(node => node && (node.class_type === field.node || (field.ggufNode && node.class_type === field.ggufNode)))?.inputs?.[field.input];
       return [field.key, typeof value === "string" ? value : ""];
     }));
   } catch { return {}; }
@@ -152,7 +168,10 @@ async function refresh() {
   try {
     const values = await http<Preset[]>({ method: "POST", url: "/api/localModels/workflows/catalog", data: { url, mediaType: "image" }, signal: request.signal, timeout: 30000 });
     if (request.signal.aborted) return;
-    for (const preset of values) selections.value[preset.id] ??= savedFiles(preset) ?? Object.fromEntries(preset.fields.map(field => [field.key, field.options[0] ?? ""]));
+    for (const preset of values) {
+      const previous = selections.value[preset.id] ?? savedFiles(preset);
+      selections.value[preset.id] = Object.fromEntries(preset.fields.map(field => [field.key, previous?.[field.key] || field.options[0] || ""]));
+    }
     presets.value = values; checkedUrl.value = url;
     emit("catalog", values.map(preset => preset.modelId));
   } catch (cause) { if (!request.signal.aborted) error.value = cause instanceof Error ? cause.message : translate("读取工作流失败"); }
@@ -199,6 +218,11 @@ onBeforeUnmount(() => { clearTimeout(refreshTimer); catalogRequest?.abort(); bui
     .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
     .tags { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
     .configuration { display: grid; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--el-border-color-lighter); }
+    .downloadGuide {
+      display: grid; gap: 6px; padding: 12px; border-radius: 8px; background: var(--el-fill-color-light);
+      ul { margin: 0; padding-inline-start: 20px; }
+      li { line-height: 1.7; overflow-wrap: anywhere; }
+    }
     .el-form-item:last-child { margin-bottom: 0; }
     .el-select { width: 100%; }
     .el-link { justify-self: start; }

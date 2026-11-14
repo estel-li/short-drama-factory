@@ -1,0 +1,118 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "{{diffusion}}",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "{{encoder}}",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "{{vae}}"
+    }
+  },
+  "4": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "round(a / 32) * 32",
+      "values.a": "{{width}}"
+    }
+  },
+  "5": {
+    "class_type": "MiniMaxH3ImageConditioning",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "prompt": "{{prompt}}",
+      "width": [
+        "4",
+        1
+      ],
+      "height": [
+        "9",
+        1
+      ]
+    }
+  },
+  "6": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "5",
+        0
+      ]
+    }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "positive": [
+        "5",
+        0
+      ],
+      "negative": [
+        "6",
+        0
+      ],
+      "latent_image": [
+        "5",
+        1
+      ],
+      "seed": "{{seed}}",
+      "steps": 6,
+      "cfg": 1,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "7",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "9": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "round(a / 32) * 32",
+      "values.a": "{{height}}"
+    }
+  },
+  "output": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ],
+      "filename_prefix": "shortDramaFactory/minimaxH3Image"
+    }
+  }
+}

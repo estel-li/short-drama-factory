@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM oven/bun:1.4.3
 
 WORKDIR /app
@@ -7,6 +8,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
+COPY --from=comfyPresets / /workflows/comfyPresets/
 
 # ACT: 保留工作区与依赖以兼容运行时动态加载；需要缩减镜像时再拆分构建阶段。
 RUN bun install --frozen-lockfile

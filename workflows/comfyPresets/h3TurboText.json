@@ -1,0 +1,207 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "{{diffusion}}",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "{{encoder}}",
+      "type": "minimax",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "{{vae}}"
+    }
+  },
+  "4": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "{{audioVae}}"
+    }
+  },
+  "5": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "max(5, round(a * 24)) + (5 - (max(5, round(a * 24)) % 17)) % 17",
+      "values.a": "{{duration}}"
+    }
+  },
+  "6": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "round(sqrt(400000 * a / b) / 32) * 32",
+      "values.a": "{{width}}",
+      "values.b": "{{height}}"
+    }
+  },
+  "7": {
+    "class_type": "ComfyMathExpression",
+    "inputs": {
+      "expression": "round(sqrt(400000 * b / a) / 32) * 32",
+      "values.a": "{{width}}",
+      "values.b": "{{height}}"
+    }
+  },
+  "8": {
+    "class_type": "MiniMaxH3ImageToVideo",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "prompt": "{{prompt}}",
+      "width": [
+        "6",
+        1
+      ],
+      "height": [
+        "7",
+        1
+      ],
+      "length": [
+        "5",
+        1
+      ]
+    }
+  },
+  "9": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": "{{seed}}"
+    }
+  },
+  "10": {
+    "class_type": "BasicGuider",
+    "inputs": {
+      "model": [
+        "21",
+        0
+      ],
+      "conditioning": [
+        "8",
+        0
+      ]
+    }
+  },
+  "11": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "res_multistep"
+    }
+  },
+  "12": {
+    "class_type": "BasicScheduler",
+    "inputs": {
+      "model": [
+        "21",
+        0
+      ],
+      "scheduler": "simple",
+      "steps": 4,
+      "denoise": 1
+    }
+  },
+  "13": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "9",
+        0
+      ],
+      "guider": [
+        "10",
+        0
+      ],
+      "sampler": [
+        "11",
+        0
+      ],
+      "sigmas": [
+        "12",
+        0
+      ],
+      "latent_image": [
+        "8",
+        1
+      ]
+    }
+  },
+  "14": {
+    "class_type": "VAEDecodeTiled",
+    "inputs": {
+      "samples": [
+        "13",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "tile_size": 512,
+      "overlap": 64,
+      "temporal_size": 64,
+      "temporal_overlap": 8
+    }
+  },
+  "15": {
+    "class_type": "VAEDecodeAudio",
+    "inputs": {
+      "samples": [
+        "13",
+        0
+      ],
+      "vae": [
+        "4",
+        0
+      ]
+    }
+  },
+  "16": {
+    "class_type": "CreateVideo",
+    "inputs": {
+      "images": [
+        "14",
+        0
+      ],
+      "audio": [
+        "15",
+        0
+      ],
+      "fps": 24
+    }
+  },
+  "21": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "lora_name": "{{lora}}",
+      "strength_model": 1
+    }
+  },
+  "output": {
+    "class_type": "SaveVideo",
+    "inputs": {
+      "video": [
+        "16",
+        0
+      ],
+      "filename_prefix": "shortDramaFactory/h3",
+      "format": "auto",
+      "codec": "auto"
+    }
+  }
+}

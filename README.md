@@ -2,7 +2,9 @@
 
 以画布工作流为唯一网页入口的本地短剧创作工作台。通过图片、文本、生成节点和内置 Agent 创作；Python 生产 API 提供 H3 执行计划、持久队列、缓存、续跑、后期和交付。
 
-**当前版本：5.0.0；Agent 协议：1。** 应用代码采用 [MIT](LICENSE)，模型和第三方资源遵循各自许可，见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+**当前版本 5.1.0 · Agent 协议 1。** 应用代码采用 [MIT](LICENSE)，模型和第三方资源遵循各自许可，见 [第三方声明](THIRD_PARTY_NOTICES.md)。
+
+5.1.0 新增 MiniMax H3 Image 文生图预设。已连接的 ComfyUI 缺少权重时，设置页按显存给出魔搭下载建议。7 个图片预设和 4 个视频预设的 API 工作流集中在 [workflows/comfyPresets](workflows/comfyPresets/)。完整变更见 [更新记录](CHANGELOG.md)。
 
 ## 启动
 
@@ -30,10 +32,32 @@ cd ..
 
 旧 `web/` 页面和旧网页启动选项已移除。API 根路径返回服务说明，不能当作画布页面。完整安装、连接与已知边界见 [Windows 工作台说明](docs/windowsWorkbench.md)。
 
+## 界面与用法
+
+以下截图使用虚构项目《邮局的最后一盏灯》。
+
+### 1. 打开项目
+
+在首页点击 **新建项目**，选择一个本地目录。项目卡片可再次打开该目录。也可以先在 **设置 → 文本模型** 配置供应商，再从首页输入故事想法并发送给 Agent。
+
+![短剧工厂首页与虚构项目卡片](docs/screenshots/home.png)
+
+### 2. 在画布中整理剧本和素材
+
+用文本节点记录剧本与分镜，用图片生成节点准备角色和场景参考图。右侧 Agent 可以协助拆分镜头。生成视频时，可把场景图连到支持首帧输入的视频节点，也可用本地 H3 工厂节点执行分镜计划。
+
+![短剧工厂画布中的虚构分镜和图片生成节点](docs/screenshots/canvas.png)
+
+### 3. 将 MiniMax H3 Image 加入画布
+
+在 **设置 → 图片模型 → ComfyUI → 编辑模型** 找到 **MiniMax H3 Image · 文生图**。展开 **配置**，选择扩散模型、文本编码器和图片 VAE。看到 **环境就绪** 后点击 **加入画布**，再保存设置。回到画布，在图片生成节点中选择该模型并填写提示词。
+
+![MiniMax H3 Image 预设中已匹配的 GGUF 主模型、编码器和 VAE](docs/screenshots/imagePreset.png)
+
 ## 主要工作流
 
 - **画布与 Agent**：文本、图片、视频、音频素材和生成节点；默认 DeepSeek，支持常见或自定义文本供应商编写剧本、分镜与提示词。
-- **图片**：ComfyUI 的 SD / SDXL、FLUX Schnell、Qwen Image 2.1 Turbo 文生图与图生图／单图编辑预设；支持自定义 API 工作流和在线供应商。
+- **图片**：ComfyUI 的 MiniMax H3 Image 文生图，以及 SD / SDXL、FLUX Schnell、Qwen Image 2.1 Turbo 的文生图和图生图预设。支持自定义 API 工作流和在线供应商。
 - **视频**：ComfyUI H3 文生视频／首帧图生视频，或配置在线供应商；工作流须匹配实际模型与组件。
 - **H3 工厂节点**：参考图导入、项目创建、镜头展开、局部编辑、计划执行、任务续跑、成片取回与校验。
 - **本地环境**：选择已有 ComfyUI、自动安装清单、模型搜索与目录接入；NVIDIA 限功率／频率命令生成。
@@ -77,6 +101,7 @@ flowchart LR
 | `agent-skills/` | 外部 AI 操作协议和命令行 |
 | `skills/`、`resources/` | 内部文字模板、原始参考与许可 |
 | `manifests/`、`nodes/` | 模型清单及 ComfyUI 缓存节点 |
+| `workflows/` | 内置 ComfyUI 工作流预设及 H3 分阶段 API 图 |
 | `launcher/` | 统一启动与便携包构建 |
 
 画布数据在 `workbench/data/`，生产配置、数据库和项目在根目录 `config/`、`data/`、`projects/`。保留这两组数据目录。详见 [架构与清理边界](docs/architecture.md)、[配置说明](docs/configuration.md)。
@@ -91,3 +116,7 @@ flowchart LR
 ```
 
 工作台的构建、类型检查和手动联调在 `workbench/` 进行。旧网页专属检查与根目录 npm 工程已移除。当前类型检查仍受已知 `ElectrobunConfig` 本地开发类型缺失影响，详见工作台说明。真实生成验证会使用 GPU 或供应商额度，仅在明确范围内执行。
+
+## 致谢
+
+短剧工厂 5.1.0 的画布工作流参考了开源项目 [Toonflow](https://github.com/HBAI-Ltd/Toonflow-app)。工作台源码来源与上游许可见 [工作台源码来源](workbench/sourceOrigin.md)。

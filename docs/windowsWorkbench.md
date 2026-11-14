@@ -122,7 +122,7 @@ cd ..
 ### 模型供应商
 
 - **文本模型**：默认选择 DeepSeek，常见供应商预填连接地址与协议；支持 Open-Design（`https://amr-link.open-design.ai/v1`）、OpenAI、Anthropic / Claude、通义千问、硅基流动与 OpenRouter。填写对应供应商的密钥后读取并勾选模型，也可手动填写。自定义连接支持 OpenAI Chat Completions、OpenAI Responses 和 Anthropic Messages 协议，以及自定义地址和请求头。添加或编辑一项会保留其他供应商，Agent 模型菜单同时显示已保存的模型；无历史选择时优先 DeepSeek。
-- **图片模型**：选择在线图片接口，或配置 ComfyUI 地址。ComfyUI 的“编辑模型”窗口在“模型配置”区域自动列出全部内置图片工作流卡片；展开“配置”选择匹配文件并“加入画布”，可先打开测试面板，再点击窗口底部“保存”。重新读取会保留已选权重；文件失效时提示重新选择。SD / SDXL、Flux Schnell、Qwen Image 2.1 Turbo 的文生图与图生图共六张卡片独立配置；已有默认流程及自定义模型继续保留。
+- **图片模型**：选择在线图片接口，或配置 ComfyUI 地址。ComfyUI 的“编辑模型”窗口在“模型配置”区域自动列出全部内置图片工作流卡片；展开“配置”选择匹配文件并“加入画布”，可先打开测试面板，再点击窗口底部“保存”。重新读取会保留已选权重；文件失效时提示重新选择。SD / SDXL、Flux Schnell、Qwen Image 2.1 Turbo 各有文生图和图生图预设，MiniMax H3 Image 提供文生图预设。已有默认流程及自定义模型继续保留。
 - **视频模型**：选择 Seedance 等在线接口，或配置本机／局域网 ComfyUI 视频工作流。ComfyUI 可使用 `http://192.168.1.4:8188` 这样的局域网地址，目标服务需监听对应网卡并允许访问。
 - **H3 工厂**：在“视频模型 → H3 工厂与独立工作流连接”中核对后端地址 `http://127.0.0.1:8770`，实际工厂目录填写本次克隆的仓库根目录，不是 `workbench` 子目录，也不是旧安装目录。
 
@@ -132,7 +132,7 @@ ComfyUI 自定义工作流的变量绑定方式见 [工作台说明](../workbenc
 
 ### 内置生图／生视频工作流
 
-预设由服务端生成 API 图，兼容已有 ComfyUI 适配器，不覆盖用户的供应商代码。每次应用前重新核对节点及模型文件，不下载模型、不自动升级 ComfyUI，也不提交生成任务。点击窗口底部“保存”后生效。全部图片方案以独立模型 ID 和工作流保存，同时出现在画布下拉列表；SD 与 Flux 文生图分别使用 `comfySd`、`comfyFluxSchnell`，不会再互相替换。已有 `comfyImage` 默认流程继续保留，视频方案仍使用 `comfyVideo`。
+设置页的 7 个图片预设和 4 个视频预设以 ComfyUI API 图保存在仓库根目录的 [`workflows/comfyPresets/`](../workflows/comfyPresets/)。工作台构建时打包这些模板，应用时绑定已选模型并核对节点。下载、升级和生成由用户单独操作。点击窗口底部“保存”后生效。图片方案各自保存为独立模型和工作流，视频方案仍使用 `comfyVideo`。
 
 节点未加载的卡片提供“引导修复”弹窗，列出当前服务 `/object_info` 未提供的节点，并按 Windows 便携版、手动安装、ComfyUI Desktop 提供[官方更新步骤](https://docs.comfy.org/installation/update_comfyui)。这不等于磁盘缺少文件：刚更新过源码时，需同步对应环境依赖并完整重启，再点击“修复后重新检测”；刷新网页或复用旧服务不会重新加载节点。局域网连接应在 ComfyUI 所在电脑执行。检测失败或节点仍未加载时继续显示未就绪，不自动安装、更新或重启引擎。缺少匹配权重与节点未加载分别提示。
 
@@ -143,6 +143,7 @@ ComfyUI 自定义工作流的变量绑定方式见 [工作台说明](../workbenc
 | SD / SDXL 图生图 | 单张原图经缩放、VAE 编码后采样，20 步、CFG 7；重绘强度默认 0.55 | [ComfyUI 图生图示例](https://comfyanonymous.github.io/ComfyUI_examples/img2img/) |
 | FLUX.1 Schnell FP8 图生图 | 使用已有 Schnell FP8 Checkpoint，单张原图经 VAE 编码后采样，4 步、CFG 1；重绘强度默认 0.55 | [ComfyUI 图生图原理](https://comfyanonymous.github.io/ComfyUI_examples/img2img/)及 [Flux 参数](https://comfyanonymous.github.io/ComfyUI_examples/flux/) |
 | Qwen Image 2.1 Turbo 文生图／单图编辑 | 2 个方案；完整 Turbo 权重、官方 8 步 sigma、Euler、CFG 1；编辑接收 `image0` | [Comfy-Org Qwen 2.1](https://huggingface.co/Comfy-Org/Qwen-Image-2.1) |
+| MiniMax H3 Image 文生图 | 6 步、Euler/simple、CFG 1，支持 Safetensors 和 GGUF | [预设 JSON](../workflows/comfyPresets/miniMaxH3Image.json) |
 | MiniMax H3 文生视频／首帧图生视频 | 各有 20 步标准、4 步 LightX2V LoRA 两个方案，共 4 个；24 fps、约 0.4MP，时长按 17k+5 帧向上对齐；首帧接收 `firstFrame` | [官方文生视频模板](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_minimax_h3_t2v.json)、[图生视频模板](https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_minimax_h3_i2v.json) |
 
 H3 预设保留原生音轨，并用分块 VAE 解码降低显存压力；0.4MP 是本工作台固定的低显存尺寸，画布比例仍生效，不代表原生 1080p。4 步方案只能选择 FL2V 的 4 步 LoRA。Qwen 使用独立扩散权重、Qwen3-VL 8B 编码器和 Qwen 2.1 VAE，不可替换为 H3 的 32B 编码器；当前引擎没有 `TextEncodeQwenImage21` 时，界面会显示缺少节点并禁用应用。

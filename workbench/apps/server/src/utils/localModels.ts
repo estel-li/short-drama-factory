@@ -90,7 +90,7 @@ export function comfyWorkflowConfig(config: Record<string, unknown>, request: Im
   const profiles = comfyConfigSchema.shape.workflowModels.parse(config.workflowModels);
   const profile = profiles && Object.hasOwn(profiles, request.model) ? profiles[request.model] : undefined;
   if (!profile) {
-    if (["comfySd", "comfyFluxSchnell", "comfySdEdit", "comfyFluxSchnellEdit", "comfyQwenTurboEdit", "comfyQwenTurbo"].includes(request.model)) {
+    if (["comfySd", "comfyFluxSchnell", "comfySdEdit", "comfyFluxSchnellEdit", "comfyQwenTurboEdit", "comfyQwenTurbo", "comfyMiniMaxH3Image"].includes(request.model)) {
       throw new Error("此图片工作流尚未保存，请在图片模型设置中重新应用并保存对应预设");
     }
     return config;

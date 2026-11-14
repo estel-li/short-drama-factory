@@ -9,6 +9,8 @@ import { z } from "zod";
 // 仅识别明确的模型家族；其余分体模型保留为待确认，不当作图片候选。
 function modelUsage(category: string, name: string) {
   const fileName = name.replaceAll("\\", "/").split("/").at(-1)!;
+  if (/^minimax[-_]h3[-_]image[-_]/i.test(fileName)) return "image";
+  if (category === "textEncoders" && /^qwen3vl_32b_(?:minimax_)?h3[-_]/i.test(fileName)) return "shared";
   if (/minimax[_-]?h3|^taeh3\./i.test(fileName)) return "video";
   if (/^(?:flux|qwen[_-]?image|z[_-]?image|sdxl|stable[_-]?diffusion)(?:[._\s-]|\d)/i.test(fileName)) return "image";
   return category === "checkpoints" ? "image" : "unknown";
@@ -25,21 +27,29 @@ export default Router().post("/", validateFields({ url: comfyAddress, mediaType:
   const state = await read("/system_stats");
   if (!state.system || !Array.isArray(state.devices)) throw Object.assign(new Error("不是有效的 ComfyUI 服务"), { status: 502 });
   // 读取各加载器实际可选的模型；H3、Flux、Qwen 等分体权重不属于 Checkpoint。
+  const mediaType = req.body.mediaType as "image" | "video" | undefined;
   const loaders = [
     { id: "checkpoints", node: "CheckpointLoaderSimple", field: "ckpt_name" },
     { id: "diffusionModels", node: "UNETLoader", field: "unet_name" },
     { id: "textEncoders", node: "CLIPLoader", field: "clip_name" },
     { id: "vae", node: "VAELoader", field: "vae_name" },
     { id: "loras", node: "LoraLoaderModelOnly", field: "lora_name" },
+    ...(mediaType === "image" ? [
+      { id: "diffusionModels", node: "UnetLoaderGGUF", field: "unet_name" },
+      { id: "textEncoders", node: "CLIPLoaderGGUF", field: "clip_name" },
+    ] : []),
   ];
-  const allGroups = await Promise.all(loaders.map(async ({ id, node, field }) => {
+  const catalogs = await Promise.all(loaders.map(async ({ id, node, field }) => {
     const info = await read(`/object_info/${node}`);
     const values = info[node]?.input?.required?.[field]?.[0];
     const files = Array.isArray(values) ? [...new Set(values.filter((name: unknown): name is string => typeof name === "string"))] : [];
     return { id, files };
   }));
-  const mediaType = req.body.mediaType as "image" | "video" | undefined;
-  const modelGroups = mediaType ? allGroups.map(group => ({ ...group, files: group.files.filter(name => modelUsage(group.id, name) === mediaType) })) : allGroups;
+  const allGroups = [...new Set(catalogs.map(group => group.id))].map(id => ({ id, files: [...new Set(catalogs.filter(group => group.id === id).flatMap(group => group.files))] }));
+  const modelGroups = mediaType ? allGroups.map(group => ({ ...group, files: group.files.filter(name => {
+    const usage = modelUsage(group.id, name);
+    return usage === mediaType || usage === "shared";
+  }) })) : allGroups;
   const unclassifiedGroups = mediaType ? allGroups.map(group => ({ ...group, files: group.files.filter(name => modelUsage(group.id, name) === "unknown") })).filter(group => group.files.length) : [];
   const excludedModelCount = mediaType ? allGroups.filter(group => ["checkpoints", "diffusionModels"].includes(group.id))
     .reduce((count, group) => count + group.files.filter(name => modelUsage(group.id, name) === (mediaType === "image" ? "video" : "image")).length, 0) : 0;

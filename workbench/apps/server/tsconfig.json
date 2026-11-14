@@ -1,7 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "paths": { "@/*": ["./src/*"] }
+    "resolveJsonModule": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@comfyPresets/*": ["../../../workflows/comfyPresets/*"]
+    }
   },
   "include": ["src", "scripts"]
 }

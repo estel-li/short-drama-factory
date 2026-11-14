@@ -1,6 +1,9 @@
 services:
   toonflow:
-    build: .
+    build:
+      context: .
+      additional_contexts:
+        comfyPresets: ../workflows/comfyPresets
     init: true
     restart: unless-stopped
     ports:
